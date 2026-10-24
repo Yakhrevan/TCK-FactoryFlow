@@ -6,13 +6,24 @@ enum class FactoryAction { VIEW, CREATE_PRODUCTION, CREATE_PACKING, ADJUST_STOCK
 object FactoryPermissions {
  fun allows(role:FactoryRole,action:FactoryAction):Boolean = when(role) {
   FactoryRole.OWNER -> true
-  FactoryRole.ADMIN -> action != FactoryAction.MANAGE_STAFF || true
+  FactoryRole.ADMIN -> true
   FactoryRole.MANAGER -> action !in setOf(FactoryAction.MANAGE_STAFF)
   FactoryRole.PRODUCTION_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PRODUCTION)
   FactoryRole.PACKING_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PACKING)
   FactoryRole.STOREKEEPER -> action in setOf(FactoryAction.VIEW,FactoryAction.ADJUST_STOCK,FactoryAction.MANAGE_PRODUCTS,FactoryAction.EXPORT_REPORTS)
   FactoryRole.DISPATCH_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.POST_DISPATCH)
   FactoryRole.VIEWER -> action in setOf(FactoryAction.VIEW,FactoryAction.EXPORT_REPORTS)
+ }
+ fun fromClaim(claim:String):FactoryRole = when(claim.lowercase()) {
+  "owner" -> FactoryRole.OWNER
+  "admin" -> FactoryRole.ADMIN
+  "manager" -> FactoryRole.MANAGER
+  "production_staff", "production-staff", "operator" -> FactoryRole.PRODUCTION_STAFF
+  "packing_staff", "packing-staff" -> FactoryRole.PACKING_STAFF
+  "storekeeper" -> FactoryRole.STOREKEEPER
+  "dispatch_staff", "dispatch-staff" -> FactoryRole.DISPATCH_STAFF
+  "viewer" -> FactoryRole.VIEWER
+  else -> throw IllegalArgumentException("Unknown or unassigned staff role.")
  }
  fun requireOrganisation(sessionOrganisationId:String,recordOrganisationId:String) {
   require(sessionOrganisationId.isNotBlank() && recordOrganisationId.isNotBlank() && sessionOrganisationId==recordOrganisationId) { "Access denied: organisation mismatch." }
