@@ -10,7 +10,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import test from "node:test";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const rules = readFileSync(resolve(here, "../../../firestore.rules"), "utf8");
+const rules = readFileSync(resolve(here, "../../firestore.rules"), "utf8");
 let env;
 
 test("Firestore rules enforce organisation membership and server-owned stock", async (t) => {
