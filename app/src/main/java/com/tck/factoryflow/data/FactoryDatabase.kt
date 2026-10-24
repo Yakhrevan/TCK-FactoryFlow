@@ -145,7 +145,8 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   require(entry.completePacks>=0&&entry.looseBottles>=0){"Invalid pack calculation"}
   val available=totalGoodBottles(entry.productId)-totalPackedBottles(entry.productId);require(entry.bottlesConsumed<=available){"Insufficient unpacked good bottles: "+available+" available"}
   val id=insertPacking(entry)
-  insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_IN",quantity=entry.completePacks,unit="PACK",sourceType="packing",sourceId=id.toString(),actorId=actorId))
+  insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_BOTTLES_OUT",quantity=-entry.bottlesConsumed,unit="BOTTLE",sourceType="packing",sourceId=id.toString(),actorId=actorId))
+  if(entry.completePacks>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_IN",quantity=entry.completePacks,unit="PACK",sourceType="packing",sourceId=id.toString(),actorId=actorId))
   insertAudit(AuditEventEntity(eventType="PACKING_POSTED",entityType="packing",entityId=id.toString(),reason="Packing posted",actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="packing:"+organisationId+":"+id,organisationId=organisationId,eventType="PACKING_POSTED",payloadJson=JSONObject().put("productId",entry.productId).put("bottlesConsumed",entry.bottlesConsumed).put("completePacks",entry.completePacks).put("looseBottles",entry.looseBottles).toString()))
   return id
