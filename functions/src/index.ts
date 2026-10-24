@@ -25,7 +25,7 @@ function requiredString(value: unknown, label: string): string {
   return value.trim();
 }
 function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw new HttpsError("invalid-argument", label + " must be a positive integer.");
   }
   return value as number;
@@ -113,7 +113,7 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
       if (!Number.isSafeInteger(packSize) || packSize <= 0) {
         throw new HttpsError("failed-precondition", `Pack size is not configured for ${product.name ?? line.productId}.`);
       }
-      const stock = stockSnap.exists ? stockSnap.data()! : {};
+      const stock: FirebaseFirestore.DocumentData = stockSnap.exists ? stockSnap.data()! : {};
       const availablePacks = stock.completePacks;
       if (!Number.isSafeInteger(availablePacks) || availablePacks < 0) {
         throw new HttpsError("failed-precondition", `Authoritative pack stock is missing for ${product.name ?? line.productId}.`);
@@ -121,6 +121,7 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
       if (line.packs > availablePacks) {
         throw new HttpsError("failed-precondition", `Insufficient stock for ${product.name ?? line.productId}: ${availablePacks} packs available.`);
       }
+      if (!Number.isSafeInteger(line.packs * packSize)) throw new HttpsError("invalid-argument", "Bottle equivalent exceeds the supported integer range.");
       return {
         productId: line.productId,
         productName: String(product.name ?? line.productId),
