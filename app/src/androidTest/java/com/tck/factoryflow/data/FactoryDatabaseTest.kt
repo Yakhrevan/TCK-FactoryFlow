@@ -9,6 +9,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.flow.first
 
 @RunWith(AndroidJUnit4::class)
 class FactoryDatabaseTest {
@@ -23,8 +24,8 @@ class FactoryDatabaseTest {
    assertEquals(250,dao.productById(id)!!.bottlesPerPack)
    // The history stream is validated through the persisted query on an in-memory database in a coroutine.
    val history=dao.observeProductHistory(id)
-   val first=history.firstForTest()
-   assertEquals(300,first.bottlesPerPack)
+   val savedHistory=history.first()
+   assertEquals(300,savedHistory.first().bottlesPerPack)
   }
  }
  @Test fun duplicateDispatchIdempotencyKeyPostsOnce() {
