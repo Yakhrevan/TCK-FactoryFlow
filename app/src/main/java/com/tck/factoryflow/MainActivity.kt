@@ -1,5 +1,7 @@
 package com.tck.factoryflow
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -14,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -22,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.tck.factoryflow.data.*
 import com.tck.factoryflow.domain.*
+import com.tck.factoryflow.reports.ReportExport
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,6 +42,10 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 @Composable private fun FactoryApp(dao:FactoryDao){
  var tab by remember{mutableStateOf(PageTab.HOME)}; var dialog by remember{mutableStateOf("")}; var message by remember{mutableStateOf<String?>(null)}; val scope=rememberCoroutineScope()
  val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
+ val context=LocalContext.current
+ val exportLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+  if(uri!=null) runCatching { context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(ReportExport.csv(production,packing,dispatches,meters)) } ?: error("Could not open export destination") }.onSuccess { message="CSV report exported" }.onFailure { message="Export failed: "+it.message }
+ }
  MaterialTheme(colorScheme=lightColorScheme(primary=Blue,secondary=Cyan,background=Page,surface=Color.White)){
  Scaffold(topBar={TopAppBar(title={Column{Text("TCK FactoryFlow",fontWeight=FontWeight.Bold,color=Navy);Text("Bottle Manufacturing Management",fontSize=11.sp,color=Blue)}},actions={Text("♛",Modifier.padding(16.dp),color=Color(0xFFD6A329),fontWeight=FontWeight.Black)},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.STOCK,PageTab.REPORTS,PageTab.PRODUCTS).forEach{t->NavigationBarItem(selected=tab==t,onClick={tab=t},icon={Icon(when(t){PageTab.HOME->Icons.Default.Home;PageTab.PRODUCTION->Icons.Default.Build;PageTab.STOCK->Icons.Default.Inventory2;PageTab.REPORTS->Icons.Default.BarChart;else->Icons.Default.WaterDrop},null)},label={Text(t.name.lowercase().replaceFirstChar{it.uppercase()},fontSize=9.sp)})}}},containerColor=Page){padding->
  Box(Modifier.fillMaxSize().padding(padding)){
@@ -58,7 +66,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  PageTab.DISPATCH->ListScreen("Delivery / Dispatch",dispatches.map{Triple(it.customerName,it.productNameSnapshot+" · "+it.packsDispatched+" packs",it.dispatchDate+" · "+it.dispatchReference)}, {dialog="dispatch"})
  PageTab.ELECTRICITY->ListScreen("Electricity",meters.map{Triple(it.meterId,it.consumption.toString()+" units",it.readingDate)}, {dialog="meter"})
  PageTab.STOCK->LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){item{Text("Finished Stock",fontSize=23.sp,fontWeight=FontWeight.Bold,color=Navy)};items(active){p->val packsMade=packing.filter{it.productId==p.id}.sumOf{it.completePacks};val sent=dispatches.filter{it.productId==p.id}.sumOf{it.packsDispatched};Record(p.name,"Available packs: "+(packsMade-sent).coerceAtLeast(0),"Packed "+packsMade+" · Dispatched "+sent)}}
- PageTab.REPORTS->LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("Reports & Analytics",fontSize=23.sp,fontWeight=FontWeight.Bold,color=Navy)};item{Metric("Good bottles",production.sumOf{it.goodBottles}.toString(),Modifier.fillMaxWidth())};item{Metric("Complete packs",packing.sumOf{it.completePacks}.toString(),Modifier.fillMaxWidth())};item{Metric("Dispatched packs",dispatches.sumOf{it.packsDispatched}.toString(),Modifier.fillMaxWidth())};item{Metric("Electricity",meters.sumOf{it.consumption}.toString()+" units",Modifier.fillMaxWidth())}}
+ PageTab.REPORTS->LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("Reports & Analytics",fontSize=23.sp,fontWeight=FontWeight.Bold,color=Navy);Text("All saved records · export CSV",fontSize=12.sp,color=Blue);Button(onClick={exportLauncher.launch("factoryflow-report-"+date+".csv")},modifier=Modifier.fillMaxWidth()){Text("Export CSV / Backup")}};item{Metric("Good bottles",production.sumOf{it.goodBottles}.toString(),Modifier.fillMaxWidth())};item{Metric("Complete packs",packing.sumOf{it.completePacks}.toString(),Modifier.fillMaxWidth())};item{Metric("Dispatched packs",dispatches.sumOf{it.packsDispatched}.toString(),Modifier.fillMaxWidth())};item{Metric("Electricity",meters.sumOf{it.consumption}.toString()+" units",Modifier.fillMaxWidth())}}
  }
  message?.let{Text(it,Modifier.align(Alignment.BottomCenter).padding(12.dp).background(Color.White,RoundedCornerShape(12.dp)).padding(12.dp),color=Blue)}
  }
