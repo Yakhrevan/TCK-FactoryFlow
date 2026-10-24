@@ -54,6 +54,18 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   insertAudit(AuditEventEntity(eventType="PRODUCT_UPDATED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),afterJson=after,reason=reason,actorId=actor))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="product-update:"+organisationId+":"+id+":"+System.currentTimeMillis(),organisationId=organisationId,eventType="PRODUCT_UPDATED",payloadJson=after))
  }
+ @Transaction open suspend fun correctProduction(id:Long,reason:String,actorId:String,organisationId:String):Boolean {
+  require(reason.isNotBlank()){"A correction reason is required."}
+  val entry=productionById(id)?:error("Production record not found")
+  val product=productById(entry.productId)?:error("Product not found")
+  val alreadyPacked=totalPackedBottles(product.id)
+  require(alreadyPacked<=entry.goodBottles){"Cannot reverse this production record because its bottles have already been packed; use a controlled stock adjustment."}
+  if(entry.goodBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PRODUCTION_REVERSAL_OUT",quantity=-entry.goodBottles,unit="BOTTLE",sourceType="production_reversal",sourceId=id.toString(),note=reason,actorId=actorId))
+  if(entry.rejectedBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="REJECTED_PRODUCTION_REVERSAL",quantity=entry.rejectedBottles,unit="BOTTLE",sourceType="production_reversal",sourceId=id.toString(),note=reason,actorId=actorId))
+  insertAudit(AuditEventEntity(eventType="PRODUCTION_REVERSED",entityType="production",entityId=id.toString(),reason=reason,actorId=actorId))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="production-reversal:"+organisationId+":"+id,organisationId=organisationId,eventType="PRODUCTION_REVERSED",payloadJson=JSONObject().put("productionId",id).put("reason",reason).toString()))
+  return true
+ }
  @Transaction open suspend fun postProduction(entry:ProductionEntryEntity,organisationId:String,actorId:String):Long {
   ProductionQuantities(entry.producedBottles,entry.goodBottles,entry.rejectedBottles).validate()
   val product=productById(entry.productId)?:error("Product not found")
@@ -82,6 +94,12 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun legacyDispatchedPacks(id:Long):Int
  @Query("SELECT COALESCE(SUM(dl.packs),0) FROM dispatch_lines dl INNER JOIN dispatch_batches db ON db.id=dl.batchId WHERE dl.productId=:id AND db.status='POSTED'") abstract suspend fun batchedDispatchedPacks(id:Long):Int
  @Query("SELECT * FROM dispatch_batches WHERE idempotencyKey=:key LIMIT 1") abstract suspend fun batchByIdempotencyKey(key:String):DispatchBatchEntity?
+ @Query("SELECT * FROM production_entries WHERE id=:id LIMIT 1") abstract suspend fun productionById(id:Long):ProductionEntryEntity?
+ @Query("SELECT * FROM packing_entries WHERE id=:id LIMIT 1") abstract suspend fun packingById(id:Long):PackingEntryEntity?
+ @Query("SELECT * FROM meter_readings WHERE id=:id LIMIT 1") abstract suspend fun meterById(id:Long):MeterReadingEntity?
+ @Query("UPDATE production_entries SET producedBottles=producedBottles WHERE id=:id") abstract suspend fun touchProduction(id:Long)
+ @Query("UPDATE packing_entries SET bottlesConsumed=bottlesConsumed WHERE id=:id") abstract suspend fun touchPacking(id:Long)
+ @Query("UPDATE meter_readings SET remarks=remarks WHERE id=:id") abstract suspend fun touchMeter(id:Long)
  @Query("SELECT * FROM dispatch_batches WHERE id=:id LIMIT 1") abstract suspend fun dispatchBatchById(id:Long):DispatchBatchEntity?
  @Query("SELECT * FROM inventory_movements WHERE productId=:id ORDER BY createdAt DESC") abstract fun observeInventoryMovements(id:Long):Flow<List<InventoryMovementEntity>>
  @Query("SELECT * FROM audit_events ORDER BY createdAt DESC LIMIT :limit") abstract fun observeAuditEvents(limit:Int=200):Flow<List<AuditEventEntity>>
