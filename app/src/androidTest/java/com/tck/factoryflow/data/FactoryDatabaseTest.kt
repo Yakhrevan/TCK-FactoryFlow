@@ -79,4 +79,18 @@ class FactoryDatabaseTest {
   }
  }
 
+ @Test fun packingReversalRestoresBottleAvailabilityAndIsIdempotent() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Reverse packing test",sizeLabel="Bottle",bottlesPerPack=10))
+   dao.insertProduction(ProductionEntryEntity(productId=product,productNameSnapshot="Reverse packing test",productionDate="2026-10-24",producedBottles=20,goodBottles=20,rejectedBottles=0))
+   val packingId=dao.postPacking(PackingEntryEntity(productId=product,productNameSnapshot="Reverse packing test",packingDate="2026-10-24",bottlesConsumed=10,completePacks=1,looseBottles=0),"org-test","tester")
+   assertEquals(10,dao.totalPackedBottles(product))
+   assertTrue(dao.reversePacking(packingId,"test correction","tester","org-test"))
+   assertFalse(dao.reversePacking(packingId,"duplicate correction","tester","org-test"))
+   assertEquals(0,dao.totalPackedBottles(product))
+   assertEquals(0,dao.totalCompletePacks(product))
+   assertEquals(20,dao.totalGoodBottles(product))
+  }
+ }
+
 }
