@@ -44,3 +44,21 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+  backend-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: functions/package.json
+      - name: Install backend dependencies
+        working-directory: functions
+        run: npm install
+      - name: Compile trusted backend functions
+        working-directory: functions
+        run: npm run build
+      - name: Run Firestore rules tests in emulator
+        run: npx --yes firebase-tools emulators:exec --project factoryflow-rules-test --only firestore "npm --prefix functions test"
