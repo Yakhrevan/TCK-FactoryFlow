@@ -278,8 +278,20 @@ fun DateRangeSelector(
             Text("Report date range", fontWeight = FontWeight.SemiBold, color = TckNavy)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            QuantityInput("From (YYYY-MM-DD)", fromDate, onFromDateChange, Modifier.weight(1f), allowDecimal = false)
-            QuantityInput("To (YYYY-MM-DD)", toDate, onToDateChange, Modifier.weight(1f), allowDecimal = false)
+            OutlinedTextField(
+                value = fromDate,
+                onValueChange = onFromDateChange,
+                modifier = Modifier.weight(1f),
+                label = { Text("From (YYYY-MM-DD)") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = toDate,
+                onValueChange = onToDateChange,
+                modifier = Modifier.weight(1f),
+                label = { Text("To (YYYY-MM-DD)") },
+                singleLine = true
+            )
         }
     }
 }
