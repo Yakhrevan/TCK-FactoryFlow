@@ -80,11 +80,11 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   return id
  }
  @Query("SELECT * FROM production_entries ORDER BY productionDate DESC,createdAt DESC") abstract fun observeProduction():Flow<List<ProductionEntryEntity>>
- @Query("SELECT COALESCE(SUM(goodBottles),0) FROM production_entries WHERE productId=:id") abstract suspend fun totalGoodBottles(id:Long):Int
+ @Query("SELECT COALESCE(SUM(goodBottles),0) FROM production_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PRODUCTION_REVERSED' AND entityType='production')") abstract suspend fun totalGoodBottles(id:Long):Int
  @Insert abstract suspend fun insertProduction(e:ProductionEntryEntity):Long
  @Query("SELECT * FROM packing_entries ORDER BY packingDate DESC,createdAt DESC") abstract fun observePacking():Flow<List<PackingEntryEntity>>
- @Query("SELECT COALESCE(SUM(bottlesConsumed),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalPackedBottles(id:Long):Int
- @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalCompletePacks(id:Long):Int
+ @Query("SELECT COALESCE(SUM(bottlesConsumed),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalPackedBottles(id:Long):Int
+ @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalCompletePacks(id:Long):Int
  @Insert abstract suspend fun insertPacking(e:PackingEntryEntity):Long
  @Query("SELECT * FROM dispatch_entries ORDER BY dispatchDate DESC,createdAt DESC") abstract fun observeDispatches():Flow<List<DispatchEntryEntity>>
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun totalDispatchedPacks(id:Long):Int
@@ -98,6 +98,21 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT * FROM production_entries WHERE id=:id LIMIT 1") abstract suspend fun productionById(id:Long):ProductionEntryEntity?
  @Query("SELECT COUNT(*) FROM audit_events WHERE eventType=:eventType AND entityId=:entityId") abstract suspend fun auditCount(eventType:String,entityId:String):Int
  @Query("SELECT * FROM packing_entries WHERE id=:id LIMIT 1") abstract suspend fun packingById(id:Long):PackingEntryEntity?
+
+ @Transaction open suspend fun reversePacking(id:Long,reason:String,actorId:String,organisationId:String):Boolean {
+  require(reason.isNotBlank()) { "A packing reversal reason is required." }
+  if(auditCount("PACKING_REVERSED",id.toString())>0) return false
+  val entry=packingById(id)?:error("Packing record not found")
+  val product=productById(entry.productId)?:error("Product not found")
+  val availablePacks=totalCompletePacks(product.id)-legacyDispatchedPacks(product.id)-batchedDispatchedPacks(product.id)
+  require(entry.completePacks<=availablePacks) { "Cannot reverse packing: some packs have already been dispatched; use an approved stock correction." }
+  insertAudit(AuditEventEntity(eventType="PACKING_REVERSED",entityType="packing",entityId=id.toString(),beforeJson=JSONObject().put("completePacks",entry.completePacks).put("bottlesConsumed",entry.bottlesConsumed).toString(),afterJson=JSONObject().put("reversed",true).toString(),reason=reason,actorId=actorId))
+  if(entry.completePacks>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_REVERSAL_PACK_OUT",quantity=-entry.completePacks,unit="PACK",sourceType="packing_reversal",sourceId=id.toString(),note=reason,actorId=actorId))
+  if(entry.bottlesConsumed>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_REVERSAL_BOTTLES_IN",quantity=entry.bottlesConsumed,unit="BOTTLE",sourceType="packing_reversal",sourceId=id.toString(),note=reason,actorId=actorId))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="packing-reversal:"+organisationId+":"+id,organisationId=organisationId,eventType="PACKING_REVERSED",payloadJson=JSONObject().put("packingId",id).put("reason",reason).toString()))
+  return true
+ }
+
  @Query("SELECT * FROM meter_readings WHERE id=:id LIMIT 1") abstract suspend fun meterById(id:Long):MeterReadingEntity?
  @Query("UPDATE production_entries SET producedBottles=producedBottles WHERE id=:id") abstract suspend fun touchProduction(id:Long)
  @Query("UPDATE packing_entries SET bottlesConsumed=bottlesConsumed WHERE id=:id") abstract suspend fun touchPacking(id:Long)
