@@ -6,6 +6,7 @@ import androidx.room.migration.Migration
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 import org.json.JSONArray
+import com.tck.factoryflow.domain.ProductionQuantities
 
 @Entity(tableName="products", indices=[Index(value=["name"], unique=true)])
 data class ProductEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val name:String,val sizeLabel:String,val colour:String="Clear",val bottlesPerPack:Int,val active:Boolean=true,val createdAt:Long=System.currentTimeMillis())
@@ -44,12 +45,26 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Insert abstract suspend fun insertProductHistory(e:ProductConfigHistoryEntity):Long
  @Query("SELECT * FROM product_config_history WHERE productId=:id ORDER BY changedAt DESC") abstract fun observeProductHistory(id:Long):Flow<List<ProductConfigHistoryEntity>>
  @Insert abstract suspend fun insertAudit(a:AuditEventEntity):Long
- @Transaction open suspend fun updateProductWithHistory(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,actor:String,reason:String) {
+ @Transaction open suspend fun updateProductWithHistory(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,actor:String,reason:String,organisationId:String) {
   require(name.isNotBlank()&&size.isNotBlank());require(pack>0)
   val old=productById(id)?:error("Product not found")
   insertProductHistory(ProductConfigHistoryEntity(productId=old.id,productName=old.name,sizeLabel=old.sizeLabel,colour=old.colour,bottlesPerPack=old.bottlesPerPack,active=old.active,changedBy=actor,reason=reason))
   updateProduct(id,name.trim(),size.trim(),colour.trim(),pack,active)
-  insertAudit(AuditEventEntity(eventType="PRODUCT_UPDATED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),afterJson=productJson(name,size,colour,pack,active),reason=reason,actorId=actor))
+  val after=productJson(name,size,colour,pack,active)
+  insertAudit(AuditEventEntity(eventType="PRODUCT_UPDATED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),afterJson=after,reason=reason,actorId=actor))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="product-update:"+organisationId+":"+id+":"+System.currentTimeMillis(),organisationId=organisationId,eventType="PRODUCT_UPDATED",payloadJson=after))
+ }
+ @Transaction open suspend fun postProduction(entry:ProductionEntryEntity,organisationId:String,actorId:String):Long {
+  ProductionQuantities(entry.producedBottles,entry.goodBottles,entry.rejectedBottles).validate()
+  val product=productById(entry.productId)?:error("Product not found")
+  require(product.active){"Product is inactive"}
+  val id=insertProduction(entry)
+  if(entry.goodBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PRODUCTION_GOOD_IN",quantity=entry.goodBottles,unit="BOTTLE",sourceType="production",sourceId=id.toString(),actorId=actorId))
+  if(entry.rejectedBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PRODUCTION_REJECTED",quantity=-entry.rejectedBottles,unit="BOTTLE",sourceType="production",sourceId=id.toString(),actorId=actorId))
+  val payload=JSONObject().put("productionId",id).put("productId",entry.productId).put("date",entry.productionDate).put("produced",entry.producedBottles).put("good",entry.goodBottles).put("rejected",entry.rejectedBottles).put("machine",entry.machineName).toString()
+  insertAudit(AuditEventEntity(eventType="PRODUCTION_POSTED",entityType="production",entityId=id.toString(),afterJson=payload,reason="Production posted",actorId=actorId))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="production:"+organisationId+":"+id,organisationId=organisationId,eventType="PRODUCTION_POSTED",payloadJson=payload))
+  return id
  }
  @Query("SELECT * FROM production_entries ORDER BY productionDate DESC,createdAt DESC") abstract fun observeProduction():Flow<List<ProductionEntryEntity>>
  @Query("SELECT COALESCE(SUM(goodBottles),0) FROM production_entries WHERE productId=:id") abstract suspend fun totalGoodBottles(id:Long):Int
