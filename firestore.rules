@@ -2,29 +2,49 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function sameOrg(orgId) {
+    function tokenOrg(orgId) {
       return signedIn() && request.auth.token.organisationId == orgId;
     }
-    function roleIn(roles) {
-      return signedIn() && request.auth.token.role in roles;
+    function activeMember(orgId) {
+      return tokenOrg(orgId)
+        && exists(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid)).data.organisationId == orgId;
     }
-    match /organisations/{orgId}/events/{eventId} {
-      allow read: if sameOrg(orgId);
-      allow create: if sameOrg(orgId)
-        && roleIn(['owner', 'admin', 'manager', 'operator'])
-        && request.resource.data.actorUid == request.auth.uid
-        && request.resource.data.organisationId == orgId
-        && request.resource.data.keys().hasAll(['eventKey', 'eventType', 'payload', 'actorUid', 'organisationId', 'createdAt'])
-        && request.resource.data.eventKey == eventId;
-      allow update, delete: if false;
+    function memberRoleIn(orgId, roles) {
+      return activeMember(orgId)
+        && get(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid)).data.role in roles;
     }
-    // Master stock, roles, product configuration and posted transactions are not
-    // client-writable documents. Use a trusted backend/Cloud Function with
-    // transaction validation and App Check before enabling shared live inventory.
-    match /organisations/{orgId}/{document=**} {
-      allow read: if sameOrg(orgId);
+
+    // Membership documents are managed only by trusted Admin SDK functions.
+    match /organisations/{orgId}/members/{uid} {
+      allow read: if activeMember(orgId) && request.auth.uid == uid;
       allow write: if false;
     }
-    match /{document=**} { allow read, write: if false; }
+
+    // Append-only event inbox for clients. Authoritative inventory, roles, balances,
+    // product configuration and posted transactions are server-owned.
+    match /organisations/{orgId}/events/{eventId} {
+      allow read: if activeMember(orgId);
+      allow create: if memberRoleIn(orgId, ['owner', 'admin', 'manager', 'operator', 'production', 'packing', 'dispatch'])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.organisationId == orgId
+        && request.resource.data.eventKey == eventId
+        && request.resource.data.keys().hasOnly(['eventKey', 'eventType', 'payload', 'actorUid', 'organisationId', 'createdAt'])
+        && request.resource.data.keys().hasAll(['eventKey', 'eventType', 'payload', 'actorUid', 'organisationId', 'createdAt']);
+      allow update, delete: if false;
+    }
+
+    match /organisations/{orgId}/factories/{factoryId}/{document=**} {
+      allow read: if activeMember(orgId);
+      allow write: if false;
+    }
+    match /organisations/{orgId}/{document=**} {
+      allow read: if activeMember(orgId);
+      allow write: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
