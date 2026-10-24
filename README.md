@@ -49,3 +49,31 @@ Room transactions are atomic on one device. They do not prevent overselling acro
 - Reversal/correction workflows for production, packing and meter entries.
 - Automated migration tests against populated v1 databases, Firestore emulator rules tests, UI/integration tests and physical-device QA.
 - Verify successful CI build, install/debug APK, backup restore test, and release signing.
+
+
+## Current implementation and verification notes
+
+### Pack-size configuration
+
+Fresh local databases seed the example products with `bottlesPerPack = 0`, meaning **not configured**. A pack size must be explicitly entered by an authorised factory user before packing or dispatch calculations are enabled. Zero is a sentinel for missing configuration, not a valid conversion. Existing installations retain their previously stored product values to avoid silently overwriting potentially valid factory configuration; review those values in Product Master after upgrading.
+
+### Inventory corrections
+
+Production and packing corrections are append-only audit/ledger events. Packing reversal is blocked when the packs have already been dispatched. Dispatch reversal restores complete-pack stock only through a reasoned compensating movement and is idempotent locally. These Room transactions are local to one device and do not provide cross-device authoritative stock.
+
+### Firebase backend
+
+The `functions` directory contains callable Cloud Functions for transactional multi-line dispatch posting and reversal. They require Firebase Authentication, App Check, an active organisation member record, a role allowed to perform the operation, configured product pack sizes, and pre-existing authoritative stock balance documents. The expected paths and fields are documented in `functions/src/index.ts`.
+
+Before deploying:
+1. Create the Firebase project and configure Android's `google-services.json` locally; do not commit secrets.
+2. Create `organisations/{orgId}/members/{uid}` membership documents through a trusted provisioning process. Include `organisationId`, `role`, `active` and permitted `factoryIds`.
+3. Seed factory product and stock documents through a trusted backend process. Stock documents must contain a non-negative integer `completePacks`; the callable deliberately refuses to infer a missing balance.
+4. Configure App Check for the Android app and enable the Firestore and Functions APIs.
+5. Deploy rules and functions with the Firebase CLI, then test with non-production accounts and seeded test data.
+
+The Android UI currently uses Room for local operational records. It has not yet been wired to call these Cloud Functions for dispatch posting, and the full production/packing authoritative cloud transaction path, member invitation/provisioning, complete role-permission matrix, offline conflict resolution, and cloud backup/restore remain follow-up work. Do not treat local records as cloud-confirmed inventory.
+
+### CI checks
+
+The Android workflow now includes JVM unit tests, debug and unsigned-release APK builds, Room instrumentation tests on an emulator, TypeScript compilation, and Firestore rules tests using the emulator. A green result must be confirmed on the latest workflow run before considering this stage verified. The unsigned release APK is not Play Store ready.
