@@ -93,6 +93,10 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   require(batch.status=="POSTED"){"Only posted dispatches can be reversed."}
   val lines=linesForBatch(batchId)
   require(lines.isNotEmpty()){"Dispatch has no lines to reverse."}
+  lines.forEach { line ->
+   val available=totalCompletePacks(line.productId)-legacyDispatchedPacks(line.productId)-batchedDispatchedPacks(line.productId)
+   require(line.packs<=available){"Cannot reverse: subsequent dispatches mean stock is no longer available for "+line.productNameSnapshot}
+  }
   // Status change and compensating movements commit together.
   setDispatchStatus(batchId,"REVERSED")
   lines.forEach { line ->
