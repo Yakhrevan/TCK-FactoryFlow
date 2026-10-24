@@ -6,7 +6,7 @@ import java.time.LocalDate
 class ReportExportTest {
  @Test fun rangeIncludesBothEnds(){assertTrue(ReportExport.inRange("2026-10-01",LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-31")));assertTrue(ReportExport.inRange("2026-10-31",LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-31")));assertFalse(ReportExport.inRange("2026-11-01",LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-31")))}
  @Test fun batchDispatchCsvUsesActualLineBreaksAndTotals() {
-  val batch=DispatchBatchEntity(id=9,idempotencyKey="key",dispatchReference="DSP-9",dispatchDate="2026-10-24",customerNameSnapshot="Nachiyar Cooldrinks")
+  val batch=DispatchBatchEntity(id=9,idempotencyKey="key",dispatchReference="DSP-9",dispatchDate="2026-10-24",customerId=1,customerNameSnapshot="Nachiyar Cooldrinks")
   val line=DispatchLineEntity(id=1,batchId=9,productId=2,productNameSnapshot="500ml",packSizeSnapshot=100,packs=2,bottles=200)
   val csv=ReportExport.csv(emptyList(),emptyList(),emptyList(),emptyList(),listOf(batch),listOf(line))
   assertTrue(csv.contains("customer=Nachiyar Cooldrinks"))
