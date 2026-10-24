@@ -98,3 +98,37 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 @Composable private fun PackingForm(products:List<ProductEntity>,dao:FactoryDao,close:()->Unit,save:(ProductEntity?,String,Int)->Unit){var p by remember{mutableStateOf(products.firstOrNull())};var d by remember{mutableStateOf(today())};var bottles by remember{mutableStateOf("")};var available by remember{mutableIntStateOf(0)};LaunchedEffect(p?.id){p?.let{available=dao.totalGoodBottles(it.id)-dao.totalPackedBottles(it.id)}};val n=bottles.toIntOrNull()?:0;val calc=runCatching{PackCalculation.calculate(n,p?.bottlesPerPack?:0)}.getOrNull();AlertDialog(onDismissRequest=close,title={Text("Packing / finishing")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){ProductPicker(products,p){p=it};DateField(d){d=it};Text("Available unpacked bottles: "+available.coerceAtLeast(0),color=Blue);Field("Bottles to pack",bottles){bottles=it};calc?.let{Text("Auto: "+it.completePacks+" packs + "+it.looseBottles+" loose",color=Blue)}}},confirmButton={Button(enabled=n>0&&n<=available&&p!=null,onClick={save(p,d,n)}){Text("Save packing")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
 @Composable private fun DispatchForm(products:List<ProductEntity>,dao:FactoryDao,close:()->Unit,save:(ProductEntity?,String,String,Int,String,String)->Unit){var p by remember{mutableStateOf(products.firstOrNull())};var d by remember{mutableStateOf(today())};var customer by remember{mutableStateOf("Nachiyar Cooldrinks")};var packs by remember{mutableStateOf("")};var ref by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")};var stock by remember{mutableIntStateOf(0)};LaunchedEffect(p?.id){p?.let{stock=dao.totalCompletePacks(it.id)-dao.totalDispatchedPacks(it.id)}};val n=packs.toIntOrNull()?:0;AlertDialog(onDismissRequest=close,title={Text("Delivery / dispatch")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){DateField(d){d=it};OutlinedTextField(customer,{customer=it},label={Text("Customer")});ProductPicker(products,p){p=it};Text("Available finished packs: "+stock.coerceAtLeast(0),color=Blue);Field("Packs to dispatch",packs){packs=it};OutlinedTextField(ref,{ref=it},label={Text("Delivery reference")});OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=n>0&&n<=stock&&p!=null&&customer.isNotBlank(),onClick={save(p,d,customer,n,ref,remarks)}){Text("Confirm dispatch")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
 @Composable private fun MeterForm(close:()->Unit,save:(String,String,Double,Double,String)->Unit){var d by remember{mutableStateOf(today())};var meter by remember{mutableStateOf("MAIN")};var start by remember{mutableStateOf("")};var end by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")};val used=runCatching{ElectricityRules.consumption(start.toDouble(),end.toDouble())}.getOrNull();AlertDialog(onDismissRequest=close,title={Text("Electricity reading")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){DateField(d){d=it};OutlinedTextField(meter,{meter=it},label={Text("Meter ID")});Field("Start reading",start,{start=it},true);Field("End reading",end,{end=it},true);Text("Consumption: "+(used?.toString()?: "—")+" units",color=Blue);OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=used!=null,onClick={if(used!=null)save(d,meter,start.toDouble(),end.toDouble(),remarks)}){Text("Save reading")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
+@Composable private fun CustomerForm(close:()->Unit,save:(String,String,String,String)->Unit){
+ var name by remember{mutableStateOf("")};var phone by remember{mutableStateOf("")};var address by remember{mutableStateOf("")};var gst by remember{mutableStateOf("")}
+ AlertDialog(onDismissRequest=close,title={Text("Add customer")},text={Column(verticalArrangement=Arrangement.spacedBy(7.dp)){OutlinedTextField(name,{name=it},label={Text("Customer name")},singleLine=true);OutlinedTextField(phone,{phone=it},label={Text("Phone")},singleLine=true);OutlinedTextField(address,{address=it},label={Text("Address")});OutlinedTextField(gst,{gst=it},label={Text("GST number")},singleLine=true)}},confirmButton={Button(enabled=name.isNotBlank(),onClick={save(name.trim(),phone.trim(),address.trim(),gst.trim())}){Text("Save customer")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+}
+@Composable private fun CustomerPicker(customers:List<CustomerEntity>,selected:CustomerEntity?,onSelect:(CustomerEntity?)->Unit){
+ var expanded by remember{mutableStateOf(false)}
+ Box { OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(selected?.name?:"Select customer")}
+  DropdownMenu(expanded=expanded,onDismissRequest={expanded=false}){customers.forEach{customer->DropdownMenuItem(text={Text(customer.name)},onClick={onSelect(customer).let{expanded=false}})}}
+ }
+}
+@Composable private fun DispatchBatchForm(products:List<ProductEntity>,customers:List<CustomerEntity>,close:()->Unit,save:(CustomerEntity?,String,String,String,String,List<DispatchRequestLine>,String)->Unit){
+ var customer by remember{mutableStateOf(customers.firstOrNull())}
+ var date by remember{mutableStateOf(today())};var reference by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")}
+ var lines by remember{mutableStateOf(listOf(products.firstOrNull() to ""))}
+ val key by remember{mutableStateOf(UUID.randomUUID().toString())}
+ val parsed=lines.map{it.first to (it.second.toIntOrNull()?:0)}
+ val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{it.first!=null&&it.second>0}
+ AlertDialog(onDismissRequest=close,title={Text("Multi-product dispatch")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+  CustomerPicker(customers,customer){customer=it}
+  DateField(date){date=it}
+  OutlinedTextField(reference,{reference=it},label={Text("Dispatch / delivery reference")},singleLine=true,modifier=Modifier.fillMaxWidth())
+  Text("Dispatch items",fontWeight=FontWeight.Bold,color=Navy)
+  lines.forEachIndexed{index,line->
+   Surface(color=Page,shape=RoundedCornerShape(10.dp)){Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
+    ProductPicker(products,line.first){p->lines=lines.toMutableList().also{it[index]=p to line.second}}
+    Field("Packs",line.second){qty->lines=lines.toMutableList().also{it[index]=line.first to qty.filter(Char::isDigit)}}
+    if(lines.size>1)TextButton(onClick={lines=lines.filterIndexed{idx,_->idx!=index}}){Text("Remove item")}
+   }}
+  }
+  TextButton(onClick={lines=lines+ (products.firstOrNull() to "")},enabled=products.isNotEmpty()){Text("+ Add product line")}
+  OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")},modifier=Modifier.fillMaxWidth())
+  if(customers.isEmpty())Text("Add a customer first in the Customers section.",color=Color.Red,fontSize=12.sp)
+ }},confirmButton={Button(enabled=valid,onClick={save(customer,customer?.name.orEmpty(),date,reference,remarks,parsed.map{DispatchRequestLine(it.first!!.id,it.second)},key)}){Text("Post dispatch")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+}
