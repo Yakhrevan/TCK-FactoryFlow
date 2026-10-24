@@ -65,6 +65,27 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun legacyDispatchedPacks(id:Long):Int
  @Query("SELECT COALESCE(SUM(dl.packs),0) FROM dispatch_lines dl INNER JOIN dispatch_batches db ON db.id=dl.batchId WHERE dl.productId=:id AND db.status='POSTED'") abstract suspend fun batchedDispatchedPacks(id:Long):Int
  @Query("SELECT * FROM dispatch_batches WHERE idempotencyKey=:key LIMIT 1") abstract suspend fun batchByIdempotencyKey(key:String):DispatchBatchEntity?
+ @Query("SELECT * FROM dispatch_batches WHERE id=:id LIMIT 1") abstract suspend fun dispatchBatchById(id:Long):DispatchBatchEntity?
+ @Query("SELECT * FROM inventory_movements WHERE productId=:id ORDER BY createdAt DESC") abstract fun observeInventoryMovements(id:Long):Flow<List<InventoryMovementEntity>>
+ @Query("SELECT * FROM audit_events ORDER BY createdAt DESC LIMIT :limit") abstract fun observeAuditEvents(limit:Int=200):Flow<List<AuditEventEntity>>
+ @Query("SELECT * FROM sync_outbox ORDER BY createdAt DESC LIMIT :limit") abstract fun observeSyncOutbox(limit:Int=200):Flow<List<SyncOutboxEntity>>
+ @Transaction open suspend fun reverseDispatch(batchId:Long,reason:String,actorId:String,organisationId:String):Boolean {
+  require(reason.isNotBlank()){"A reversal reason is required."}
+  val batch=dispatchBatchById(batchId)?:error("Dispatch not found.")
+  if(batch.status=="REVERSED") return false
+  require(batch.status=="POSTED"){"Only posted dispatches can be reversed."}
+  val lines=linesForBatch(batchId)
+  require(lines.isNotEmpty()){"Dispatch has no lines to reverse."}
+  // Status change and compensating movements commit together.
+  setDispatchStatus(batchId,"REVERSED")
+  lines.forEach { line ->
+   insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_REVERSAL_IN",quantity=line.packs,unit="PACK",sourceType="dispatch_reversal",sourceId=batchId.toString(),note=reason,actorId=actorId))
+  }
+  insertAudit(AuditEventEntity(eventType="DISPATCH_REVERSED",entityType="dispatch",entityId=batchId.toString(),beforeJson=JSONObject().put("status","POSTED").toString(),afterJson=JSONObject().put("status","REVERSED").put("reason",reason).toString(),reason=reason,actorId=actorId))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="dispatch-reversal:"+organisationId+":"+batchId,organisationId=organisationId,eventType="DISPATCH_REVERSED",payloadJson=JSONObject().put("batchId",batchId).put("reason",reason).toString()))
+  true
+ }
+ @Query("UPDATE dispatch_batches SET status=:status WHERE id=:id") abstract suspend fun setDispatchStatus(id:Long,status:String)
  @Insert(onConflict=OnConflictStrategy.IGNORE) abstract suspend fun insertDispatchBatch(batch:DispatchBatchEntity):Long
  @Insert abstract suspend fun insertDispatchLines(lines:List<DispatchLineEntity>)
  @Insert abstract suspend fun insertInventoryMovement(m:InventoryMovementEntity):Long
