@@ -56,6 +56,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT * FROM packing_entries ORDER BY packingDate DESC,createdAt DESC") abstract fun observePacking():Flow<List<PackingEntryEntity>>
  @Query("SELECT COALESCE(SUM(bottlesConsumed),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalPackedBottles(id:Long):Int
  @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalCompletePacks(id:Long):Int
+ @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalCompletePacks(id:Long):Int
  @Insert abstract suspend fun insertPacking(e:PackingEntryEntity):Long
  @Query("SELECT * FROM dispatch_entries ORDER BY dispatchDate DESC,createdAt DESC") abstract fun observeDispatches():Flow<List<DispatchEntryEntity>>
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun totalDispatchedPacks(id:Long):Int
