@@ -5,6 +5,15 @@ import org.junit.Test
 import java.time.LocalDate
 class ReportExportTest {
  @Test fun rangeIncludesBothEnds(){assertTrue(ReportExport.inRange("2026-10-01",LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-31")));assertTrue(ReportExport.inRange("2026-10-31",LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-31")));assertFalse(ReportExport.inRange("2026-11-01",LocalDate.parse("2026-10-01"),LocalDate.parse("2026-10-31")))}
+ @Test fun batchDispatchCsvUsesActualLineBreaksAndTotals() {
+  val batch=DispatchBatchEntity(id=9,idempotencyKey="key",dispatchReference="DSP-9",dispatchDate="2026-10-24",customerNameSnapshot="Nachiyar Cooldrinks")
+  val line=DispatchLineEntity(id=1,batchId=9,productId=2,productNameSnapshot="500ml",packSizeSnapshot=100,packs=2,bottles=200)
+  val csv=ReportExport.csv(emptyList(),emptyList(),emptyList(),emptyList(),listOf(batch),listOf(line))
+  assertTrue(csv.contains("customer=Nachiyar Cooldrinks"))
+  assertFalse(csv.contains("\\\\r\\\\n"))
+  val totals=ReportExport.totals(LocalDate.parse("2026-10-24"),LocalDate.parse("2026-10-24"),emptyList(),emptyList(),emptyList(),emptyList(),listOf(batch),listOf(line))
+  assertEquals(2,totals.dispatchedPacks)
+ }
  @Test fun invalidRangeRejected(){assertThrows(IllegalArgumentException::class.java){ReportExport.inRange("2026-10-01",LocalDate.parse("2026-10-02"),LocalDate.parse("2026-10-01"))}}
  @Test fun csvEscapesQuotesAndIncludesSavedRecords(){val result=ReportExport.csv(listOf(ProductionEntryEntity(productId=1,productNameSnapshot="Clear, XL",productionDate="2026-10-24",producedBottles=100,goodBottles=98,rejectedBottles=2)),emptyList(),emptyList(),emptyList());assertTrue(result.contains("\"Clear, XL\""));assertTrue(result.contains("good=98; rejected=2"))}
 }
