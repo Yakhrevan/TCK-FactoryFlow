@@ -2,6 +2,7 @@ package com.tck.factoryflow.data
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 import org.json.JSONArray
@@ -56,7 +57,6 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT * FROM packing_entries ORDER BY packingDate DESC,createdAt DESC") abstract fun observePacking():Flow<List<PackingEntryEntity>>
  @Query("SELECT COALESCE(SUM(bottlesConsumed),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalPackedBottles(id:Long):Int
  @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalCompletePacks(id:Long):Int
- @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id") abstract suspend fun totalCompletePacks(id:Long):Int
  @Insert abstract suspend fun insertPacking(e:PackingEntryEntity):Long
  @Query("SELECT * FROM dispatch_entries ORDER BY dispatchDate DESC,createdAt DESC") abstract fun observeDispatches():Flow<List<DispatchEntryEntity>>
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun totalDispatchedPacks(id:Long):Int
@@ -85,7 +85,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   }
   insertAudit(AuditEventEntity(eventType="DISPATCH_REVERSED",entityType="dispatch",entityId=batchId.toString(),beforeJson=JSONObject().put("status","POSTED").toString(),afterJson=JSONObject().put("status","REVERSED").put("reason",reason).toString(),reason=reason,actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="dispatch-reversal:"+organisationId+":"+batchId,organisationId=organisationId,eventType="DISPATCH_REVERSED",payloadJson=JSONObject().put("batchId",batchId).put("reason",reason).toString()))
-  true
+  return true
  }
  @Query("UPDATE dispatch_batches SET status=:status WHERE id=:id") abstract suspend fun setDispatchStatus(id:Long,status:String)
  @Insert(onConflict=OnConflictStrategy.IGNORE) abstract suspend fun insertDispatchBatch(batch:DispatchBatchEntity):Long
@@ -107,7 +107,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   batchByIdempotencyKey(batch.idempotencyKey)?.let{return DispatchPostResult(it.id,it.dispatchReference,linesForBatch(it.id).size)}
   val merged=requestedLines.groupBy{it.productId}.map{(id,lines)->DispatchRequestLine(id,lines.sumOf{it.packs})}
   require(merged.all{it.packs>0}){"Every quantity must be positive"}
-  val resolved=merged.map{line->
+  val resolved:List<Triple<ProductEntity,Int,Int>> = merged.map{line->
    val product=productById(line.productId)?:error("Product not found")
    require(product.active){"Inactive product cannot be dispatched"}
    val available=totalCompletePacks(product.id)-legacyDispatchedPacks(product.id)-batchedDispatchedPacks(product.id)
@@ -122,7 +122,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   val payload=JSONArray();rows.forEach{line->payload.put(JSONObject().put("productId",line.productId).put("productName",line.productNameSnapshot).put("packs",line.packs).put("bottles",line.bottles))}
   insertAudit(AuditEventEntity(eventType="DISPATCH_POSTED",entityType="dispatch",entityId=id.toString(),afterJson=payload.toString(),reason="Dispatch posted",actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="dispatch:"+organisationId+":"+batch.idempotencyKey,organisationId=organisationId,eventType="DISPATCH_POSTED",payloadJson=payload.toString()))
-  DispatchPostResult(id,batch.dispatchReference,rows.size)
+  return DispatchPostResult(id,batch.dispatchReference,rows.size)
  }
  @Transaction open suspend fun postPacking(entry:PackingEntryEntity,organisationId:String,actorId:String):Long {
   require(entry.bottlesConsumed>0){"Packing quantity must be positive"}
@@ -133,7 +133,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_IN",quantity=entry.completePacks,unit="PACK",sourceType="packing",sourceId=id.toString(),actorId=actorId))
   insertAudit(AuditEventEntity(eventType="PACKING_POSTED",entityType="packing",entityId=id.toString(),reason="Packing posted",actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="packing:"+organisationId+":"+id,organisationId=organisationId,eventType="PACKING_POSTED",payloadJson=JSONObject().put("productId",entry.productId).put("bottlesConsumed",entry.bottlesConsumed).put("completePacks",entry.completePacks).put("looseBottles",entry.looseBottles).toString()))
-  id
+  return id
  }
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
