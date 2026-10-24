@@ -48,6 +48,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  var tab by remember{mutableStateOf(PageTab.HOME)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; val scope=rememberCoroutineScope()
  val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
  val context=LocalContext.current
+ LaunchedEffect(context){session=runCatching{FactoryAuthRepository(context).currentSession()}.getOrNull()}
  val exportLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
   if(uri!=null) runCatching { context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(ReportExport.csv(production,packing,dispatches,meters)) } ?: error("Could not open export destination") }.onSuccess { message="CSV report exported" }.onFailure { message="Export failed: "+it.message }
  }
@@ -136,4 +137,9 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")},modifier=Modifier.fillMaxWidth())
   if(customers.isEmpty())Text("Add a customer first in the Customers section.",color=Color.Red,fontSize=12.sp)
  }},confirmButton={Button(enabled=valid,onClick={save(customer,customer?.name.orEmpty(),date,reference,remarks,parsed.map{DispatchRequestLine(it.first!!.id,it.second)},key)}){Text("Post dispatch")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+}
+
+@Composable private fun LoginForm(close:()->Unit,signIn:(String,String)->Unit){
+ var email by remember{mutableStateOf("")};var password by remember{mutableStateOf("")}
+ AlertDialog(onDismissRequest=close,title={Text("Factory staff sign-in")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Firebase must be configured for cloud accounts. Role and organisation are read from trusted Firebase custom claims.",fontSize=12.sp,color=Blue);OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true,modifier=Modifier.fillMaxWidth());OutlinedTextField(password,{password=it},label={Text("Password")},singleLine=true,visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())}},confirmButton={Button(enabled=email.isNotBlank()&&password.isNotBlank(),onClick={signIn(email.trim(),password)}){Text("Sign in")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
 }
