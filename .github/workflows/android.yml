@@ -8,6 +8,9 @@ on:
       - main
       - feature/factoryflow-bottle-manufacturing
   workflow_dispatch:
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
