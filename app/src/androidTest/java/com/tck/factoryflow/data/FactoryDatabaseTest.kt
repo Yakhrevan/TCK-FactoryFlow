@@ -47,4 +47,36 @@ class FactoryDatabaseTest {
    assertThrows(IllegalStateException::class.java){ kotlinx.coroutines.runBlocking { dao.postMultiLineDispatch(batch,listOf(DispatchRequestLine(product,1)),"org-test","tester") } }
   }
  }
+ @Test fun concurrentDispatchesCannotOversellLastPack() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Concurrent 500ml",sizeLabel="500ml",bottlesPerPack=100))
+   dao.insertPacking(PackingEntryEntity(productId=product,productNameSnapshot="Concurrent 500ml",packingDate="2026-10-24",bottlesConsumed=100,completePacks=1,looseBottles=0))
+   val requests=(1..2).map { index ->
+    kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+     runCatching {
+      dao.postMultiLineDispatch(
+       DispatchBatchEntity(idempotencyKey="concurrent-$index",dispatchReference="DSP-$index",dispatchDate="2026-10-24",customerNameSnapshot="Customer"),
+       listOf(DispatchRequestLine(product,1)),"org-test","tester"
+      )
+     }
+    }
+   }
+   val results=requests.map { it.await() }
+   assertEquals("Exactly one concurrent dispatch should succeed",1,results.count{it.isSuccess})
+   assertEquals("Exactly one concurrent dispatch should be rejected",1,results.count{it.isFailure})
+   assertEquals(1,dao.totalDispatchedPacks(product))
+  }
+ }
+ @Test fun packingRejectsUnconfiguredPackSizeAndMismatchedCalculation() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Unconfigured",sizeLabel="Bottle",bottlesPerPack=0))
+   dao.insertProduction(ProductionEntryEntity(productId=product,productNameSnapshot="Unconfigured",productionDate="2026-10-24",producedBottles=10,goodBottles=10,rejectedBottles=0))
+   assertThrows(IllegalArgumentException::class.java) {
+    kotlinx.coroutines.runBlocking {
+     dao.postPacking(PackingEntryEntity(productId=product,productNameSnapshot="Unconfigured",packingDate="2026-10-24",bottlesConsumed=10,completePacks=0,looseBottles=10),"org-test","tester")
+    }
+   }
+  }
+ }
+
 }
