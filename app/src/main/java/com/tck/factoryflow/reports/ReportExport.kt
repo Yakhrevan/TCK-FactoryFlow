@@ -25,7 +25,7 @@ object ReportExport {
   packing.forEach{out.append(listOf("packing",it.packingDate,it.productNameSnapshot,it.completePacks.toString(),"packs","bottles="+it.bottlesConsumed+"; loose="+it.looseBottles).joinToString(","){v->escape(v)}).append("\r\n")}
   dispatches.forEach{out.append(listOf("dispatch",it.dispatchDate,it.productNameSnapshot,it.packsDispatched.toString(),"packs","customer="+it.customerName+"; reference="+it.dispatchReference).joinToString(","){v->escape(v)}).append("\r\n")}
   val batchesById=dispatchBatches.associateBy{it.id}
-  dispatchLines.forEach{line->val batch=batchesById[line.batchId];if(batch!=null)out.append(listOf("dispatch",batch.dispatchDate,line.productNameSnapshot,line.packs.toString(),"packs","customer="+batch.customerNameSnapshot+"; reference="+batch.dispatchReference+"; status="+batch.status).joinToString(","){v->escape(v)}).append("\\r\\n")}
+  dispatchLines.forEach{line->val batch=batchesById[line.batchId];if(batch!=null)out.append(listOf("dispatch",batch.dispatchDate,line.productNameSnapshot,line.packs.toString(),"packs","customer="+batch.customerNameSnapshot+"; reference="+batch.dispatchReference+"; status="+batch.status).joinToString(","){v->escape(v)}).append("\r\n")}
   meters.forEach{out.append(listOf("electricity",it.readingDate,it.meterId,it.consumption.toString(),"kWh","start="+it.startReading+"; end="+it.endReading).joinToString(","){v->escape(v)}).append("\r\n")}
   return out.toString()
  }
