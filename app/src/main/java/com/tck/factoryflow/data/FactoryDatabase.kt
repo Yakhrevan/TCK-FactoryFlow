@@ -46,7 +46,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT * FROM product_config_history WHERE productId=:id ORDER BY changedAt DESC") abstract fun observeProductHistory(id:Long):Flow<List<ProductConfigHistoryEntity>>
  @Insert abstract suspend fun insertAudit(a:AuditEventEntity):Long
  @Transaction open suspend fun updateProductWithHistory(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,actor:String,reason:String,organisationId:String) {
-  require(name.isNotBlank()&&size.isNotBlank());require(pack>0)
+  require(name.isNotBlank()&&size.isNotBlank());require(pack>=0)
   val old=productById(id)?:error("Product not found")
   insertProductHistory(ProductConfigHistoryEntity(productId=old.id,productName=old.name,sizeLabel=old.sizeLabel,colour=old.colour,bottlesPerPack=old.bottlesPerPack,active=old.active,changedBy=actor,reason=reason))
   updateProduct(id,name.trim(),size.trim(),colour.trim(),pack,active)
@@ -149,6 +149,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
   val resolved:List<Triple<ProductEntity,Int,Int>> = merged.map{line->
    val product=productById(line.productId)?:error("Product not found")
    require(product.active){"Inactive product cannot be dispatched"}
+   require(product.bottlesPerPack > 0){"Pack size is not configured for ${product.name}"}
    val available=totalCompletePacks(product.id)-legacyDispatchedPacks(product.id)-batchedDispatchedPacks(product.id)
    require(line.packs<=available){"Insufficient stock for "+product.name+": "+available+" packs available"}
    Triple(product,line.packs,available)
@@ -166,7 +167,9 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Transaction open suspend fun postPacking(entry:PackingEntryEntity,organisationId:String,actorId:String):Long {
   require(entry.bottlesConsumed>0){"Packing quantity must be positive"}
   val product=productById(entry.productId)?:error("Product not found");require(product.active){"Product is inactive"}
-  require(entry.completePacks>=0&&entry.looseBottles>=0){"Invalid pack calculation"}
+  require(product.bottlesPerPack > 0){"Pack size is not configured for ${product.name}"}
+  val expectedPacks=entry.bottlesConsumed/product.bottlesPerPack;val expectedLoose=entry.bottlesConsumed%product.bottlesPerPack
+  require(entry.completePacks==expectedPacks&&entry.looseBottles==expectedLoose){"Packing totals do not match the configured pack size"}
   val available=totalGoodBottles(entry.productId)-totalPackedBottles(entry.productId);require(entry.bottlesConsumed<=available){"Insufficient unpacked good bottles: "+available+" available"}
   val id=insertPacking(entry)
   insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PACKING_BOTTLES_OUT",quantity=-entry.bottlesConsumed,unit="BOTTLE",sourceType="packing",sourceId=id.toString(),actorId=actorId))
