@@ -56,10 +56,11 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  }
  @Transaction open suspend fun correctProduction(id:Long,reason:String,actorId:String,organisationId:String):Boolean {
   require(reason.isNotBlank()){"A correction reason is required."}
+  if(auditCount("PRODUCTION_REVERSED",id.toString())>0) return false
   val entry=productionById(id)?:error("Production record not found")
   val product=productById(entry.productId)?:error("Product not found")
-  val alreadyPacked=totalPackedBottles(product.id)
-  require(alreadyPacked<=entry.goodBottles){"Cannot reverse this production record because its bottles have already been packed; use a controlled stock adjustment."}
+  val available=totalGoodBottles(product.id)-totalPackedBottles(product.id)
+  require(entry.goodBottles<=available){"Cannot reverse: some bottles from this product have already been packed; use a manager-approved stock correction."}
   if(entry.goodBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PRODUCTION_REVERSAL_OUT",quantity=-entry.goodBottles,unit="BOTTLE",sourceType="production_reversal",sourceId=id.toString(),note=reason,actorId=actorId))
   if(entry.rejectedBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="REJECTED_PRODUCTION_REVERSAL",quantity=entry.rejectedBottles,unit="BOTTLE",sourceType="production_reversal",sourceId=id.toString(),note=reason,actorId=actorId))
   insertAudit(AuditEventEntity(eventType="PRODUCTION_REVERSED",entityType="production",entityId=id.toString(),reason=reason,actorId=actorId))
@@ -95,6 +96,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT COALESCE(SUM(dl.packs),0) FROM dispatch_lines dl INNER JOIN dispatch_batches db ON db.id=dl.batchId WHERE dl.productId=:id AND db.status='POSTED'") abstract suspend fun batchedDispatchedPacks(id:Long):Int
  @Query("SELECT * FROM dispatch_batches WHERE idempotencyKey=:key LIMIT 1") abstract suspend fun batchByIdempotencyKey(key:String):DispatchBatchEntity?
  @Query("SELECT * FROM production_entries WHERE id=:id LIMIT 1") abstract suspend fun productionById(id:Long):ProductionEntryEntity?
+ @Query("SELECT COUNT(*) FROM audit_events WHERE eventType=:eventType AND entityId=:entityId") abstract suspend fun auditCount(eventType:String,entityId:String):Int
  @Query("SELECT * FROM packing_entries WHERE id=:id LIMIT 1") abstract suspend fun packingById(id:Long):PackingEntryEntity?
  @Query("SELECT * FROM meter_readings WHERE id=:id LIMIT 1") abstract suspend fun meterById(id:Long):MeterReadingEntity?
  @Query("UPDATE production_entries SET producedBottles=producedBottles WHERE id=:id") abstract suspend fun touchProduction(id:Long)
