@@ -63,6 +63,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Insert abstract suspend fun insertDispatch(e:DispatchEntryEntity):Long
  @Query("SELECT * FROM dispatch_batches ORDER BY dispatchDate DESC,createdAt DESC") abstract fun observeDispatchBatches():Flow<List<DispatchBatchEntity>>
  @Query("SELECT * FROM dispatch_lines WHERE batchId=:id") abstract suspend fun linesForBatch(id:Long):List<DispatchLineEntity>
+ @Query("SELECT * FROM dispatch_lines ORDER BY createdAt DESC") abstract fun observeDispatchLines():Flow<List<DispatchLineEntity>>
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun legacyDispatchedPacks(id:Long):Int
  @Query("SELECT COALESCE(SUM(dl.packs),0) FROM dispatch_lines dl INNER JOIN dispatch_batches db ON db.id=dl.batchId WHERE dl.productId=:id AND db.status='POSTED'") abstract suspend fun batchedDispatchedPacks(id:Long):Int
  @Query("SELECT * FROM dispatch_batches WHERE idempotencyKey=:key LIMIT 1") abstract suspend fun batchByIdempotencyKey(key:String):DispatchBatchEntity?
