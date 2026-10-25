@@ -167,6 +167,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("UPDATE machines SET status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineStatus(id:Long,status:String,at:Long=System.currentTimeMillis())
  @Query("SELECT * FROM machine_events ORDER BY startedAt DESC") abstract fun observeMachineEvents():Flow<List<MachineEventEntity>>
  @Insert abstract suspend fun insertMachineEvent(e:MachineEventEntity):Long
+ @Query("UPDATE machine_events SET status=:status,endedAt=:endedAt WHERE id=:id AND status='OPEN'") abstract suspend fun closeMachineEvent(id:Long,status:String="CLOSED",endedAt:Long=System.currentTimeMillis()):Int
  @Query("SELECT * FROM quality_inspections ORDER BY inspectionDate DESC,createdAt DESC") abstract fun observeQualityInspections():Flow<List<QualityInspectionEntity>>
  @Insert abstract suspend fun insertQualityInspection(e:QualityInspectionEntity):Long
  @Query("SELECT * FROM production_plans ORDER BY planDate DESC,createdAt DESC") abstract fun observeProductionPlans():Flow<List<ProductionPlanEntity>>
