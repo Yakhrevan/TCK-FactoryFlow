@@ -647,7 +647,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  AlertDialog(
   onDismissRequest=close,
   title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text("Add production entry",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Record output for one product and production run.",fontSize=12.sp,color=Muted)}},
-  text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){
+  text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
     Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Build,null,tint=Blue,modifier=Modifier.padding(10.dp))}
     Column{Text("Step 1 of 3 · Production details",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Product, date, shift and machine",fontSize=11.sp,color=Muted)}
@@ -694,7 +694,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  AlertDialog(
   onDismissRequest=close,
   title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text("Add packing batch",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Convert available good bottles into finished packs.",fontSize=12.sp,color=Muted)}},
-  text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+  text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
     Surface(color=Color(0xFFF0EBFF),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Inventory2,null,tint=Color(0xFF7656D9),modifier=Modifier.padding(10.dp))}
     Column{Text("Packing details",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Product · Date · Quantity",fontSize=11.sp,color=Muted)}
@@ -731,7 +731,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  var phone by remember(initial?.id){mutableStateOf(initial?.phone.orEmpty())}
  var address by remember(initial?.id){mutableStateOf(initial?.address.orEmpty())}
  var gst by remember(initial?.id){mutableStateOf(initial?.gstNumber.orEmpty())}
- AlertDialog(onDismissRequest=close,title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(if(initial==null)"Add customer" else "Edit customer",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(initial==null)"Save customer contact details for dispatch." else "Update contact details. Existing dispatch snapshots remain unchanged.",fontSize=12.sp,color=Muted)}},text={Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
+ AlertDialog(onDismissRequest=close,title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(if(initial==null)"Add customer" else "Edit customer",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(initial==null)"Save customer contact details for dispatch." else "Update contact details. Existing dispatch snapshots remain unchanged.",fontSize=12.sp,color=Muted)}},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(9.dp)){
   Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(14.dp)){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Surface(color=Color.White,shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.People,null,tint=Blue,modifier=Modifier.padding(10.dp))};Column{Text(name.trim().ifBlank{"Customer preview"},fontWeight=FontWeight.Bold,color=Navy);Text(phone.ifBlank{"Phone not provided"},fontSize=11.sp,color=Muted)}}}
   OutlinedTextField(name,{name=it},label={Text("Customer name *")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Person,null)})
   OutlinedTextField(phone,{phone=it},label={Text("Phone number")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Phone),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Phone,null)})
