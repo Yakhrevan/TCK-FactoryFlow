@@ -752,7 +752,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  var showReview by remember{mutableStateOf(false)}
  val key by remember{mutableStateOf(UUID.randomUUID().toString())}
  val parsed=lines.map{it.first to (it.second.toIntOrNull()?:0)}
- val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{it.first!=null&&it.second>0}&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
+ val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{(p,q)->p!=null&&p.bottlesPerPack>0&&q>0&&(order==null||q<=((orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsOrdered}-orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsDispatched}).coerceAtLeast(0)))}&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
  val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(date)!=null}.getOrDefault(false)&&date.length==10
  val totalPacks=parsed.sumOf{it.second}
  val totalBottles=parsed.sumOf{(line,qty)->qty.toLong()*(line?.bottlesPerPack?:0)}
@@ -791,6 +791,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
         }
        }
        if(line.first?.bottlesPerPack?.let{it<=0}==true)Text("Set this product's pack size before dispatch.",fontSize=11.sp,color=Color(0xFF9B5B00))
+       if(order!=null&&line.first!=null){val orderProductLines=orderLines.filter{it.orderId==order!!.id&&it.productId==line.first!!.id};val remaining=(orderProductLines.sumOf{it.packsOrdered}-orderProductLines.sumOf{it.packsDispatched}).coerceAtLeast(0);Text("Order remaining: $remaining packs",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(qty>remaining)Color(0xFFB42318) else Blue);if(qty>remaining)Text("Reduce quantity to the remaining order balance.",fontSize=10.sp,color=Color(0xFFB42318))}
       }
      }
     }
