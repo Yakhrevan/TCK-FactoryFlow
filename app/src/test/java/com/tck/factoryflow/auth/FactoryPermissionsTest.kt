@@ -8,7 +8,6 @@ class FactoryPermissionsTest {
  @Test fun firebaseOperatorClaimMapsToProductionRole(){assertEquals(FactoryRole.PRODUCTION_STAFF,FactoryPermissions.fromClaim("operator"))}
  @Test fun unknownClaimDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.fromClaim("superuser")}}
  @Test fun blankOrganisationDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.requireOrganisation("","factory-a")}}
-}
 
  @Test fun ownerCanManageNewModules() {
   assertTrue(FactoryPermissions.allows(FactoryRole.OWNER,FactoryAction.MANAGE_MACHINES))
