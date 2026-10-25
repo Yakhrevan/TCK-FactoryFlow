@@ -36,8 +36,10 @@ data class MeterReadingEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val m
 data class DispatchRequestLine(val productId:Long,val packs:Int)
 data class DispatchPostResult(val batchId:Long,val reference:String,val lineCount:Int)
 
-@Entity(tableName="machines",indices=[Index(value=["machineCode"],unique=true)])
-data class MachineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineCode:String,val name:String,val machineType:String,val location:String="",val status:String="RUNNING",val notes:String="",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+@Entity(tableName="production_lines",indices=[Index(value=["lineCode"],unique=true)])
+data class ProductionLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val lineCode:String,val name:String,val description:String="",val status:String="ACTIVE",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+@Entity(tableName="machines",indices=[Index(value=["machineCode"],unique=true),Index("lineId")],foreignKeys=[ForeignKey(entity=ProductionLineEntity::class,parentColumns=["id"],childColumns=["lineId"],onDelete=ForeignKey.SET_NULL)])
+data class MachineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineCode:String,val name:String,val machineType:String,val location:String="",val status:String="RUNNING",val notes:String="",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis(),val lineId:Long?=null)
 @Entity(tableName="machine_events",indices=[Index("machineId"),Index("startedAt"),Index("status")])
 data class MachineEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineId:Long,val machineNameSnapshot:String,val eventType:String,val startedAt:Long,val endedAt:Long?=null,val reason:String="",val maintenanceType:String="",val status:String="OPEN",val performedBy:String="local",val createdAt:Long=System.currentTimeMillis(),val completionNotes:String="",val partsUsed:String="",val completedBy:String="")
 @Entity(tableName="quality_inspections",indices=[Index("productId"),Index("productionEntryId"),Index("inspectionDate")])
@@ -49,6 +51,11 @@ data class SalesOrderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ord
 @Entity(tableName="sales_order_lines",indices=[Index("orderId"),Index("productId")],foreignKeys=[ForeignKey(entity=SalesOrderEntity::class,parentColumns=["id"],childColumns=["orderId"],onDelete=ForeignKey.CASCADE)])
 data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderId:Long,val productId:Long,val productNameSnapshot:String,val packsOrdered:Int,val packsDispatched:Int=0,val packSizeSnapshot:Int,val createdAt:Long=System.currentTimeMillis())
 @Dao abstract class FactoryDao {
+ @Query("SELECT * FROM production_lines ORDER BY status DESC, name COLLATE NOCASE") abstract fun observeProductionLines():Flow<List<ProductionLineEntity>>
+ @Query("SELECT * FROM production_lines WHERE status='ACTIVE' ORDER BY name COLLATE NOCASE") abstract suspend fun activeProductionLines():List<ProductionLineEntity>
+ @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertProductionLine(line:ProductionLineEntity):Long
+ @Query("UPDATE machines SET lineId=:lineId,updatedAt=:updatedAt WHERE id=:machineId") abstract suspend fun assignMachineToLine(machineId:Long,lineId:Long?,updatedAt:Long=System.currentTimeMillis())
+ @Query("SELECT * FROM machines WHERE lineId=:lineId ORDER BY name COLLATE NOCASE") abstract fun observeMachinesForLine(lineId:Long):Flow<List<MachineEntity>>
  @Query("SELECT * FROM products ORDER BY active DESC, name COLLATE NOCASE") abstract fun observeProducts():Flow<List<ProductEntity>>
  @Query("SELECT * FROM products WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeProducts():List<ProductEntity>
  @Query("SELECT * FROM products WHERE id=:id LIMIT 1") abstract suspend fun productById(id:Long):ProductEntity?
@@ -289,7 +296,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=5,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=6,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -335,7 +342,15 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_dispatch_batches_salesOrderId ON dispatch_batches(salesOrderId)")
    }
   }
+  internal val MIGRATION_5_6=object:Migration(5,6){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("CREATE TABLE IF NOT EXISTS production_lines (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,lineCode TEXT NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL,status TEXT NOT NULL,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL)")
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_production_lines_lineCode ON production_lines(lineCode)")
+    db.execSQL("ALTER TABLE machines ADD COLUMN lineId INTEGER")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_machines_lineId ON machines(lineId)")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6).build().also{instance=it}}
  }
 }
