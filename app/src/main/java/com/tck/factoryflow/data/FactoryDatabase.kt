@@ -168,6 +168,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("UPDATE packing_entries SET bottlesConsumed=bottlesConsumed WHERE id=:id") abstract suspend fun touchPacking(id:Long)
  @Query("UPDATE meter_readings SET remarks=remarks WHERE id=:id") abstract suspend fun touchMeter(id:Long)
  @Query("SELECT * FROM dispatch_batches WHERE id=:id LIMIT 1") abstract suspend fun dispatchBatchById(id:Long):DispatchBatchEntity?
+ @Query("SELECT COALESCE(SUM(rejectedBottles),0) FROM production_entries WHERE productId=:id") abstract suspend fun totalRejectedBottles(id:Long):Int
  @Query("SELECT * FROM inventory_movements WHERE productId=:id ORDER BY createdAt DESC") abstract fun observeInventoryMovements(id:Long):Flow<List<InventoryMovementEntity>>
  @Query("SELECT * FROM audit_events ORDER BY createdAt DESC") abstract fun observeAuditEvents():Flow<List<AuditEventEntity>>
  @Query("SELECT * FROM sync_outbox ORDER BY createdAt DESC LIMIT :limit") abstract fun observeSyncOutbox(limit:Int=200):Flow<List<SyncOutboxEntity>>
