@@ -15,8 +15,14 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
   if(FirebaseApp.getApps(applicationContext).isEmpty()) return Result.retry()
   val user=runCatching{FirebaseAuth.getInstance().currentUser}.getOrNull()?:return Result.retry()
   val token=runCatching{user.getIdToken(false).await()}.getOrElse{return Result.retry()}
-  val organisationId=token.claims["organisationId"] as? String ?:return Result.failure()
   val dao=FactoryDatabase.get(applicationContext).factoryDao()
+  val organisationId=token.claims["organisationId"] as? String
+  if(organisationId.isNullOrBlank()) {
+   for(event in runCatching{dao.pendingSyncEvents(50)}.getOrElse{return Result.retry()}) {
+    dao.markSyncNeedsReview(event.id,"Signed-in account has no trusted organisationId claim. Ask an administrator to configure membership before syncing.")
+   }
+   return Result.failure()
+  }
   var failed=false
   for(event in runCatching{dao.pendingSyncEvents(50)}.getOrElse{return Result.retry()}) {
    if(event.organisationId=="local-org") {
