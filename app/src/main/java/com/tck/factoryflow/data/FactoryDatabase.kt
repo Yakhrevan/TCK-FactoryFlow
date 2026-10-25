@@ -36,6 +36,18 @@ data class MeterReadingEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val m
 data class DispatchRequestLine(val productId:Long,val packs:Int)
 data class DispatchPostResult(val batchId:Long,val reference:String,val lineCount:Int)
 
+@Entity(tableName="machines",indices=[Index(value=["machineCode"],unique=true)])
+data class MachineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineCode:String,val name:String,val machineType:String,val location:String="",val status:String="RUNNING",val notes:String="",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+@Entity(tableName="machine_events",indices=[Index("machineId"),Index("startedAt"),Index("status")])
+data class MachineEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineId:Long,val machineNameSnapshot:String,val eventType:String,val startedAt:Long,val endedAt:Long?=null,val reason:String="",val maintenanceType:String="",val status:String="OPEN",val performedBy:String="local",val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="quality_inspections",indices=[Index("productId"),Index("productionEntryId"),Index("inspectionDate"),Index("status")])
+data class QualityInspectionEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productionEntryId:Long?,val productId:Long,val productNameSnapshot:String,val inspectionDate:String,val inspectedBottles:Int,val passedBottles:Int,val failedBottles:Int,val defectCategory:String,val severity:String="MINOR",val notes:String="",val inspectorId:String="local",val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="production_plans",indices=[Index("planDate"),Index("productId"),Index("status")])
+data class ProductionPlanEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val planDate:String,val shift:String,val productId:Long,val productNameSnapshot:String,val targetBottles:Int,val assignedMachineId:Long?=null,val status:String="PLANNED",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="sales_orders",indices=[Index(value=["orderNumber"],unique=true),Index("customerId"),Index("orderDate"),Index("status")])
+data class SalesOrderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderNumber:String,val customerId:Long?,val customerNameSnapshot:String,val orderDate:String,val dueDate:String,val status:String="OPEN",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="sales_order_lines",indices=[Index("orderId"),Index("productId")],foreignKeys=[ForeignKey(entity=SalesOrderEntity::class,parentColumns=["id"],childColumns=["orderId"],onDelete=ForeignKey.CASCADE)])
+data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderId:Long,val productId:Long,val productNameSnapshot:String,val packsOrdered:Int,val packsDispatched:Int=0,val packSizeSnapshot:Int,val createdAt:Long=System.currentTimeMillis())
 @Dao abstract class FactoryDao {
  @Query("SELECT * FROM products ORDER BY active DESC, name COLLATE NOCASE") abstract fun observeProducts():Flow<List<ProductEntity>>
  @Query("SELECT * FROM products WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeProducts():List<ProductEntity>
@@ -149,6 +161,22 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
  @Query("SELECT * FROM sync_outbox WHERE status='PENDING' ORDER BY createdAt LIMIT :limit") abstract suspend fun pendingSyncEvents(limit:Int=50):List<SyncOutboxEntity>
  @Query("UPDATE sync_outbox SET attempts=attempts+1,lastError=:error WHERE id=:id") abstract suspend fun markSyncAttempt(id:Long,error:String)
  @Query("UPDATE sync_outbox SET status='SYNCED',syncedAt=:at,lastError='' WHERE id=:id") abstract suspend fun markSyncSynced(id:Long,at:Long)
+ @Query("SELECT * FROM machines ORDER BY name COLLATE NOCASE") abstract fun observeMachines():Flow<List<MachineEntity>>
+ @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertMachine(e:MachineEntity):Long
+ @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineDetails(id:Long,name:String,type:String,location:String,notes:String,at:Long=System.currentTimeMillis())
+ @Query("UPDATE machines SET status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineStatus(id:Long,status:String,at:Long=System.currentTimeMillis())
+ @Query("SELECT * FROM machine_events ORDER BY startedAt DESC") abstract fun observeMachineEvents():Flow<List<MachineEventEntity>>
+ @Insert abstract suspend fun insertMachineEvent(e:MachineEventEntity):Long
+ @Query("SELECT * FROM quality_inspections ORDER BY inspectionDate DESC,createdAt DESC") abstract fun observeQualityInspections():Flow<List<QualityInspectionEntity>>
+ @Insert abstract suspend fun insertQualityInspection(e:QualityInspectionEntity):Long
+ @Query("SELECT * FROM production_plans ORDER BY planDate DESC,createdAt DESC") abstract fun observeProductionPlans():Flow<List<ProductionPlanEntity>>
+ @Insert abstract suspend fun insertProductionPlan(e:ProductionPlanEntity):Long
+ @Query("UPDATE production_plans SET status=:status WHERE id=:id") abstract suspend fun updateProductionPlanStatus(id:Long,status:String)
+ @Query("SELECT * FROM sales_orders ORDER BY orderDate DESC,createdAt DESC") abstract fun observeSalesOrders():Flow<List<SalesOrderEntity>>
+ @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
+ @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertSalesOrder(e:SalesOrderEntity):Long
+ @Insert abstract suspend fun insertSalesOrderLines(e:List<SalesOrderLineEntity>)
+ @Query("SELECT * FROM inventory_movements ORDER BY createdAt DESC LIMIT :limit") abstract fun observeRecentInventoryMovements(limit:Int=250):Flow<List<InventoryMovementEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract fun observeCustomers():Flow<List<CustomerEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeCustomers():List<CustomerEntity>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertCustomer(c:CustomerEntity):Long
@@ -196,7 +224,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class],version=2,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=3,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -213,6 +241,22 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE TABLE IF NOT EXISTS sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,eventKey TEXT NOT NULL,organisationId TEXT NOT NULL,eventType TEXT NOT NULL,payloadJson TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL,lastError TEXT NOT NULL,createdAt INTEGER NOT NULL,syncedAt INTEGER)");db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sync_outbox_eventKey ON sync_outbox(eventKey)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_outbox_status ON sync_outbox(status)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sync_outbox_createdAt ON sync_outbox(createdAt)")
    }
   }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2).build().also{instance=it}}
+  private val MIGRATION_2_3=object:Migration(2,3){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("CREATE TABLE IF NOT EXISTS machines (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,machineCode TEXT NOT NULL,name TEXT NOT NULL,machineType TEXT NOT NULL,location TEXT NOT NULL,status TEXT NOT NULL,notes TEXT NOT NULL,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL)")
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_machines_machineCode ON machines(machineCode)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS machine_events (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,machineId INTEGER NOT NULL,machineNameSnapshot TEXT NOT NULL,eventType TEXT NOT NULL,startedAt INTEGER NOT NULL,endedAt INTEGER,reason TEXT NOT NULL,maintenanceType TEXT NOT NULL,status TEXT NOT NULL,performedBy TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_machine_events_machineId ON machine_events(machineId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_machine_events_startedAt ON machine_events(startedAt)");db.execSQL("CREATE INDEX IF NOT EXISTS index_machine_events_status ON machine_events(status)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS quality_inspections (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,productionEntryId INTEGER,productId INTEGER NOT NULL,productNameSnapshot TEXT NOT NULL,inspectionDate TEXT NOT NULL,inspectedBottles INTEGER NOT NULL,passedBottles INTEGER NOT NULL,failedBottles INTEGER NOT NULL,defectCategory TEXT NOT NULL,severity TEXT NOT NULL,notes TEXT NOT NULL,inspectorId TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_quality_inspections_productId ON quality_inspections(productId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_quality_inspections_productionEntryId ON quality_inspections(productionEntryId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_quality_inspections_inspectionDate ON quality_inspections(inspectionDate)");db.execSQL("CREATE INDEX IF NOT EXISTS index_quality_inspections_status ON quality_inspections(severity)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS production_plans (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,planDate TEXT NOT NULL,shift TEXT NOT NULL,productId INTEGER NOT NULL,productNameSnapshot TEXT NOT NULL,targetBottles INTEGER NOT NULL,assignedMachineId INTEGER,status TEXT NOT NULL,notes TEXT NOT NULL,createdBy TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_production_plans_planDate ON production_plans(planDate)");db.execSQL("CREATE INDEX IF NOT EXISTS index_production_plans_productId ON production_plans(productId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_production_plans_status ON production_plans(status)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS sales_orders (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,orderNumber TEXT NOT NULL,customerId INTEGER,customerNameSnapshot TEXT NOT NULL,orderDate TEXT NOT NULL,dueDate TEXT NOT NULL,status TEXT NOT NULL,notes TEXT NOT NULL,createdBy TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sales_orders_orderNumber ON sales_orders(orderNumber)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_orders_customerId ON sales_orders(customerId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_orders_orderDate ON sales_orders(orderDate)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_orders_status ON sales_orders(status)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS sales_order_lines (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,orderId INTEGER NOT NULL,productId INTEGER NOT NULL,productNameSnapshot TEXT NOT NULL,packsOrdered INTEGER NOT NULL,packsDispatched INTEGER NOT NULL,packSizeSnapshot INTEGER NOT NULL,createdAt INTEGER NOT NULL,FOREIGN KEY(orderId) REFERENCES sales_orders(id) ON DELETE CASCADE)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_orderId ON sales_order_lines(orderId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_productId ON sales_order_lines(productId)")
+   }
+  }
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3).build().also{instance=it}}
  }
 }
