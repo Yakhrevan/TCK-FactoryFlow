@@ -21,7 +21,7 @@ data class DispatchEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val 
 @Entity(tableName="customers",indices=[Index(value=["name"],unique=true)])
 data class CustomerEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val name:String,val phone:String="",val address:String="",val gstNumber:String="",val active:Boolean=true,val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="dispatch_batches",indices=[Index(value=["idempotencyKey"],unique=true),Index("dispatchDate"),Index("customerId")])
-data class DispatchBatchEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val idempotencyKey:String,val dispatchReference:String,val dispatchDate:String,val customerId:Long?,val customerNameSnapshot:String,val status:String="POSTED",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val createdBy:String="local")
+data class DispatchBatchEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val idempotencyKey:String,val dispatchReference:String,val dispatchDate:String,val customerId:Long?,val customerNameSnapshot:String,val status:String="POSTED",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val createdBy:String="local",val salesOrderId:Long?=null)
 @Entity(tableName="dispatch_lines",indices=[Index("batchId"),Index("productId")],foreignKeys=[ForeignKey(entity=DispatchBatchEntity::class,parentColumns=["id"],childColumns=["batchId"],onDelete=ForeignKey.CASCADE)])
 data class DispatchLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val batchId:Long,val productId:Long,val productNameSnapshot:String,val packSizeSnapshot:Int,val packs:Int,val bottles:Int,val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="inventory_movements",indices=[Index("productId"),Index("createdAt"),Index("sourceId")])
@@ -248,7 +248,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=3,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=4,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -281,6 +281,12 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_orderId ON sales_order_lines(orderId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_productId ON sales_order_lines(productId)")
    }
   }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3).build().also{instance=it}}
+  private val MIGRATION_3_4=object:Migration(3,4){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE dispatch_batches ADD COLUMN salesOrderId INTEGER")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_dispatch_batches_salesOrderId ON dispatch_batches(salesOrderId)")
+   }
+  }
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4).build().also{instance=it}}
  }
 }
