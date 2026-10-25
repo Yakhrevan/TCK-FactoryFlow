@@ -94,6 +94,32 @@ class FactoryDatabaseTest {
   }
  }
 
+ @Test fun migrationsThreeToFiveAddOrderLinkAndMaintenanceCompletionColumns() {
+  val context=ApplicationProvider.getApplicationContext<Context>()
+  val name="factoryflow-migration-test.db"
+  val helper=androidx.sqlite.framework.FrameworkSQLiteOpenHelperFactory().create(
+   androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context).name(name).callback(
+    object:androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(3){
+     override fun onCreate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+      db.execSQL("CREATE TABLE dispatch_batches (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,dispatchDate TEXT NOT NULL)")
+      db.execSQL("CREATE TABLE machine_events (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,machineId INTEGER NOT NULL,machineNameSnapshot TEXT NOT NULL,eventType TEXT NOT NULL,startedAt INTEGER NOT NULL,endedAt INTEGER,reason TEXT NOT NULL,maintenanceType TEXT NOT NULL,status TEXT NOT NULL,performedBy TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+     }
+     override fun onUpgrade(db:androidx.sqlite.db.SupportSQLiteDatabase,oldVersion:Int,newVersion:Int){}
+    }
+   ).build()
+  )
+  try{
+   val database=helper.writableDatabase
+   FactoryDatabase.MIGRATION_3_4.migrate(database)
+   FactoryDatabase.MIGRATION_4_5.migrate(database)
+   val dispatchColumns=mutableSetOf<String>()
+   database.query("PRAGMA table_info(dispatch_batches)").use{while(it.moveToNext())dispatchColumns.add(it.getString(1))}
+   val machineColumns=mutableSetOf<String>()
+   database.query("PRAGMA table_info(machine_events)").use{while(it.moveToNext())machineColumns.add(it.getString(1))}
+   assertTrue(dispatchColumns.contains("salesOrderId"))
+   assertTrue(machineColumns.containsAll(setOf("completionNotes","partsUsed","completedBy")))
+  }finally{helper.close();context.deleteDatabase(name)}
+ }
  @Test fun explicitOrderDispatchLinksAndReconcilesFulfilment() {
   kotlinx.coroutines.runBlocking {
    val product=dao.insertProduct(ProductEntity(name="Order 500ml",sizeLabel="500ml",bottlesPerPack=10))
