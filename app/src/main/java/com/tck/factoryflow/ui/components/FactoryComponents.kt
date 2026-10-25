@@ -87,46 +87,79 @@ fun BottleTypeIcon(
     tint: Color = TckBlue
 ) {
     val normalized = type.lowercase()
+    val isGreen = normalized.contains("green")
+    val isMilkWhite = normalized.contains("milk") || normalized.contains("white")
+    val isLarge = normalized.contains("1 l") || normalized.contains("1l") || normalized.contains("litre") || normalized.contains("liter")
+    val isSmall = normalized.contains("200") || normalized.contains("mini")
+    val isSlim = normalized.contains("slim") || normalized.contains("sport")
+    val isSoda = normalized.contains("soda") || normalized.contains("carbonated")
+    val bottleColor = when {
+        isGreen -> Color(0xFF27965B)
+        isMilkWhite -> Color(0xFF9AAFC0)
+        else -> tint
+    }
     Canvas(modifier.size(38.dp)) {
         val w = size.width
         val h = size.height
-        val slim = normalized.contains("slim")
-        val square = normalized.contains("square")
-        val soda = normalized.contains("soda")
-        val left = if (slim) w * .39f else if (square) w * .25f else w * .31f
-        val right = if (slim) w * .61f else if (square) w * .75f else w * .69f
-        val neckLeft = w * .43f
-        val neckRight = w * .57f
-        val top = h * .22f
-        val bottom = h * .92f
+        val center = w * .5f
+        val bodyLeft = when {
+            isLarge -> w * .25f
+            isSlim -> w * .39f
+            isSmall -> w * .34f
+            else -> w * .30f
+        }
+        val bodyRight = w - bodyLeft
+        val neckHalf = if (isSoda) w * .085f else w * .105f
+        val neckLeft = center - neckHalf
+        val neckRight = center + neckHalf
+        val shoulderY = if (isLarge) h * .30f else h * .34f
+        val bottom = h * .93f
+        val shoulderInset = if (isLarge) w * .035f else w * .015f
         val body = Path().apply {
-            moveTo(neckLeft, top)
-            lineTo(neckLeft, h * .38f)
-            if (soda) {
-                quadraticTo(left, h * .43f, left, h * .52f)
+            moveTo(neckLeft, h * .20f)
+            lineTo(neckLeft, h * .31f)
+            quadraticTo(neckLeft, h * .36f, bodyLeft + shoulderInset, shoulderY)
+            if (isSoda) {
+                quadraticTo(bodyLeft, h * .43f, bodyLeft, h * .49f)
             } else {
-                lineTo(left, h * .46f)
+                quadraticTo(bodyLeft, h * .40f, bodyLeft, h * .47f)
             }
-            lineTo(left, bottom - h * .06f)
-            quadraticTo(left, bottom, w * .5f, bottom)
-            quadraticTo(right, bottom, right, bottom - h * .06f)
-            lineTo(right, h * .46f)
-            if (soda) {
-                quadraticTo(right, h * .43f, neckRight, h * .38f)
+            lineTo(bodyLeft, bottom - h * .055f)
+            quadraticTo(bodyLeft, bottom, center, bottom)
+            quadraticTo(bodyRight, bottom, bodyRight, bottom - h * .055f)
+            lineTo(bodyRight, h * .47f)
+            if (isSoda) {
+                quadraticTo(bodyRight, h * .43f, bodyRight - shoulderInset, shoulderY)
             } else {
-                lineTo(neckRight, h * .38f)
+                quadraticTo(bodyRight, h * .40f, bodyRight - shoulderInset, shoulderY)
             }
-            lineTo(neckRight, top)
+            quadraticTo(neckRight, h * .36f, neckRight, h * .31f)
+            lineTo(neckRight, h * .20f)
             close()
         }
-        drawPath(body, tint.copy(alpha = .12f))
-        drawPath(body, tint, style = Stroke(width = 1.8.dp.toPx()))
+        drawPath(body, bottleColor.copy(alpha = if (isMilkWhite) .16f else .13f))
+        drawPath(body, bottleColor.copy(alpha = if (isMilkWhite) .9f else .95f), style = Stroke(width = 1.65.dp.toPx()))
+        // Capacity-specific moulding details help distinguish product silhouettes at small sizes.
+        if (isLarge) {
+            drawLine(bottleColor.copy(alpha = .45f), Offset(bodyLeft + w * .035f, h * .59f), Offset(bodyRight - w * .035f, h * .59f), strokeWidth = 1.dp.toPx())
+            drawLine(bottleColor.copy(alpha = .45f), Offset(bodyLeft + w * .035f, h * .64f), Offset(bodyRight - w * .035f, h * .64f), strokeWidth = 1.dp.toPx())
+        } else if (isSmall) {
+            drawLine(bottleColor.copy(alpha = .4f), Offset(bodyLeft + w * .035f, h * .63f), Offset(bodyRight - w * .035f, h * .63f), strokeWidth = 1.dp.toPx())
+        }
         drawRoundRect(
-            color = TckGold,
-            topLeft = Offset(w * .40f, h * .08f),
-            size = Size(w * .20f, h * .12f),
+            color = if (isGreen) Color(0xFF176C42) else TckBlue,
+            topLeft = Offset(center - w * .115f, h * .08f),
+            size = Size(w * .23f, h * .13f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
         )
+        if (isMilkWhite) {
+            drawRoundRect(
+                color = Color.White.copy(alpha = .8f),
+                topLeft = Offset(bodyLeft + w * .07f, h * .49f),
+                size = Size(w * .055f, h * .27f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+            )
+        }
     }
 }
 
