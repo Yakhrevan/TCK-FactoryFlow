@@ -50,6 +50,7 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
    } catch(e:Exception) {
     val reason=e.message?.take(500)?:e.javaClass.simpleName
     if(reason.contains("Idempotency conflict",ignoreCase=true)) dao.markSyncNeedsReview(event.id,reason)
+    else if(event.attempts>=7) dao.markSyncNeedsReview(event.id,"Automatic retry limit reached after "+(event.attempts+1)+" attempts. Last error: "+reason)
     else { dao.markSyncAttempt(event.id,reason); failed=true }
    }
   }
