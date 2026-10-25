@@ -9,3 +9,24 @@ class FactoryPermissionsTest {
  @Test fun unknownClaimDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.fromClaim("superuser")}}
  @Test fun blankOrganisationDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.requireOrganisation("","factory-a")}}
 }
+
+ @Test fun ownerCanManageNewModules() {
+  assertTrue(FactoryPermissions.allows(FactoryRole.OWNER,FactoryAction.MANAGE_MACHINES))
+  assertTrue(FactoryPermissions.allows(FactoryRole.OWNER,FactoryAction.MANAGE_QUALITY))
+  assertTrue(FactoryPermissions.allows(FactoryRole.OWNER,FactoryAction.MANAGE_ORDERS))
+  assertTrue(FactoryPermissions.allows(FactoryRole.OWNER,FactoryAction.MANAGE_ELECTRICITY))
+ }
+ @Test fun productionStaffCannotManageNewSensitiveModules() {
+  assertFalse(FactoryPermissions.allows(FactoryRole.PRODUCTION_STAFF,FactoryAction.MANAGE_MACHINES))
+  assertFalse(FactoryPermissions.allows(FactoryRole.PRODUCTION_STAFF,FactoryAction.MANAGE_QUALITY))
+  assertFalse(FactoryPermissions.allows(FactoryRole.PRODUCTION_STAFF,FactoryAction.MANAGE_ORDERS))
+ }
+ @Test fun dispatchStaffCanManageOrdersButNotReverseDispatch() {
+  assertTrue(FactoryPermissions.allows(FactoryRole.DISPATCH_STAFF,FactoryAction.MANAGE_ORDERS))
+  assertFalse(FactoryPermissions.allows(FactoryRole.DISPATCH_STAFF,FactoryAction.REVERSE_DISPATCH))
+ }
+ @Test fun managerCanManageOperationsButNotStaffAssignments() {
+  assertTrue(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_MACHINES))
+  assertTrue(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_QUALITY))
+  assertFalse(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_STAFF))
+ }
