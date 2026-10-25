@@ -71,7 +71,7 @@ class MainActivity:ComponentActivity(){
 private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECTRICITY,REPORTS,CUSTOMERS}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun FactoryApp(dao:FactoryDao){
- var tab by remember{mutableStateOf(PageTab.HOME)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope()
+ var tab by remember{mutableStateOf(PageTab.HOME)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope()
  val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
  val context=LocalContext.current
  LaunchedEffect(context){session=runCatching{FactoryAuthRepository(context).currentSession()}.getOrNull()}
@@ -202,14 +202,36 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("SHOP FLOOR",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Production",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Record and review each production run",fontSize=12.sp,color=Muted)};Button(onClick={dialog="production"},shape=RoundedCornerShape(14.dp)){Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("New run")}}}
    item{Surface(color=Navy,shape=RoundedCornerShape(20.dp)){Column(Modifier.fillMaxWidth().padding(17.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("TODAY'S OUTPUT",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(total.toString()+" bottles",fontSize=30.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);LinearProgressIndicator(progress={if(total>0)goodToday.toFloat()/total else 0f},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF35C38B),trackColor=Color(0xFF35516E));Row(horizontalArrangement=Arrangement.SpaceBetween,modifier=Modifier.fillMaxWidth()){Text("Good  $goodToday",fontSize=12.sp,color=Color.White);Text("Rejected  $rejectToday",fontSize=12.sp,color=Color(0xFFFFC56B))}}}}
    item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric("Production runs",todayRows.size.toString(),Modifier.weight(1f));Metric("Reject rate",String.format(Locale.US,"%.1f%%",if(total>0)rejectToday*100.0/total else 0.0),Modifier.weight(1f))}}
+   item{
+    val productTotals=production.groupBy{it.productNameSnapshot}.mapValues{(_,rows)->rows.sumOf{it.producedBottles}}.entries.sortedByDescending{it.value}.take(4)
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Production by product",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Total recorded bottles · all saved runs",fontSize=10.sp,color=Muted)};Icon(Icons.Default.BarChart,null,tint=Blue)}
+      if(productTotals.isEmpty())Text("Chart will appear when production is recorded.",fontSize=12.sp,color=Muted)
+      else{
+       val maxOutput=productTotals.maxOf{it.value}.coerceAtLeast(1)
+       productTotals.forEach{entry->
+        Column(verticalArrangement=Arrangement.spacedBy(5.dp)){
+         Row(verticalAlignment=Alignment.CenterVertically){Text(entry.key,Modifier.weight(1f),fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy);Text(String.format(Locale.US,"%,d",entry.value),fontSize=12.sp,fontWeight=FontWeight.Bold,color=Blue)}
+         LinearProgressIndicator(progress={entry.value.toFloat()/maxOutput.toFloat()},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF1683FF),trackColor=Color(0xFFE6EEF7),strokeCap=androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+       }
+      }
+     }
+    }
+   }
    item{Text("Production history",fontSize=19.sp,fontWeight=FontWeight.Bold,color=Navy)}
-   if(production.isEmpty())item{EmptyDashboardState("No production recorded","Create a production run to start tracking output.",Icons.Default.Build)}
-   items(production,key={it.id}){entry->
+   item{OutlinedTextField(productionSearch,{productionSearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(15.dp),leadingIcon={Icon(Icons.Default.Search,null)},placeholder={Text("Search product, machine or date")},label={Text("Filter production runs")})}
+   val shownProduction=production.filter{(it.productNameSnapshot+" "+it.machineName+" "+it.productionDate+" "+it.remarks).contains(productionSearch,true)}
+   item{Text(shownProduction.size.toString()+" matching production run(s)",fontSize=11.sp,color=Muted)}
+   if(shownProduction.isEmpty())item{EmptyDashboardState(if(production.isEmpty())"No production recorded" else "No matching production runs",if(production.isEmpty())"Create a production run to start tracking output." else "Change the search text to find another run.",Icons.Default.Build)}
+   items(shownProduction,key={it.id}){entry->
     Surface(color=Color.White,shape=RoundedCornerShape(17.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
       Row(verticalAlignment=Alignment.CenterVertically){Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Build,null,tint=Blue,modifier=Modifier.padding(10.dp).size(22.dp))};Column(Modifier.weight(1f).padding(start=10.dp)){Text(entry.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(entry.productionDate+" · "+entry.machineName,fontSize=11.sp,color=Muted)};Text("SAVED",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color(0xFF16804A))}
       HorizontalDivider(color=Border)
       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Produced",entry.producedBottles,Modifier.weight(1f));StockMiniMetric("Good",entry.goodBottles,Modifier.weight(1f));StockMiniMetric("Rejected",entry.rejectedBottles,Modifier.weight(1f))}
+      if(entry.producedBottles>0){val rate=entry.rejectedBottles*100.0/entry.producedBottles;Text(String.format(Locale.US,"Reject rate %.1f%%",rate),fontSize=11.sp,color=if(rate>=5)Color(0xFFB42318) else Muted)}
       if(entry.remarks.isNotBlank())Text(entry.remarks,fontSize=12.sp,color=Muted)
      }
     }
