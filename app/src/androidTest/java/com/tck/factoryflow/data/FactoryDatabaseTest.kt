@@ -97,7 +97,7 @@ class FactoryDatabaseTest {
  @Test fun migrationsThreeToFiveAddOrderLinkAndMaintenanceCompletionColumns() {
   val context=ApplicationProvider.getApplicationContext<Context>()
   val name="factoryflow-migration-test.db"
-  val helper=androidx.sqlite.framework.FrameworkSQLiteOpenHelperFactory().create(
+  val helper=androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
    androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context).name(name).callback(
     object:androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(3){
      override fun onCreate(db:androidx.sqlite.db.SupportSQLiteDatabase){
