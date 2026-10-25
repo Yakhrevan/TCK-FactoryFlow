@@ -36,13 +36,16 @@ jobs:
         run: gradle assembleDebug
       - name: Build unsigned release APK
         run: gradle assembleRelease
+      - name: Rename APK outputs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/TCK-Bottle-Manufacturing-debug.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/TCK-Bottle-Manufacturing-release-unsigned.apk
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: factoryflow-apks
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+          name: TCK-Bottle-Manufacturing-APK
+          path: dist/*.apk
           if-no-files-found: error
 
   backend-security:
