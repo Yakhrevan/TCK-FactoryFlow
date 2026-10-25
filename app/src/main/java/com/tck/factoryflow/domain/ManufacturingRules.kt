@@ -12,7 +12,7 @@ data class PackCalculation(val eligibleBottles: Int, val packSize: Int, val comp
 data class ProductionQuantities(val produced: Int, val good: Int, val rejected: Int) {
     fun validate() {
         require(produced >= 0 && good >= 0 && rejected >= 0) { "Production quantities cannot be negative." }
-        require(good + rejected <= produced) { "Good and rejected bottles cannot exceed total produced." }
+        require(good.toLong() + rejected.toLong() <= produced.toLong()) { "Good and rejected bottles cannot exceed total produced." }
     }
 }
 object ElectricityRules {

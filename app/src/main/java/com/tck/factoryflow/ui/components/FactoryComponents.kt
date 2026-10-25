@@ -91,6 +91,7 @@ fun BottleTypeIcon(
     val isMilkWhite = normalized.contains("milk") || normalized.contains("white")
     val isLarge = normalized.contains("1 l") || normalized.contains("1l") || normalized.contains("litre") || normalized.contains("liter")
     val isSmall = normalized.contains("200") || normalized.contains("mini")
+    val isMedium = normalized.contains("300")
     val isSlim = normalized.contains("slim") || normalized.contains("sport")
     val isSoda = normalized.contains("soda") || normalized.contains("carbonated")
     val bottleColor = when {
@@ -105,14 +106,15 @@ fun BottleTypeIcon(
         val bodyLeft = when {
             isLarge -> w * .25f
             isSlim -> w * .39f
-            isSmall -> w * .34f
-            else -> w * .30f
+            isSmall -> w * .35f
+            isMedium -> w * .32f
+            else -> w * .29f
         }
         val bodyRight = w - bodyLeft
         val neckHalf = if (isSoda) w * .085f else w * .105f
         val neckLeft = center - neckHalf
         val neckRight = center + neckHalf
-        val shoulderY = if (isLarge) h * .30f else h * .34f
+        val shoulderY = when { isLarge -> h * .30f; isSmall -> h * .36f; isMedium -> h * .33f; else -> h * .34f }
         val bottom = h * .93f
         val shoulderInset = if (isLarge) w * .035f else w * .015f
         val body = Path().apply {
