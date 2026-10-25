@@ -29,3 +29,4 @@ class FactoryPermissionsTest {
   assertTrue(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_QUALITY))
   assertFalse(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_STAFF))
  }
+}
