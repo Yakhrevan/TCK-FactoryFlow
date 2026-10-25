@@ -10,6 +10,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
 
 @RunWith(AndroidJUnit4::class)
 class FactoryDatabaseTest {
@@ -52,7 +53,7 @@ class FactoryDatabaseTest {
    val product=dao.insertProduct(ProductEntity(name="Concurrent 500ml",sizeLabel="500ml",bottlesPerPack=100))
    dao.insertPacking(PackingEntryEntity(productId=product,productNameSnapshot="Concurrent 500ml",packingDate="2026-10-24",bottlesConsumed=100,completePacks=1,looseBottles=0))
    val requests=(1..2).map { index ->
-    kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+    async(kotlinx.coroutines.Dispatchers.IO) {
      runCatching {
       dao.postMultiLineDispatch(
        DispatchBatchEntity(idempotencyKey="concurrent-$index",dispatchReference="DSP-$index",dispatchDate="2026-10-24",customerNameSnapshot="Customer"),
@@ -64,7 +65,7 @@ class FactoryDatabaseTest {
    val results=requests.map { it.await() }
    assertEquals("Exactly one concurrent dispatch should succeed",1,results.count{it.isSuccess})
    assertEquals("Exactly one concurrent dispatch should be rejected",1,results.count{it.isFailure})
-   assertEquals(1,dao.totalDispatchedPacks(product))
+   assertEquals(1,dao.batchedDispatchedPacks(product))
   }
  }
  @Test fun packingRejectsUnconfiguredPackSizeAndMismatchedCalculation() {
