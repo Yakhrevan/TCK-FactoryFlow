@@ -197,6 +197,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Insert abstract suspend fun insertInventoryMovement(m:InventoryMovementEntity):Long
  @Insert(onConflict=OnConflictStrategy.IGNORE) abstract suspend fun enqueueSyncEvent(e:SyncOutboxEntity):Long
  @Query("SELECT * FROM sync_outbox WHERE status='PENDING' ORDER BY createdAt LIMIT :limit") abstract suspend fun pendingSyncEvents(limit:Int=50):List<SyncOutboxEntity>
+ @Query("SELECT * FROM sync_outbox ORDER BY createdAt DESC") abstract fun observeSyncOutbox():Flow<List<SyncOutboxEntity>>
  @Query("UPDATE sync_outbox SET attempts=attempts+1,lastError=:error WHERE id=:id") abstract suspend fun markSyncAttempt(id:Long,error:String)
  @Query("UPDATE sync_outbox SET status='SYNCED',syncedAt=:at,lastError='' WHERE id=:id") abstract suspend fun markSyncSynced(id:Long,at:Long)
  @Query("UPDATE sync_outbox SET status='NEEDS_REVIEW',lastError=:reason WHERE id=:id") abstract suspend fun markSyncNeedsReview(id:Long,reason:String)
