@@ -1,7 +1,7 @@
 package com.tck.factoryflow.auth
 
 enum class FactoryRole { OWNER, ADMIN, MANAGER, PRODUCTION_STAFF, PACKING_STAFF, STOREKEEPER, DISPATCH_STAFF, VIEWER }
-enum class FactoryAction { VIEW, CREATE_PRODUCTION, CREATE_PACKING, ADJUST_STOCK, POST_DISPATCH, REVERSE_DISPATCH, MANAGE_PRODUCTS, MANAGE_STAFF, EXPORT_REPORTS, CORRECT_RECORDS }
+enum class FactoryAction { VIEW, CREATE_PRODUCTION, CREATE_PACKING, ADJUST_STOCK, POST_DISPATCH, REVERSE_DISPATCH, MANAGE_PRODUCTS, MANAGE_STAFF, EXPORT_REPORTS, CORRECT_RECORDS, MANAGE_MACHINES, MANAGE_QUALITY, MANAGE_ORDERS, MANAGE_ELECTRICITY }
 
 object FactoryPermissions {
  fun allows(role:FactoryRole,action:FactoryAction):Boolean = when(role) {
@@ -11,7 +11,7 @@ object FactoryPermissions {
   FactoryRole.PRODUCTION_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PRODUCTION)
   FactoryRole.PACKING_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PACKING)
   FactoryRole.STOREKEEPER -> action in setOf(FactoryAction.VIEW,FactoryAction.ADJUST_STOCK,FactoryAction.MANAGE_PRODUCTS,FactoryAction.EXPORT_REPORTS)
-  FactoryRole.DISPATCH_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.POST_DISPATCH)
+  FactoryRole.DISPATCH_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.POST_DISPATCH,FactoryAction.MANAGE_ORDERS)
   FactoryRole.VIEWER -> action in setOf(FactoryAction.VIEW,FactoryAction.EXPORT_REPORTS)
  }
  fun fromClaim(claim:String):FactoryRole = when(claim.lowercase()) {
