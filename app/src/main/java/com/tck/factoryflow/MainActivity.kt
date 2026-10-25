@@ -522,29 +522,72 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 }
 @Composable private fun DispatchBatchForm(products:List<ProductEntity>,customers:List<CustomerEntity>,close:()->Unit,save:(CustomerEntity?,String,String,String,String,List<DispatchRequestLine>,String)->Unit){
  var customer by remember{mutableStateOf(customers.firstOrNull())}
- var date by remember{mutableStateOf(today())};var reference by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")}
+ var date by remember{mutableStateOf(today())}
+ var reference by remember{mutableStateOf("")}
+ var remarks by remember{mutableStateOf("")}
  var lines by remember{mutableStateOf(listOf(products.firstOrNull() to ""))}
+ var showReview by remember{mutableStateOf(false)}
  val key by remember{mutableStateOf(UUID.randomUUID().toString())}
  val parsed=lines.map{it.first to (it.second.toIntOrNull()?:0)}
- val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{it.first!=null&&it.second>0}
- AlertDialog(onDismissRequest=close,title={Text("Multi-product dispatch")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-  CustomerPicker(customers,customer){customer=it}
-  DateField(date){date=it}
-  OutlinedTextField(reference,{reference=it},label={Text("Dispatch / delivery reference")},singleLine=true,modifier=Modifier.fillMaxWidth())
-  Text("Dispatch items",fontWeight=FontWeight.Bold,color=Navy)
-  lines.forEachIndexed{index,line->
-   Surface(color=Page,shape=RoundedCornerShape(10.dp)){Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
-    ProductPicker(products,line.first){p->lines=lines.toMutableList().also{it[index]=p to line.second}}
-    Field("Packs",line.second){qty->lines=lines.toMutableList().also{it[index]=line.first to qty.filter(Char::isDigit)}}
-    if(lines.size>1)TextButton(onClick={lines=lines.filterIndexed{idx,_->idx!=index}}){Text("Remove item")}
-   }}
-  }
-  TextButton(onClick={lines=lines+ (products.firstOrNull() to "")},enabled=products.isNotEmpty()){Text("+ Add product line")}
-  OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")},modifier=Modifier.fillMaxWidth())
-  if(customers.isEmpty())Text("Add a customer first in the Customers section.",color=Color.Red,fontSize=12.sp)
- }},confirmButton={Button(enabled=valid,onClick={save(customer,customer?.name.orEmpty(),date,reference,remarks,parsed.map{DispatchRequestLine(it.first!!.id,it.second)},key)}){Text("Post dispatch")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+ val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{it.first!=null&&it.second>0}&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
+ val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(date)!=null}.getOrDefault(false)&&date.length==10
+ val totalPacks=parsed.sumOf{it.second}
+ val totalBottles=parsed.sumOf{(line,qty)->qty*(line?.bottlesPerPack?:0)}
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(if(showReview)"Review dispatch" else "New dispatch",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(showReview)"Confirm customer and quantities before posting." else "Prepare a delivery with one or more products.",fontSize=12.sp,color=Muted)}},
+  text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+   Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+    Surface(color=Color(0xFFFFF0E0),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.LocalShipping,null,tint=Color(0xFFD98523),modifier=Modifier.padding(10.dp))}
+    Column{Text(if(showReview)"Final check" else "Dispatch details",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Customer · Date · Products",fontSize=11.sp,color=Muted)}
+   }
+   if(!showReview){
+    CustomerPicker(customers,customer){customer=it}
+    if(customers.isEmpty())Text("Add a customer first in Customers.",color=Color(0xFFB42318),fontSize=11.sp)
+    DateField(date){date=it}
+    if(!dateValid)Text("Enter a valid date in YYYY-MM-DD format.",fontSize=11.sp,color=Color(0xFFB42318))
+    OutlinedTextField(reference,{reference=it},label={Text("Dispatch reference (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.ReceiptLong,null)})
+    Text("Dispatch items",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+    lines.forEachIndexed{index,line->
+     Surface(color=Page,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+      Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+       Row(verticalAlignment=Alignment.CenterVertically){Text("Item "+(index+1),Modifier.weight(1f),fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp);if(lines.size>1)TextButton(onClick={lines=lines.filterIndexed{idx,_->idx!=index}}){Text("Remove",color=Color(0xFFB42318))}}
+       ProductPicker(products,line.first){p->lines=lines.toMutableList().also{it[index]=p to line.second}}
+       Field("Number of packs",line.second){qty->lines=lines.toMutableList().also{it[index]=line.first to qty.filter(Char::isDigit).take(9)}}
+       val qty=line.second.toIntOrNull()?:0
+       if(line.first!=null&&qty>0){
+        val packSize=line.first!!.bottlesPerPack
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+         Text(if(packSize>0)"Estimated bottles" else "Pack size not configured",fontSize=10.sp,color=Muted)
+         if(packSize>0)Text((qty.toLong()*packSize).toString(),fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp)
+        }
+       }
+       if(line.first?.bottlesPerPack?.let{it<=0}==true)Text("Set this product's pack size before dispatch.",fontSize=11.sp,color=Color(0xFF9B5B00))
+      }
+     }
+    }
+    TextButton(onClick={lines=lines+(products.firstOrNull() to "")},enabled=products.isNotEmpty()){Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("Add another product")}
+    OutlinedTextField(remarks,{remarks=it},label={Text("Delivery notes (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+   }else{
+    Surface(color=Color(0xFFFFF0E0),shape=RoundedCornerShape(14.dp)){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+      Text("CUSTOMER",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Muted,letterSpacing=1.sp)
+      Text(customer?.name.orEmpty(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Dispatch date  ·  "+date,fontSize=12.sp,color=Muted)
+      HorizontalDivider(color=Border)
+      Text("ORDER SUMMARY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Muted,letterSpacing=1.sp)
+      parsed.forEach{(product,qty)->if(product!=null)Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(product.name,fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp);Text(if(product.bottlesPerPack>0)product.bottlesPerPack.toString()+" bottles per pack" else "Pack size not configured",fontSize=10.sp,color=Muted)};Text(qty.toString()+" packs",fontWeight=FontWeight.Bold,color=Navy)}}
+      HorizontalDivider(color=Border)
+      Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Total packs",fontSize=11.sp,color=Muted);Text(totalPacks.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)};Column(horizontalAlignment=Alignment.End){Text("Estimated bottles",fontSize=11.sp,color=Muted);Text(totalBottles.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFFD98523))}}
+      Text("Posting checks current stock and permissions. The dispatch is not saved until you confirm.",fontSize=11.sp,color=Muted)
+     }
+    }
+   }
+  }},
+  confirmButton={if(showReview)Button(enabled=valid&&dateValid,onClick={save(customer,customer?.name.orEmpty(),date,reference,remarks,parsed.map{DispatchRequestLine(it.first!!.id,it.second)},key)},shape=RoundedCornerShape(12.dp)){Text("Confirm & post")}else Button(enabled=valid&&dateValid&&parsed.all{it.first!!.bottlesPerPack>0},onClick={showReview=true},shape=RoundedCornerShape(12.dp)){Text("Review dispatch")}},
+  dismissButton={TextButton(onClick={if(showReview)showReview=false else close()}){Text(if(showReview)"Back to edit" else "Cancel")}}
+ )
 }
-
 @Composable private fun LoginForm(close:()->Unit,signIn:(String,String)->Unit){
  var email by remember{mutableStateOf("")};var password by remember{mutableStateOf("")}
  AlertDialog(onDismissRequest=close,title={Text("Factory staff sign-in")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Firebase must be configured for cloud accounts. Role and organisation are read from trusted Firebase custom claims.",fontSize=12.sp,color=Blue);OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true,modifier=Modifier.fillMaxWidth());OutlinedTextField(password,{password=it},label={Text("Password")},singleLine=true,visualTransformation=androidx.compose.ui.text.input.PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth())}},confirmButton={Button(enabled=email.isNotBlank()&&password.isNotBlank(),onClick={signIn(email.trim(),password)}){Text("Sign in")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
