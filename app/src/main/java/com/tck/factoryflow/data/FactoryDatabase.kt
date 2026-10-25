@@ -199,6 +199,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("SELECT * FROM sync_outbox WHERE status='PENDING' ORDER BY createdAt LIMIT :limit") abstract suspend fun pendingSyncEvents(limit:Int=50):List<SyncOutboxEntity>
  @Query("UPDATE sync_outbox SET attempts=attempts+1,lastError=:error WHERE id=:id") abstract suspend fun markSyncAttempt(id:Long,error:String)
  @Query("UPDATE sync_outbox SET status='SYNCED',syncedAt=:at,lastError='' WHERE id=:id") abstract suspend fun markSyncSynced(id:Long,at:Long)
+ @Query("UPDATE sync_outbox SET status='NEEDS_REVIEW',lastError=:reason WHERE id=:id") abstract suspend fun markSyncNeedsReview(id:Long,reason:String)
  @Query("SELECT * FROM machines ORDER BY name COLLATE NOCASE") abstract fun observeMachines():Flow<List<MachineEntity>>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertMachine(e:MachineEntity):Long
  @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineDetails(id:Long,name:String,type:String,location:String,notes:String,at:Long=System.currentTimeMillis())
