@@ -87,13 +87,22 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data -no-metrics
           script: |
             set +e
+            adb wait-for-device
+            adb shell getprop sys.boot_completed
+            adb logcat -c
             gradle connectedDebugAndroidTest
             test_exit=$?
             if [ "$test_exit" -ne 0 ]; then
               echo "===== ANDROID LOGCAT: FATAL / CRASH / ROOM ====="
-              adb logcat -d -v threadtime | grep -E -i "FATAL EXCEPTION|AndroidRuntime|Process:|CRASH|SQLite|Room|Instrumentation|am_crash|am_anr" | tail -n 300 || true
+              adb logcat -d -v threadtime | tail -n 1200 || true
+              echo "===== DEVICE AND PACKAGE STATE ====="
+              adb shell getprop ro.build.version.release || true
+              adb shell pm list instrumentation || true
+              adb shell dumpsys activity processes || true
               echo "===== TEST REPORT FILES ====="
               find app/build/reports/androidTests app/build/outputs/androidTest-results -type f 2>/dev/null | sort || true
             fi
