@@ -33,7 +33,7 @@ class FactoryDatabaseTest {
   kotlinx.coroutines.runBlocking {
    val product=dao.insertProduct(ProductEntity(name="500ml",sizeLabel="500ml",bottlesPerPack=100))
    dao.insertPacking(PackingEntryEntity(productId=product,productNameSnapshot="500ml",packingDate="2026-10-24",bottlesConsumed=300,completePacks=3,looseBottles=0))
-   val batch=DispatchBatchEntity(idempotencyKey="same-key",dispatchReference="DSP-1",dispatchDate="2026-10-24",customerNameSnapshot="Nachiyar Cooldrinks")
+   val batch=DispatchBatchEntity(idempotencyKey="same-key",dispatchReference="DSP-1",dispatchDate="2026-10-24",customerId=null,customerNameSnapshot="Nachiyar Cooldrinks")
    val lines=listOf(DispatchRequestLine(product,1))
    val first=dao.postMultiLineDispatch(batch,lines,"org-test","tester")
    val second=dao.postMultiLineDispatch(batch,lines,"org-test","tester")
@@ -44,7 +44,7 @@ class FactoryDatabaseTest {
  @Test fun insufficientFinishedStockRejected() {
   kotlinx.coroutines.runBlocking {
    val product=dao.insertProduct(ProductEntity(name="1L",sizeLabel="1L",bottlesPerPack=100))
-   val batch=DispatchBatchEntity(idempotencyKey="too-many",dispatchReference="DSP-2",dispatchDate="2026-10-24",customerNameSnapshot="Customer")
+   val batch=DispatchBatchEntity(idempotencyKey="too-many",dispatchReference="DSP-2",dispatchDate="2026-10-24",customerId=null,customerNameSnapshot="Customer")
    assertThrows(IllegalStateException::class.java){ kotlinx.coroutines.runBlocking { dao.postMultiLineDispatch(batch,listOf(DispatchRequestLine(product,1)),"org-test","tester") } }
   }
  }
@@ -56,7 +56,7 @@ class FactoryDatabaseTest {
     async(kotlinx.coroutines.Dispatchers.IO) {
      runCatching {
       dao.postMultiLineDispatch(
-       DispatchBatchEntity(idempotencyKey="concurrent-$index",dispatchReference="DSP-$index",dispatchDate="2026-10-24",customerNameSnapshot="Customer"),
+       DispatchBatchEntity(idempotencyKey="concurrent-$index",dispatchReference="DSP-$index",dispatchDate="2026-10-24",customerId=null,customerNameSnapshot="Customer"),
        listOf(DispatchRequestLine(product,1)),"org-test","tester"
       )
      }
