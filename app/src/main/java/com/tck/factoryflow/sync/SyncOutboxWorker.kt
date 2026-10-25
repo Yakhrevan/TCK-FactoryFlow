@@ -45,7 +45,7 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
     val reason=e.message?.take(500)?:e.javaClass.simpleName
     if(reason.contains("Idempotency conflict",ignoreCase=true)) dao.markSyncNeedsReview(event.id,reason)
     else { dao.markSyncAttempt(event.id,reason); failed=true }
-   }}
+   }
   }
   return if(failed) Result.retry() else Result.success()
  }
