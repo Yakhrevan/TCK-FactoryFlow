@@ -535,6 +535,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  if(dialog=="meter")MeterForm({dialog=""}){d,m,s,e,r->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"};val used=ElectricityRules.consumption(s,e);dao.insertMeterReading(MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r));"Reading saved: "+used+" units"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
 }
 
+}
 
 @Composable private fun MachineForm(close:()->Unit,save:(String,String,String,String,String)->Unit){
  var code by remember{mutableStateOf("")};var name by remember{mutableStateOf("")};var type by remember{mutableStateOf("Filling")};var location by remember{mutableStateOf("")};var notes by remember{mutableStateOf("")}
