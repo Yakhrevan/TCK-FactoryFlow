@@ -588,7 +588,8 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 @Composable private fun Field(label:String,value:String,onChange:(String)->Unit,decimal:Boolean){OutlinedTextField(value,onChange,label={Text(label)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=if(decimal)KeyboardType.Decimal else KeyboardType.Number),modifier=Modifier.fillMaxWidth())}
 @Composable private fun DateField(value:String,onChange:(String)->Unit){OutlinedTextField(value,onChange,label={Text("Date (yyyy-MM-dd)")},singleLine=true,modifier=Modifier.fillMaxWidth())}
 @Composable private fun ProductPicker(products:List<ProductEntity>,selected:ProductEntity?,onSelect:(ProductEntity?)->Unit){var expanded by remember{mutableStateOf(false)};Box{OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(selected?.name?:"Select product")};DropdownMenu(expanded=expanded,onDismissRequest={expanded=false}){products.forEach{p->DropdownMenuItem(text={Text(p.name)},onClick={onSelect(p).let{expanded=false}})}}}}
-@OptIn(ExperimentalMaterial3Api::class)\n@Composable private fun ProductForm(initial:ProductEntity?,close:()->Unit,save:(String,String,String,Int)->Unit){
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun ProductForm(initial:ProductEntity?,close:()->Unit,save:(String,String,String,Int)->Unit){
  var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
  var size by remember(initial?.id){mutableStateOf(initial?.sizeLabel.orEmpty())}
  var colour by remember(initial?.id){mutableStateOf(initial?.colour?:"Clear")}
