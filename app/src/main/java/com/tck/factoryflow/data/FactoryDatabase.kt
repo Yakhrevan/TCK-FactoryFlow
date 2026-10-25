@@ -125,7 +125,13 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
   }
   val result=postMultiLineDispatch(batch.copy(salesOrderId=order.id),merged,organisationId,actorId)
   val current=salesOrderLinesForOrder(order.id)
-  val updated=current.map{item->item.copy(packsDispatched=postedPacksForOrderProduct(order.id,item.productId))}
+  val remainingByProduct=mutableMapOf<Long,Int>()
+  val updated=current.map{item->
+   val remaining=remainingByProduct.getOrPut(item.productId){postedPacksForOrderProduct(order.id,item.productId)}
+   val allocated=minOf(item.packsOrdered,remaining.coerceAtLeast(0))
+   remainingByProduct[item.productId]=(remaining-allocated).coerceAtLeast(0)
+   item.copy(packsDispatched=allocated)
+  }
   updated.forEach{setSalesOrderLineFulfilled(it.id,it.packsDispatched.coerceAtMost(it.packsOrdered))}
   val totalOrdered=updated.sumOf{it.packsOrdered};val totalDispatched=updated.sumOf{it.packsDispatched}
   updateSalesOrderStatus(order.id,when{totalOrdered>0&&totalDispatched>=totalOrdered->"FULFILLED";totalDispatched>0->"PARTIAL";else->"OPEN"})
