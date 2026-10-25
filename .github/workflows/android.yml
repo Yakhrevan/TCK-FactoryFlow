@@ -87,4 +87,23 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_2
-          script: gradle connectedDebugAndroidTest
+          script: |
+            set +e
+            gradle connectedDebugAndroidTest
+            test_exit=$?
+            if [ "$test_exit" -ne 0 ]; then
+              echo "===== ANDROID LOGCAT: FATAL / CRASH / ROOM ====="
+              adb logcat -d -v threadtime | grep -E -i "FATAL EXCEPTION|AndroidRuntime|Process:|CRASH|SQLite|Room|Instrumentation|am_crash|am_anr" | tail -n 300 || true
+              echo "===== TEST REPORT FILES ====="
+              find app/build/reports/androidTests app/build/outputs/androidTest-results -type f 2>/dev/null | sort || true
+            fi
+            exit "$test_exit"
+      - name: Upload instrumentation reports and crash logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumentation-diagnostics
+          path: |
+            app/build/reports/androidTests/connected/debug/**
+            app/build/outputs/androidTest-results/connected/**
+          if-no-files-found: warn
