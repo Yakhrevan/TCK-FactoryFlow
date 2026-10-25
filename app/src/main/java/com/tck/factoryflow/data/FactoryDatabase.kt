@@ -175,6 +175,8 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("SELECT * FROM sales_orders ORDER BY orderDate DESC,createdAt DESC") abstract fun observeSalesOrders():Flow<List<SalesOrderEntity>>
  @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
  @Query("UPDATE sales_order_lines SET packsDispatched=:packs WHERE id=:id AND :packs>=0 AND :packs<=packsOrdered") abstract suspend fun setOrderLineFulfilled(id:Long,packs:Int):Int
+ @Query("SELECT * FROM sales_order_lines WHERE productId=:productId AND orderId IN (SELECT id FROM sales_orders WHERE customerId=:customerId AND status IN ('OPEN','PARTIAL')) ORDER BY createdAt,id") abstract suspend fun openSalesOrderLines(customerId:Long,productId:Long):List<SalesOrderLineEntity>
+ @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId ORDER BY id") abstract suspend fun salesOrderLinesForOrder(orderId:Long):List<SalesOrderLineEntity>
  @Query("UPDATE sales_orders SET status=:status WHERE id=:id") abstract suspend fun updateSalesOrderStatus(id:Long,status:String)
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertSalesOrder(e:SalesOrderEntity):Long
  @Insert abstract suspend fun insertSalesOrderLines(e:List<SalesOrderLineEntity>)
@@ -203,6 +205,25 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
   if(id<0){val existing=batchByIdempotencyKey(batch.idempotencyKey)?:error("Duplicate dispatch key could not be resolved");return DispatchPostResult(existing.id,existing.dispatchReference,linesForBatch(existing.id).size)}
   val rows=resolved.map{r->DispatchLineEntity(batchId=id,productId=r.first.id,productNameSnapshot=r.first.name,packSizeSnapshot=r.first.bottlesPerPack,packs=r.second,bottles=r.second*r.first.bottlesPerPack)}
   insertDispatchLines(rows)
+  // Automatically allocate dispatched packs to this customer's oldest open matching orders.
+  if(batch.customerId!=null){
+   rows.forEach{dispatchLine->
+    var remaining=dispatchLine.packs
+    val openLines=openSalesOrderLines(batch.customerId,dispatchLine.productId)
+    openLines.forEach{orderLine->
+     if(remaining>0){
+      val stillNeeded=(orderLine.packsOrdered-orderLine.packsDispatched).coerceAtLeast(0)
+      val allocation=minOf(remaining,stillNeeded)
+      if(allocation>0){setOrderLineFulfilled(orderLine.id,orderLine.packsDispatched+allocation);remaining-=allocation}
+     }
+    }
+    openLines.map{it.orderId}.distinct().forEach{orderId->
+     val current=salesOrderLinesForOrder(orderId)
+     val ordered=current.sumOf{it.packsOrdered};val fulfilled=current.sumOf{it.packsDispatched}
+     updateSalesOrderStatus(orderId,when{ordered>0&&fulfilled>=ordered->"FULFILLED";fulfilled>0->"PARTIAL";else->"OPEN"})
+    }
+   }
+  }
   rows.forEach{line->insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_OUT",quantity=-line.packs,unit="PACK",sourceType="dispatch",sourceId=id.toString(),note=batch.dispatchReference,actorId=actorId))}
   val payload=JSONArray();rows.forEach{line->payload.put(JSONObject().put("productId",line.productId).put("productName",line.productNameSnapshot).put("packs",line.packs).put("bottles",line.bottles))}
   insertAudit(AuditEventEntity(eventType="DISPATCH_POSTED",entityType="dispatch",entityId=id.toString(),afterJson=payload.toString(),reason="Dispatch posted",actorId=actorId))
