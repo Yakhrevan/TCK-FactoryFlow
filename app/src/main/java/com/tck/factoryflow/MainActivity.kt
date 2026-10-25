@@ -124,7 +124,27 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    }
   }
  }
- PageTab.PRODUCTION->ListScreen("Production",production.map{Triple(it.productNameSnapshot,"Produced "+it.producedBottles+" · Good "+it.goodBottles+" · Reject "+it.rejectedBottles,it.productionDate)}, {dialog="production"})
+ PageTab.PRODUCTION->{
+  val todayRows=production.filter{it.productionDate==date}
+  val total=todayRows.sumOf{it.producedBottles};val goodToday=todayRows.sumOf{it.goodBottles};val rejectToday=todayRows.sumOf{it.rejectedBottles}
+  LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("SHOP FLOOR",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Production",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Record and review each production run",fontSize=12.sp,color=Muted)};Button(onClick={dialog="production"},shape=RoundedCornerShape(14.dp)){Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("New run")}}}
+   item{Surface(color=Navy,shape=RoundedCornerShape(20.dp)){Column(Modifier.fillMaxWidth().padding(17.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("TODAY'S OUTPUT",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(total.toString()+" bottles",fontSize=30.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);LinearProgressIndicator(progress={if(total>0)goodToday.toFloat()/total else 0f},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF35C38B),trackColor=Color(0xFF35516E));Row(horizontalArrangement=Arrangement.SpaceBetween,modifier=Modifier.fillMaxWidth()){Text("Good  $goodToday",fontSize=12.sp,color=Color.White);Text("Rejected  $rejectToday",fontSize=12.sp,color=Color(0xFFFFC56B))}}}}
+   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric("Production runs",todayRows.size.toString(),Modifier.weight(1f));Metric("Reject rate",String.format(Locale.US,"%.1f%%",if(total>0)rejectToday*100.0/total else 0.0),Modifier.weight(1f))}}
+   item{Text("Production history",fontSize=19.sp,fontWeight=FontWeight.Bold,color=Navy)}
+   if(production.isEmpty())item{EmptyDashboardState("No production recorded","Create a production run to start tracking output.",Icons.Default.Build)}
+   items(production,key={it.id}){entry->
+    Surface(color=Color.White,shape=RoundedCornerShape(17.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Build,null,tint=Blue,modifier=Modifier.padding(10.dp).size(22.dp))};Column(Modifier.weight(1f).padding(start=10.dp)){Text(entry.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(entry.productionDate+" · "+entry.machineName,fontSize=11.sp,color=Muted)};Text("SAVED",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color(0xFF16804A))}
+      HorizontalDivider(color=Border)
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Produced",entry.producedBottles,Modifier.weight(1f));StockMiniMetric("Good",entry.goodBottles,Modifier.weight(1f));StockMiniMetric("Rejected",entry.rejectedBottles,Modifier.weight(1f))}
+      if(entry.remarks.isNotBlank())Text(entry.remarks,fontSize=12.sp,color=Muted)
+     }
+    }
+   }
+  }
+ }
  PageTab.PACKING->Column(Modifier.fillMaxSize().padding(16.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text("Packing / Finishing",Modifier.weight(1f),fontSize=21.sp,fontWeight=FontWeight.Bold,color=Navy);Button(onClick={dialog="packing"}){Text("+ Packing")}};LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(packing){entry->Column{Record(entry.productNameSnapshot,entry.completePacks.toString()+" packs · "+entry.looseBottles+" loose bottles",entry.packingDate);if(session?.role?.let { it in setOf("owner","admin","manager") } == true)TextButton(onClick={reversalPackingId=entry.id;dialog="reversePacking"}){Text("Reverse packing entry")}}}}}
  PageTab.DISPATCH->Column(Modifier.fillMaxSize().padding(16.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text("Delivery / Dispatch",Modifier.weight(1f),fontSize=21.sp,fontWeight=FontWeight.Bold,color=Navy);Button(onClick={dialog="dispatch"}){Text("+ Dispatch")}};LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(dispatchBatches){batch->Surface(color=Color.White,shape=RoundedCornerShape(12.dp)){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(batch.customerNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(dispatchLines.filter{it.batchId==batch.id}.joinToString(" · "){it.productNameSnapshot+" × "+it.packs+" packs"},fontSize=12.sp,color=Blue);Text(batch.dispatchDate+" · "+batch.dispatchReference+" · "+batch.status,fontSize=10.sp,color=Color.Gray);if(batch.status=="POSTED"&&(session==null||session?.role in setOf("owner","admin","manager")))TextButton(onClick={reversalBatchId=batch.id;dialog="reverse"}){Text("Reverse dispatch")}}}};items(dispatches){e->Record(e.customerName,e.productNameSnapshot+" · "+e.packsDispatched+" packs",e.dispatchDate+" · "+e.dispatchReference)}}}
  PageTab.ELECTRICITY->ListScreen("Electricity",meters.map{Triple(it.meterId,it.consumption.toString()+" units",it.readingDate)}, {dialog="meter"})
