@@ -71,7 +71,7 @@ class MainActivity:ComponentActivity(){
 private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECTRICITY,REPORTS,CUSTOMERS}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun FactoryApp(dao:FactoryDao){
- var tab by remember{mutableStateOf(PageTab.HOME)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope()
+ var tab by remember{mutableStateOf(PageTab.HOME)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope()
  val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
  val context=LocalContext.current
  LaunchedEffect(context){session=runCatching{FactoryAuthRepository(context).currentSession()}.getOrNull()}
@@ -321,8 +321,19 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    item{Text("INVENTORY CONTROL",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Finished stock",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Packed goods ready for dispatch",fontSize=12.sp,color=Muted)}
    item{Surface(color=Navy,shape=RoundedCornerShape(22.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("TOTAL AVAILABLE PACKS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(totalAvailable.toString(),fontSize=36.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text(active.size.toString()+" active product types",fontSize=12.sp,color=Color(0xFFD4E2F0))}}}
    item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric("Packed",totalPacked.values.sum().toString(),Modifier.weight(1f));Metric("Dispatched",(legacyDispatched.values.sum()+batchedDispatched.values.sum()).toString(),Modifier.weight(1f))}}
+   item{
+    val configuredCount=active.count{it.bottlesPerPack>0}
+    val lowCount=active.count{p->((totalPacked[p.id]?:0)-(legacyDispatched[p.id]?:0)-(batchedDispatched[p.id]?:0)).coerceAtLeast(0)<=5}
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     Surface(Modifier.weight(1f),color=Color(0xFFE8F7F0),shape=RoundedCornerShape(14.dp)){Column(Modifier.padding(12.dp)){Text("Configured products",fontSize=10.sp,color=Muted);Text(configuredCount.toString()+" / "+active.size,fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF16804A))}}
+     Surface(Modifier.weight(1f),color=if(lowCount>0)Color(0xFFFFF3DE) else Color(0xFFE8F7F0),shape=RoundedCornerShape(14.dp)){Column(Modifier.padding(12.dp)){Text("Low-stock alerts",fontSize=10.sp,color=Muted);Text(lowCount.toString(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=if(lowCount>0)Color(0xFF9B5B00) else Color(0xFF16804A))}}
+    }
+   }
+   item{OutlinedTextField(stockSearch,{stockSearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(15.dp),leadingIcon={Icon(Icons.Default.Search,null)},placeholder={Text("Search product or bottle colour")},label={Text("Find stock")})}
    item{Text("Stock by product",fontSize=19.sp,fontWeight=FontWeight.Bold,color=Navy)}
-   items(active,key={it.id}){p->
+   val shownStock=active.filter{(it.name+" "+it.sizeLabel+" "+it.colour).contains(stockSearch,true)}
+   if(shownStock.isEmpty())item{EmptyDashboardState("No matching stock","Try another product name, size or colour.",Icons.Default.Search)}
+   items(shownStock,key={it.id}){p->
     val packedCount=totalPacked[p.id]?:0
     val sent=(legacyDispatched[p.id]?:0)+(batchedDispatched[p.id]?:0)
     val available=(packedCount-sent).coerceAtLeast(0)
