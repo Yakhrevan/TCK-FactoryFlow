@@ -346,7 +346,11 @@ abstract class FactoryDatabase:RoomDatabase(){
    override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
     db.execSQL("CREATE TABLE IF NOT EXISTS production_lines (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,lineCode TEXT NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL,status TEXT NOT NULL,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL)")
     db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_production_lines_lineCode ON production_lines(lineCode)")
-    db.execSQL("ALTER TABLE machines ADD COLUMN lineId INTEGER")
+    db.execSQL("CREATE TABLE IF NOT EXISTS machines_new (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,machineCode TEXT NOT NULL,name TEXT NOT NULL,machineType TEXT NOT NULL,location TEXT NOT NULL,status TEXT NOT NULL,notes TEXT NOT NULL,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL,lineId INTEGER,FOREIGN KEY(lineId) REFERENCES production_lines(id) ON DELETE SET NULL)")
+    db.execSQL("INSERT INTO machines_new (id,machineCode,name,machineType,location,status,notes,createdAt,updatedAt,lineId) SELECT id,machineCode,name,machineType,location,status,notes,createdAt,updatedAt,NULL FROM machines")
+    db.execSQL("DROP TABLE machines")
+    db.execSQL("ALTER TABLE machines_new RENAME TO machines")
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_machines_machineCode ON machines(machineCode)")
     db.execSQL("CREATE INDEX IF NOT EXISTS index_machines_lineId ON machines(lineId)")
    }
   }
