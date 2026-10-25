@@ -323,14 +323,14 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_orderId ON sales_order_lines(orderId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_productId ON sales_order_lines(productId)")
    }
   }
-  private val MIGRATION_4_5=object:Migration(4,5){
+  internal val MIGRATION_4_5=object:Migration(4,5){
    override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
     db.execSQL("ALTER TABLE machine_events ADD COLUMN completionNotes TEXT NOT NULL DEFAULT ''")
     db.execSQL("ALTER TABLE machine_events ADD COLUMN partsUsed TEXT NOT NULL DEFAULT ''")
     db.execSQL("ALTER TABLE machine_events ADD COLUMN completedBy TEXT NOT NULL DEFAULT ''")
    }
   }
-  private val MIGRATION_3_4=object:Migration(3,4){
+  internal val MIGRATION_3_4=object:Migration(3,4){
    override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
     db.execSQL("ALTER TABLE dispatch_batches ADD COLUMN salesOrderId INTEGER")
     db.execSQL("CREATE INDEX IF NOT EXISTS index_dispatch_batches_salesOrderId ON dispatch_batches(salesOrderId)")
