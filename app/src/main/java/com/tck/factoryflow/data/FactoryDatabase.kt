@@ -240,7 +240,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
   val rows=resolved.map{r->DispatchLineEntity(batchId=id,productId=r.first.id,productNameSnapshot=r.first.name,packSizeSnapshot=r.first.bottlesPerPack,packs=r.second,bottles=r.second*r.first.bottlesPerPack)}
   insertDispatchLines(rows)
   // Automatically allocate dispatched packs to this customer's oldest open matching orders.
-  if(batch.customerId!=null){
+  if(batch.customerId!=null&&batch.salesOrderId==null){
    rows.forEach{dispatchLine->
     var remaining=dispatchLine.packs
     val openLines=openSalesOrderLines(batch.customerId,dispatchLine.productId)
