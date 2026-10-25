@@ -326,6 +326,7 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_dispatch_batches_salesOrderId ON dispatch_batches(salesOrderId)")
    }
   }
+  fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
   fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4).build().also{instance=it}}
  }
 }
