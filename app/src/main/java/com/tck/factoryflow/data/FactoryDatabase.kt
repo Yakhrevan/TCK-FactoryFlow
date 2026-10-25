@@ -102,6 +102,38 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun totalDispatchedPacks(id:Long):Int
  @Insert abstract suspend fun insertDispatch(e:DispatchEntryEntity):Long
  @Query("SELECT * FROM dispatch_batches ORDER BY dispatchDate DESC,createdAt DESC") abstract fun observeDispatchBatches():Flow<List<DispatchBatchEntity>>
+ @Query("SELECT * FROM sales_orders WHERE status IN ('OPEN','PARTIAL') ORDER BY dueDate,orderDate") abstract fun observeOpenSalesOrders():Flow<List<SalesOrderEntity>>
+ @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId ORDER BY id") abstract fun observeSalesOrderLinesForOrder(orderId:Long):Flow<List<SalesOrderLineEntity>>
+ @Query("SELECT * FROM dispatch_batches WHERE salesOrderId=:orderId AND status='POSTED' ORDER BY createdAt DESC") abstract fun observeDispatchesForOrder(orderId:Long):Flow<List<DispatchBatchEntity>>
+ @Query("SELECT COALESCE(SUM(packs),0) FROM dispatch_lines WHERE batchId IN (SELECT id FROM dispatch_batches WHERE salesOrderId=:orderId AND status='POSTED') AND productId=:productId") abstract fun postedPacksForOrderProduct(orderId:Long,productId:Long):Int
+ @Query("UPDATE sales_order_lines SET packsDispatched=:packs WHERE id=:lineId AND :packs>=0 AND :packs<=packsOrdered") abstract suspend fun setSalesOrderLineFulfilled(lineId:Long,packs:Int):Int
+ @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId ORDER BY id") abstract suspend fun salesOrderLinesForOrder(orderId:Long):List<SalesOrderLineEntity>
+ @Transaction open suspend fun postSalesOrderDispatch(batch:DispatchBatchEntity,requestedLines:List<DispatchRequestLine>,organisationId:String,actorId:String):DispatchPostResult {
+  require(batch.salesOrderId!=null){"Select a sales order before dispatch"}
+  val order=salesOrderById(batch.salesOrderId)?:error("Sales order not found")
+  require(order.customerId==batch.customerId){"Dispatch customer does not match selected order"}
+  require(order.status!="CANCELLED"&&order.status!="FULFILLED"){"Order is not open for dispatch"}
+  val orderLines=salesOrderLinesForOrder(order.id)
+  require(orderLines.isNotEmpty()){"Sales order has no product lines"}
+  val merged=requestedLines.groupBy{it.productId}.map{(id,lines)->DispatchRequestLine(id,lines.sumOf{it.packs})}
+  require(merged.isNotEmpty()&&merged.all{it.packs>0}){"Dispatch quantities must be positive"}
+  merged.forEach{item->
+   val ordered=orderLines.filter{it.productId==item.productId}.sumOf{it.packsOrdered}
+   val already=postedPacksForOrderProduct(order.id,item.productId)
+   require(ordered>0){"Product is not part of this order"}
+   require(item.packs<=ordered-already){"Dispatch exceeds remaining order quantity"}
+  }
+  val result=postMultiLineDispatch(batch.copy(salesOrderId=order.id),merged,organisationId,actorId)
+  val current=salesOrderLinesForOrder(order.id)
+  val updated=current.map{item->item.copy(packsDispatched=postedPacksForOrderProduct(order.id,item.productId))}
+  updated.forEach{setSalesOrderLineFulfilled(it.id,it.packsDispatched.coerceAtMost(it.packsOrdered))}
+  val totalOrdered=updated.sumOf{it.packsOrdered};val totalDispatched=updated.sumOf{it.packsDispatched}
+  updateSalesOrderStatus(order.id,when{totalOrdered>0&&totalDispatched>=totalOrdered->"FULFILLED";totalDispatched>0->"PARTIAL";else->"OPEN"})
+  insertAudit(AuditEventEntity(eventType="ORDER_DISPATCH_LINKED",entityType="sales_order",entityId=order.id.toString(),afterJson="dispatchId=${result.batchId},reference=${batch.dispatchReference}",reason="Dispatch posted against explicit sales order",actorId=actorId))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="order-dispatch-link:"+order.id+":"+result.batchId,organisationId=organisationId,eventType="ORDER_DISPATCH_LINKED",payloadJson=JSONObject().put("orderId",order.id).put("dispatchId",result.batchId).put("dispatchReference",batch.dispatchReference).toString()))
+  return result
+ }
+
  @Query("SELECT * FROM dispatch_lines WHERE batchId=:id") abstract suspend fun linesForBatch(id:Long):List<DispatchLineEntity>
  @Query("SELECT * FROM dispatch_lines ORDER BY createdAt DESC") abstract fun observeDispatchLines():Flow<List<DispatchLineEntity>>
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun legacyDispatchedPacks(id:Long):Int
@@ -174,6 +206,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Insert abstract suspend fun insertProductionPlan(e:ProductionPlanEntity):Long
  @Query("UPDATE production_plans SET status=:status WHERE id=:id") abstract suspend fun updateProductionPlanStatus(id:Long,status:String)
  @Query("SELECT * FROM sales_orders ORDER BY orderDate DESC,createdAt DESC") abstract fun observeSalesOrders():Flow<List<SalesOrderEntity>>
+ @Query("SELECT * FROM sales_orders WHERE id=:id LIMIT 1") abstract suspend fun salesOrderById(id:Long):SalesOrderEntity?
  @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
  @Query("UPDATE sales_order_lines SET packsDispatched=:packs WHERE id=:id AND :packs>=0 AND :packs<=packsOrdered") abstract suspend fun setOrderLineFulfilled(id:Long,packs:Int):Int
  @Query("SELECT * FROM sales_order_lines WHERE productId=:productId AND orderId IN (SELECT id FROM sales_orders WHERE customerId=:customerId AND status IN ('OPEN','PARTIAL')) ORDER BY createdAt,id") abstract suspend fun openSalesOrderLines(customerId:Long,productId:Long):List<SalesOrderLineEntity>
