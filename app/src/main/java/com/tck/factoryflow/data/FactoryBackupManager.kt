@@ -10,7 +10,7 @@ import java.io.FileOutputStream
 /** Consistent, validated SQLite snapshots with rollback on failed restore validation. */
 object FactoryBackupManager {
     private const val DATABASE_NAME = "factoryflow.db"
-    private const val CURRENT_SCHEMA = 4
+    private const val CURRENT_SCHEMA = 5
 
     fun exportSnapshot(context: Context, destination: Uri) {
         val database = FactoryDatabase.get(context)
