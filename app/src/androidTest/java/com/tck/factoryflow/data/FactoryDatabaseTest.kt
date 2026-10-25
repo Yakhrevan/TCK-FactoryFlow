@@ -94,4 +94,48 @@ class FactoryDatabaseTest {
   }
  }
 
+ @Test fun explicitOrderDispatchLinksAndReconcilesFulfilment() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Order 500ml",sizeLabel="500ml",bottlesPerPack=10))
+   val customer=dao.insertCustomer(CustomerEntity(name="Order Customer",phone="",address="",gstNumber=""))
+   dao.insertProduction(ProductionEntryEntity(productId=product,productNameSnapshot="Order 500ml",productionDate="2026-10-25",producedBottles=50,goodBottles=50,rejectedBottles=0))
+   dao.postPacking(PackingEntryEntity(productId=product,productNameSnapshot="Order 500ml",packingDate="2026-10-25",bottlesConsumed=50,completePacks=5,looseBottles=0),"org-test","tester")
+   val orderId=dao.insertSalesOrder(SalesOrderEntity(orderNumber="SO-TEST-1",customerId=customer,customerNameSnapshot="Order Customer",orderDate="2026-10-25",dueDate="2026-10-28"))
+   val lineId=dao.insertSalesOrderLines(listOf(SalesOrderLineEntity(orderId=orderId,productId=product,productNameSnapshot="Order 500ml",packsOrdered=3,packSizeSnapshot=10))).let{dao.salesOrderLinesForOrder(orderId).single().id}
+   val result=dao.postSalesOrderDispatch(DispatchBatchEntity(idempotencyKey="order-dispatch-1",dispatchReference="DSP-ORDER-1",dispatchDate="2026-10-25",customerId=customer,customerNameSnapshot="Order Customer",salesOrderId=orderId),listOf(DispatchRequestLine(product,2)),"org-test","tester")
+   assertEquals(orderId,dao.dispatchBatchById(result.batchId)!!.salesOrderId)
+   assertEquals(2,dao.salesOrderLinesForOrder(orderId).single{it.id==lineId}.packsDispatched)
+   assertEquals("PARTIAL",dao.salesOrderById(orderId)!!.status)
+   assertThrows(IllegalArgumentException::class.java) {
+    kotlinx.coroutines.runBlocking {
+     dao.postSalesOrderDispatch(DispatchBatchEntity(idempotencyKey="order-dispatch-over",dispatchReference="DSP-ORDER-2",dispatchDate="2026-10-25",customerId=customer,customerNameSnapshot="Order Customer",salesOrderId=orderId),listOf(DispatchRequestLine(product,2)),"org-test","tester")
+    }
+   }
+  }
+ }
+ @Test fun machineEventCloseStoresCompletionAndParts() {
+  kotlinx.coroutines.runBlocking {
+   val machineId=dao.insertMachine(MachineEntity(machineCode="FILL-01",name="Filling Machine",machineType="Filling"))
+   val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=machineId,machineNameSnapshot="Filling Machine",eventType="MAINTENANCE",startedAt=System.currentTimeMillis()-3600000,reason="Routine maintenance",maintenanceType="Preventive maintenance",performedBy="tester"))
+   assertEquals(1,dao.closeMachineEvent(eventId,completionNotes="Seal replaced and tested",partsUsed="Silicone seal",completedBy="tester"))
+   val saved=dao.observeMachineEvents().first().single()
+   assertEquals("CLOSED",saved.status)
+   assertEquals("Seal replaced and tested",saved.completionNotes)
+   assertEquals("Silicone seal",saved.partsUsed)
+   assertEquals("tester",saved.completedBy)
+   assertNotNull(saved.endedAt)
+  }
+ }
+ @Test fun qualityInspectionLinksToProductionBatchWithoutChangingProductionRejects() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Quality 300ml",sizeLabel="300ml",bottlesPerPack=20))
+   val productionId=dao.insertProduction(ProductionEntryEntity(productId=product,productNameSnapshot="Quality 300ml",productionDate="2026-10-25",producedBottles=100,goodBottles=95,rejectedBottles=5))
+   dao.insertQualityInspection(QualityInspectionEntity(productionEntryId=productionId,productId=product,productNameSnapshot="Quality 300ml",inspectionDate="2026-10-25",inspectedBottles=10,passedBottles=8,failedBottles=2,defectCategory="Leakage",severity="MAJOR",inspectorId="tester"))
+   val inspection=dao.observeQualityInspections().first().single()
+   assertEquals(productionId,inspection.productionEntryId)
+   assertEquals(2,inspection.failedBottles)
+   assertEquals(5,dao.totalRejectedBottles(product))
+  }
+ }
+
 }
