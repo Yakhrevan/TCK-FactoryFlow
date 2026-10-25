@@ -219,7 +219,6 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
  @Query("UPDATE sales_order_lines SET packsDispatched=:packs WHERE id=:id AND :packs>=0 AND :packs<=packsOrdered") abstract suspend fun setOrderLineFulfilled(id:Long,packs:Int):Int
  @Query("SELECT * FROM sales_order_lines WHERE productId=:productId AND orderId IN (SELECT id FROM sales_orders WHERE customerId=:customerId AND status IN ('OPEN','PARTIAL')) ORDER BY createdAt,id") abstract suspend fun openSalesOrderLines(customerId:Long,productId:Long):List<SalesOrderLineEntity>
- @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId ORDER BY id") abstract suspend fun salesOrderLinesForOrder(orderId:Long):List<SalesOrderLineEntity>
  @Query("UPDATE sales_orders SET status=:status WHERE id=:id") abstract suspend fun updateSalesOrderStatus(id:Long,status:String)
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertSalesOrder(e:SalesOrderEntity):Long
  @Insert abstract suspend fun insertSalesOrderLines(e:List<SalesOrderLineEntity>)
