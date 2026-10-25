@@ -376,7 +376,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 @Composable private fun Field(label:String,value:String,onChange:(String)->Unit,decimal:Boolean){OutlinedTextField(value,onChange,label={Text(label)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=if(decimal)KeyboardType.Decimal else KeyboardType.Number),modifier=Modifier.fillMaxWidth())}
 @Composable private fun DateField(value:String,onChange:(String)->Unit){OutlinedTextField(value,onChange,label={Text("Date (yyyy-MM-dd)")},singleLine=true,modifier=Modifier.fillMaxWidth())}
 @Composable private fun ProductPicker(products:List<ProductEntity>,selected:ProductEntity?,onSelect:(ProductEntity?)->Unit){var expanded by remember{mutableStateOf(false)};Box{OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(selected?.name?:"Select product")};DropdownMenu(expanded=expanded,onDismissRequest={expanded=false}){products.forEach{p->DropdownMenuItem(text={Text(p.name)},onClick={onSelect(p).let{expanded=false}})}}}}
-@Composable private fun ProductForm(initial:ProductEntity?,close:()->Unit,save:(String,String,String,Int)->Unit){
+@OptIn(ExperimentalMaterial3Api::class)\n@Composable private fun ProductForm(initial:ProductEntity?,close:()->Unit,save:(String,String,String,Int)->Unit){
  var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
  var size by remember(initial?.id){mutableStateOf(initial?.sizeLabel.orEmpty())}
  var colour by remember(initial?.id){mutableStateOf(initial?.colour?:"Clear")}
@@ -532,7 +532,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{it.first!=null&&it.second>0}&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
  val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(date)!=null}.getOrDefault(false)&&date.length==10
  val totalPacks=parsed.sumOf{it.second}
- val totalBottles=parsed.sumOf{(line,qty)->qty*(line?.bottlesPerPack?:0)}
+ val totalBottles=parsed.sumOf{(line,qty)->qty.toLong()*(line?.bottlesPerPack?:0)}
  AlertDialog(
   onDismissRequest=close,
   title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(if(showReview)"Review dispatch" else "New dispatch",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(showReview)"Confirm customer and quantities before posting." else "Prepare a delivery with one or more products.",fontSize=12.sp,color=Muted)}},
