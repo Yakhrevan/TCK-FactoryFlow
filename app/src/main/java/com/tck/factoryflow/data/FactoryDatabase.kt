@@ -131,7 +131,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("UPDATE meter_readings SET remarks=remarks WHERE id=:id") abstract suspend fun touchMeter(id:Long)
  @Query("SELECT * FROM dispatch_batches WHERE id=:id LIMIT 1") abstract suspend fun dispatchBatchById(id:Long):DispatchBatchEntity?
  @Query("SELECT * FROM inventory_movements WHERE productId=:id ORDER BY createdAt DESC") abstract fun observeInventoryMovements(id:Long):Flow<List<InventoryMovementEntity>>
- @Query("SELECT * FROM audit_events ORDER BY createdAt DESC LIMIT :limit") abstract fun observeAuditEvents(limit:Int=200):Flow<List<AuditEventEntity>>
+ @Query("SELECT * FROM audit_events ORDER BY createdAt DESC") abstract fun observeAuditEvents():Flow<List<AuditEventEntity>>
  @Query("SELECT * FROM sync_outbox ORDER BY createdAt DESC LIMIT :limit") abstract fun observeSyncOutbox(limit:Int=200):Flow<List<SyncOutboxEntity>>
  @Transaction open suspend fun reverseDispatch(batchId:Long,reason:String,actorId:String,organisationId:String):Boolean {
   require(reason.isNotBlank()){"A reversal reason is required."}
@@ -181,7 +181,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("UPDATE sales_orders SET status=:status WHERE id=:id") abstract suspend fun updateSalesOrderStatus(id:Long,status:String)
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertSalesOrder(e:SalesOrderEntity):Long
  @Insert abstract suspend fun insertSalesOrderLines(e:List<SalesOrderLineEntity>)
- @Query("SELECT * FROM inventory_movements ORDER BY createdAt DESC LIMIT :limit") abstract fun observeRecentInventoryMovements(limit:Int=250):Flow<List<InventoryMovementEntity>>
+ @Query("SELECT * FROM inventory_movements ORDER BY createdAt DESC") abstract fun observeRecentInventoryMovements():Flow<List<InventoryMovementEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract fun observeCustomers():Flow<List<CustomerEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeCustomers():List<CustomerEntity>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertCustomer(c:CustomerEntity):Long
