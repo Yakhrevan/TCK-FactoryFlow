@@ -39,7 +39,7 @@ data class DispatchPostResult(val batchId:Long,val reference:String,val lineCoun
 @Entity(tableName="machines",indices=[Index(value=["machineCode"],unique=true)])
 data class MachineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineCode:String,val name:String,val machineType:String,val location:String="",val status:String="RUNNING",val notes:String="",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
 @Entity(tableName="machine_events",indices=[Index("machineId"),Index("startedAt"),Index("status")])
-data class MachineEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineId:Long,val machineNameSnapshot:String,val eventType:String,val startedAt:Long,val endedAt:Long?=null,val reason:String="",val maintenanceType:String="",val status:String="OPEN",val performedBy:String="local",val createdAt:Long=System.currentTimeMillis())
+data class MachineEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineId:Long,val machineNameSnapshot:String,val eventType:String,val startedAt:Long,val endedAt:Long?=null,val reason:String="",val maintenanceType:String="",val status:String="OPEN",val performedBy:String="local",val createdAt:Long=System.currentTimeMillis(),val completionNotes:String="",val partsUsed:String="",val completedBy:String="")
 @Entity(tableName="quality_inspections",indices=[Index("productId"),Index("productionEntryId"),Index("inspectionDate"),Index("status")])
 data class QualityInspectionEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productionEntryId:Long?,val productId:Long,val productNameSnapshot:String,val inspectionDate:String,val inspectedBottles:Int,val passedBottles:Int,val failedBottles:Int,val defectCategory:String,val severity:String="MINOR",val notes:String="",val inspectorId:String="local",val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="production_plans",indices=[Index("planDate"),Index("productId"),Index("status")])
@@ -207,7 +207,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("UPDATE machines SET status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineStatus(id:Long,status:String,at:Long=System.currentTimeMillis())
  @Query("SELECT * FROM machine_events ORDER BY startedAt DESC") abstract fun observeMachineEvents():Flow<List<MachineEventEntity>>
  @Insert abstract suspend fun insertMachineEvent(e:MachineEventEntity):Long
- @Query("UPDATE machine_events SET status=:status,endedAt=:endedAt WHERE id=:id AND status='OPEN'") abstract suspend fun closeMachineEvent(id:Long,status:String="CLOSED",endedAt:Long=System.currentTimeMillis()):Int
+ @Query("UPDATE machine_events SET status=:status,endedAt=:endedAt,completionNotes=:completionNotes,partsUsed=:partsUsed,completedBy=:completedBy WHERE id=:id AND status='OPEN'") abstract suspend fun closeMachineEvent(id:Long,status:String="CLOSED",endedAt:Long=System.currentTimeMillis(),completionNotes:String="",partsUsed:String="",completedBy:String="local"):Int
  @Query("SELECT * FROM quality_inspections ORDER BY inspectionDate DESC,createdAt DESC") abstract fun observeQualityInspections():Flow<List<QualityInspectionEntity>>
  @Insert abstract suspend fun insertQualityInspection(e:QualityInspectionEntity):Long
  @Query("SELECT * FROM production_plans ORDER BY planDate DESC,createdAt DESC") abstract fun observeProductionPlans():Flow<List<ProductionPlanEntity>>
@@ -289,7 +289,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=4,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=5,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -322,6 +322,13 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_orderId ON sales_order_lines(orderId)");db.execSQL("CREATE INDEX IF NOT EXISTS index_sales_order_lines_productId ON sales_order_lines(productId)")
    }
   }
+  private val MIGRATION_4_5=object:Migration(4,5){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE machine_events ADD COLUMN completionNotes TEXT NOT NULL DEFAULT ''")
+    db.execSQL("ALTER TABLE machine_events ADD COLUMN partsUsed TEXT NOT NULL DEFAULT ''")
+    db.execSQL("ALTER TABLE machine_events ADD COLUMN completedBy TEXT NOT NULL DEFAULT ''")
+   }
+  }
   private val MIGRATION_3_4=object:Migration(3,4){
    override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
     db.execSQL("ALTER TABLE dispatch_batches ADD COLUMN salesOrderId INTEGER")
@@ -329,6 +336,6 @@ abstract class FactoryDatabase:RoomDatabase(){
    }
   }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5).build().also{instance=it}}
  }
 }
