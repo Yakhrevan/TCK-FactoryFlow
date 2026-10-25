@@ -415,7 +415,57 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   confirmButton={Button(enabled=validName&&validSize&&validPack,onClick={save(name.trim(),size.trim(),colour.trim(),packCount?:0)},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Save product" else "Save changes")}},
   dismissButton={TextButton(onClick=close){Text("Cancel")}}
  )}
-@Composable private fun ProductionForm(products:List<ProductEntity>,close:()->Unit,save:(ProductEntity?,String,Int,Int,Int,String,String)->Unit){var p by remember{mutableStateOf(products.firstOrNull())};var d by remember{mutableStateOf(today())};var total by remember{mutableStateOf("")};var good by remember{mutableStateOf("")};var rejected by remember{mutableStateOf("0")};var machine by remember{mutableStateOf("Machine 1")};var remarks by remember{mutableStateOf("")};AlertDialog(onDismissRequest=close,title={Text("Production entry")},text={Column(verticalArrangement=Arrangement.spacedBy(5.dp)){ProductPicker(products,p){p=it};p?.let{BottleProductCard(name=it.name,capacity=it.sizeLabel,packSizeLabel=if(it.bottlesPerPack>0) "${it.bottlesPerPack} bottles per pack" else "Pack size not configured",active=it.active,bottleType=it.colour)};DateField(d){d=it};Field("Produced bottles",total){total=it};Field("Good bottles",good){good=it};Field("Rejected bottles",rejected){rejected=it};OutlinedTextField(machine,{machine=it},label={Text("Machine")});OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=(total.toIntOrNull()?:-1)>=0&&(good.toIntOrNull()?:-1)>=0&&(rejected.toIntOrNull()?:-1)>=0,onClick={val a=total.toIntOrNull();val b=good.toIntOrNull();val c=rejected.toIntOrNull();if(a!=null&&b!=null&&c!=null)save(p,d,a,b,c,machine,remarks)}){Text("Save")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
+@Composable private fun ProductionForm(products:List<ProductEntity>,close:()->Unit,save:(ProductEntity?,String,Int,Int,Int,String,String)->Unit){
+ var p by remember{mutableStateOf(products.firstOrNull())}
+ var d by remember{mutableStateOf(today())}
+ var total by remember{mutableStateOf("")}
+ var good by remember{mutableStateOf("")}
+ var rejected by remember{mutableStateOf("0")}
+ var machine by remember{mutableStateOf("Machine 1")}
+ var remarks by remember{mutableStateOf("")}
+ var shift by remember{mutableStateOf("Day")}
+ var rejectReason by remember{mutableStateOf("")}
+ val t=total.toIntOrNull();val g=good.toIntOrNull();val r=rejected.toIntOrNull()
+ val quantitiesValid=t!=null&&g!=null&&r!=null&&t>0&&g>=0&&r>=0&&g+r==t
+ val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(d)!=null}.getOrDefault(false)&&d.length==10
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text("Add production entry",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Record output for one product and production run.",fontSize=12.sp,color=Muted)}},
+  text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+   Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+    Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Build,null,tint=Blue,modifier=Modifier.padding(10.dp))}
+    Column{Text("Step 1 of 3 · Production details",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Product, date, shift and machine",fontSize=11.sp,color=Muted)}
+   }
+   ProductPicker(products,p){p=it}
+   p?.let{Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){Icon(Icons.Default.WaterDrop,null,tint=Blue);Column{Text(it.name,fontWeight=FontWeight.Bold,color=Navy);Text(it.sizeLabel+" · "+it.colour,fontSize=11.sp,color=Muted)}}}}
+   DateField(d){d=it}
+   if(!dateValid)Text("Use a valid date in YYYY-MM-DD format.",fontSize=11.sp,color=Color(0xFFB42318))
+   Text("Shift",fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp)
+   Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+    listOf("Day","Evening","Night").forEach{value->FilterChip(selected=shift==value,onClick={shift=value},label={Text(value)},leadingIcon=if(shift==value)({Icon(Icons.Default.Check,null,modifier=Modifier.size(16.dp))}) else null)}
+   }
+   OutlinedTextField(machine,{machine=it},label={Text("Machine / line *")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Settings,null)})
+   HorizontalDivider(color=Border)
+   Text("Step 2 · Output quantities",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+   OutlinedTextField(total,{total=it.filter(Char::isDigit).take(9)},label={Text("Produced bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Factory,null)})
+   OutlinedTextField(good,{good=it.filter(Char::isDigit).take(9)},label={Text("Good bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.CheckCircle,null)})
+   OutlinedTextField(rejected,{rejected=it.filter(Char::isDigit).take(9)},label={Text("Rejected bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.WarningAmber,null)})
+   if(t!=null&&g!=null&&r!=null){
+    val valid=t>0&&g>=0&&r>=0&&g+r==t
+    Surface(color=if(valid)Color(0xFFE8F7F0) else Color(0xFFFFF0F0),shape=RoundedCornerShape(12.dp)){
+     Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp)){Icon(if(valid)Icons.Default.CheckCircle else Icons.Default.Error,null,tint=if(valid)Color(0xFF16804A) else Color(0xFFB42318));Text(if(valid)"Output totals verified" else "Output totals do not match",fontWeight=FontWeight.Bold,color=if(valid)Color(0xFF16804A) else Color(0xFFB42318),fontSize=12.sp)}
+      Text("Produced $t = Good $g + Rejected $r",fontSize=11.sp,color=Navy)
+     }
+    }
+   }
+   OutlinedTextField(rejectReason,{rejectReason=it},label={Text("Reject reason (if applicable)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+   OutlinedTextField(remarks,{remarks=it},label={Text("Remarks (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+  }},
+  confirmButton={Button(enabled=p!=null&&quantitiesValid&&dateValid&&machine.isNotBlank(),onClick={save(p,d,t!!,g!!,r!!,machine.trim(),listOfNotNull(if(shift.isNotBlank())"Shift: $shift" else null,if(rejectReason.isNotBlank())"Reject reason: $rejectReason" else null,remarks.trim().ifBlank{null}).joinToString(" · "))},shape=RoundedCornerShape(12.dp)){Text("Review & save")}},
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
 @Composable private fun PackingForm(products:List<ProductEntity>,dao:FactoryDao,close:()->Unit,save:(ProductEntity?,String,Int)->Unit){var p by remember{mutableStateOf(products.firstOrNull())};var d by remember{mutableStateOf(today())};var bottles by remember{mutableStateOf("")};var available by remember{mutableIntStateOf(0)};LaunchedEffect(p?.id){p?.let{available=dao.totalGoodBottles(it.id)-dao.totalPackedBottles(it.id)}};val n=bottles.toIntOrNull()?:0;val calc=runCatching{PackCalculation.calculate(n,p?.bottlesPerPack?:0)}.getOrNull();AlertDialog(onDismissRequest=close,title={Text("Packing / finishing")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){ProductPicker(products,p){p=it};DateField(d){d=it};Text("Available unpacked bottles: "+available.coerceAtLeast(0),color=Blue);Field("Bottles to pack",bottles){bottles=it};PackCalculationCard(eligibleBottles=n,bottlesPerPack=p?.bottlesPerPack?.takeIf{it>0})}},confirmButton={Button(enabled=n>0&&n<=available&&p!=null&&p?.bottlesPerPack?.let{it>0}==true,onClick={save(p,d,n)}){Text("Save packing")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
 @Composable private fun DispatchForm(products:List<ProductEntity>,dao:FactoryDao,close:()->Unit,save:(ProductEntity?,String,String,Int,String,String)->Unit){var p by remember{mutableStateOf(products.firstOrNull())};var d by remember{mutableStateOf(today())};var customer by remember{mutableStateOf("Nachiyar Cooldrinks")};var packs by remember{mutableStateOf("")};var ref by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")};var stock by remember{mutableIntStateOf(0)};LaunchedEffect(p?.id){p?.let{stock=dao.totalCompletePacks(it.id)-dao.totalDispatchedPacks(it.id)}};val n=packs.toIntOrNull()?:0;AlertDialog(onDismissRequest=close,title={Text("Delivery / dispatch")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){DateField(d){d=it};OutlinedTextField(customer,{customer=it},label={Text("Customer")});ProductPicker(products,p){p=it};Text("Available finished packs: "+stock.coerceAtLeast(0),color=Blue);Field("Packs to dispatch",packs){packs=it};OutlinedTextField(ref,{ref=it},label={Text("Delivery reference")});OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=n>0&&n<=stock&&p!=null&&customer.isNotBlank(),onClick={save(p,d,customer,n,ref,remarks)}){Text("Confirm dispatch")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
 @Composable private fun MeterForm(close:()->Unit,save:(String,String,Double,Double,String)->Unit){var d by remember{mutableStateOf(today())};var meter by remember{mutableStateOf("MAIN")};var start by remember{mutableStateOf("")};var end by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")};val used=runCatching{ElectricityRules.consumption(start.toDouble(),end.toDouble())}.getOrNull();AlertDialog(onDismissRequest=close,title={Text("Electricity reading")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){DateField(d){d=it};OutlinedTextField(meter,{meter=it},label={Text("Meter ID")});Field("Start reading",start,{start=it},true);Field("End reading",end,{end=it},true);Text("Consumption: "+(used?.toString()?: "—")+" units",color=Blue);OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=used!=null,onClick={if(used!=null)save(d,meter,start.toDouble(),end.toDouble(),remarks)}){Text("Save reading")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
