@@ -12,3 +12,5 @@ captures/
 *.keystore
 keystore.properties
 google-services.json
+*.apk
+*.zip
