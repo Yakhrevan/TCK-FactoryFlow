@@ -84,7 +84,7 @@ class CloudInventoryRepository(context: Context) {
         functions().getHttpsCallable("upsertProduct").call(payload).await()
     }
 
-    suspend fun postProduction(session: FactorySession, product: ProductEntity, entry: ProductionEntryEntity) {
+    suspend fun postProduction(session: FactorySession, product: ProductEntity, entry: ProductionEntryEntity): String {
         val scope = scope(session)
         val canonical = JSONObject()
             .put("organisationId", scope.getValue("organisationId"))
@@ -101,9 +101,10 @@ class CloudInventoryRepository(context: Context) {
         val key = idempotencyKey("production", canonical)
         val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
         functions().getHttpsCallable("postProduction").call(payload).await()
+        return key
     }
 
-    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity) {
+    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): String {
         val scope = scope(session)
         val canonical = JSONObject()
             .put("organisationId", scope.getValue("organisationId"))
@@ -115,6 +116,7 @@ class CloudInventoryRepository(context: Context) {
         val key = idempotencyKey("packing", canonical)
         val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
         functions().getHttpsCallable("postPacking").call(payload).await()
+        return key
     }
 
     fun acknowledgeProduction(entry: ProductionEntryEntity, product: ProductEntity, session: FactorySession) {
