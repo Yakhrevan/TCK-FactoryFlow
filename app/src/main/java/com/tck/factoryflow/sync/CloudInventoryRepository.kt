@@ -25,7 +25,9 @@ data class CloudStockItem(
     val looseBottles: Int
 )
 
-data class CloudPackingPostResult(val idempotencyKey: String, val completePacks: Int, val looseBottles: Int)\n\ndata class CloudStockSnapshot(
+data class CloudPackingPostResult(val idempotencyKey: String, val completePacks: Int, val looseBottles: Int)
+
+data class CloudStockSnapshot(
     val organisationId: String,
     val factoryId: String,
     val serverTime: String,
