@@ -35,70 +35,39 @@ class FactoryAuthRepository(private val context: Context) {
         runCatching { FirebaseAuth.getInstance() }.getOrNull()
     } else null
 
-    fun inferRoleFromEmail(email: String?): String {
-        if (email.isNullOrBlank()) return "admin"
-        val lower = email.lowercase()
-        return when {
-            lower.contains("owner") -> "owner"
-            lower.contains("admin") -> "admin"
-            lower.contains("manager") -> "manager"
-            lower.contains("prod") || lower.contains("operator") -> "production_staff"
-            lower.contains("pack") -> "packing_staff"
-            lower.contains("store") || lower.contains("inventory") -> "storekeeper"
-            lower.contains("dispatch") -> "dispatch_staff"
-            lower.contains("view") || lower.contains("audit") -> "viewer"
-            else -> "admin"
-        }
-    }
-
     private suspend fun resolveRoleAndOrg(userUid: String, tokenClaims: Map<String, Any?>?, email: String?): MemberProfile {
-        var org = tokenClaims?.get("organisationId") as? String
-        var role = tokenClaims?.get("role") as? String
-        var name = (tokenClaims?.get("name") as? String).orEmpty()
-        var allowedModules = (tokenClaims?.get("allowedModules") as? String) ?: "ALL"
-        var active = true
+        val claimOrg = tokenClaims?.get("organisationId") as? String
+        val org = claimOrg?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
+        if (!hasFirebase()) error("Cloud authentication is unavailable.")
 
-        if (hasFirebase()) {
-            val memberDoc = runCatching {
-                FirebaseFirestore.getInstance()
-                    .collection("organisations")
-                    .document(org ?: "tck-factory-01")
-                    .collection("members")
-                    .document(userUid)
-                    .get()
-                    .await()
-            }.getOrNull()
+        val memberDoc = FirebaseFirestore.getInstance()
+            .collection("organisations")
+            .document(org)
+            .collection("members")
+            .document(userUid)
+            .get()
+            .await()
 
-            if (memberDoc != null && memberDoc.exists()) {
-                val docRole = memberDoc.getString("role")
-                val docName = memberDoc.getString("name")
-                val docModules = memberDoc.getString("allowedModules")
-                val docActive = memberDoc.getBoolean("active")
-                if (!docRole.isNullOrBlank()) role = docRole
-                if (!docName.isNullOrBlank()) name = docName
-                if (!docModules.isNullOrBlank()) allowedModules = docModules
-                if (docActive != null) active = docActive
-            }
+        if (!memberDoc.exists()) {
+            error("This account has no provisioned factory membership. Contact the administrator.")
         }
-
-        // Local Room fallback check for staff profile
-        if (role.isNullOrBlank() || name.isBlank()) {
-            val localStaff = runCatching {
-                com.tck.factoryflow.data.FactoryDatabase.get(context).factoryDao().staffByEmail(email.orEmpty())
-            }.getOrNull()
-            if (localStaff != null) {
-                if (role.isNullOrBlank()) role = localStaff.role
-                if (name.isBlank()) name = localStaff.name
-                if (allowedModules == "ALL") allowedModules = localStaff.allowedModules
-                active = localStaff.active
-            }
+        val docOrg = memberDoc.getString("organisationId")
+        val role = memberDoc.getString("role")?.lowercase()?.trim()
+        val active = memberDoc.getBoolean("active") == true
+        if (docOrg != org || role.isNullOrBlank()) {
+            error("Factory membership is incomplete or belongs to another organisation.")
         }
-
-        if (role.isNullOrBlank()) {
-            role = inferRoleFromEmail(email)
-        }
-
-        return MemberProfile(org ?: "tck-factory-01", role, name, allowedModules, active)
+        val allowedRoles = setOf("owner", "admin", "manager", "production_staff", "packing_staff", "storekeeper", "dispatch_staff", "viewer", "operator", "production", "packing", "dispatch")
+        if (role !in allowedRoles) error("Factory membership contains an unsupported role.")
+        return MemberProfile(
+            org = org,
+            role = role,
+            name = memberDoc.getString("name")?.takeIf { it.isNotBlank() }
+                ?: (tokenClaims?.get("name") as? String).orEmpty(),
+            allowedModules = memberDoc.getString("allowedModules")?.takeIf { it.isNotBlank() }
+                ?: (tokenClaims?.get("allowedModules") as? String ?: "ALL"),
+            active = active
+        )
     }
 
     suspend fun signIn(email: String, password: String): FactorySession {
