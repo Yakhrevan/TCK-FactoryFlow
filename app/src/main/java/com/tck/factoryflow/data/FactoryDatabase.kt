@@ -151,7 +151,6 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
   ProductionQuantities(entry.producedBottles,entry.goodBottles,entry.rejectedBottles).validate()
   val product=productById(entry.productId)?:error("Product not found")
   require(product.active){"Product is inactive"}
-  if(entry.machineId!=null){val machine=machineById(entry.machineId)?:error("Selected machine not found");require(machine.status=="RUNNING"){"Machine "+machine.name+" is not running"}}
   val id=insertProduction(entry)
   insertAudit(AuditEventEntity(eventType="CLOUD_PRODUCTION_CONFIRMED",entityType="production",entityId=id.toString(),afterJson=JSONObject().put("cloudOperationKey",entry.cloudOperationKey).put("goodBottles",entry.goodBottles).toString(),reason="Confirmed by authoritative inventory server",actorId=actorId))
   return id
