@@ -43,7 +43,7 @@ data class SyncOutboxEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val eve
 @Entity(tableName="meter_readings",indices=[Index(value=["meterId","readingDate"],unique=true)])
 data class MeterReadingEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val meterId:String="MAIN",val readingDate:String,val startReading:Double,val endReading:Double,val consumption:Double,val remarks:String="",val createdAt:Long=System.currentTimeMillis())
 
-data class DispatchRequestLine(val productId:Long,val packs:Int)
+data class DispatchRequestLine(val productId:Long,val packs:Int,val looseBottles:Int=0)
 data class DispatchPostResult(val batchId:Long,val reference:String,val lineCount:Int)
 
 @Entity(tableName="production_lines",indices=[Index(value=["lineCode"],unique=true)])
@@ -154,6 +154,8 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM packing_entries ORDER BY packingDate DESC,createdAt DESC") abstract fun observePacking():Flow<List<PackingEntryEntity>>
  @Query("SELECT COALESCE(SUM(bottlesConsumed),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalPackedBottles(id:Long):Int
  @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalCompletePacks(id:Long):Int
+ @Query("SELECT COALESCE(SUM(looseBottles),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalLooseBottlesPacked(id:Long):Int
+ @Query("SELECT COALESCE(SUM(bottles - packs * packSizeSnapshot),0) FROM dispatch_lines WHERE productId=:id AND batchId IN (SELECT id FROM dispatch_batches WHERE status='POSTED')") abstract suspend fun totalDispatchedLooseBottles(id:Long):Int
  @Insert abstract suspend fun insertPacking(e:PackingEntryEntity):Long
  @Query("SELECT * FROM dispatch_entries ORDER BY dispatchDate DESC,createdAt DESC") abstract fun observeDispatches():Flow<List<DispatchEntryEntity>>
  @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM dispatch_entries WHERE productId=:id") abstract suspend fun totalDispatchedPacks(id:Long):Int
@@ -291,19 +293,21 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Transaction open suspend fun postMultiLineDispatch(batch:DispatchBatchEntity,requestedLines:List<DispatchRequestLine>,organisationId:String,actorId:String):DispatchPostResult {
   require(batch.idempotencyKey.isNotBlank()){"Idempotency key is required"};require(batch.customerNameSnapshot.isNotBlank()){"Customer is required"};require(requestedLines.isNotEmpty()){"Add at least one product line"}
   batchByIdempotencyKey(batch.idempotencyKey)?.let{return DispatchPostResult(it.id,it.dispatchReference,linesForBatch(it.id).size)}
-  val merged=requestedLines.groupBy{it.productId}.map{(id,lines)->DispatchRequestLine(id,lines.sumOf{it.packs})}
-  require(merged.all{it.packs>0}){"Every quantity must be positive"}
-  val resolved:List<Triple<ProductEntity,Int,Int>> = merged.map{line->
+  val merged=requestedLines.groupBy{it.productId}.map{(id,lines)->DispatchRequestLine(id,lines.sumOf{it.packs},lines.sumOf{it.looseBottles})}
+  require(merged.all{it.packs>=0&&it.looseBottles>=0&&(it.packs>0||it.looseBottles>0)}){"Each dispatch line must contain packs, loose bottles, or both"}
+  val resolved:List<Triple<ProductEntity,DispatchRequestLine,Int>> = merged.map{line->
    val product=productById(line.productId)?:error("Product not found")
    require(product.active){"Inactive product cannot be dispatched"}
    require(product.bottlesPerPack > 0){"Pack size is not configured for ${product.name}"}
-   val available=totalCompletePacks(product.id)-legacyDispatchedPacks(product.id)-batchedDispatchedPacks(product.id)
-   require(line.packs<=available){"Insufficient stock for "+product.name+": "+available+" packs available"}
-   Triple(product,line.packs,available)
+   val availablePacks=totalCompletePacks(product.id)-legacyDispatchedPacks(product.id)-batchedDispatchedPacks(product.id)
+   val availableLoose=(totalLooseBottlesPacked(product.id)-totalDispatchedLooseBottles(product.id)).coerceAtLeast(0)
+   require(line.packs<=availablePacks){"Insufficient complete-pack stock for ${product.name}: ${availablePacks} packs available"}
+   require(line.looseBottles<=availableLoose){"Insufficient loose-bottle stock for ${product.name}: ${availableLoose} bottles available. Break a pack through the authorised stock workflow if required."}
+   Triple(product,line,availablePacks)
   }
   val id=insertDispatchBatch(batch)
   if(id<0){val existing=batchByIdempotencyKey(batch.idempotencyKey)?:error("Duplicate dispatch key could not be resolved");return DispatchPostResult(existing.id,existing.dispatchReference,linesForBatch(existing.id).size)}
-  val rows=resolved.map{r->DispatchLineEntity(batchId=id,productId=r.first.id,productNameSnapshot=r.first.name,packSizeSnapshot=r.first.bottlesPerPack,packs=r.second,bottles=r.second*r.first.bottlesPerPack)}
+  val rows=resolved.map{r->DispatchLineEntity(batchId=id,productId=r.first.id,productNameSnapshot=r.first.name,packSizeSnapshot=r.first.bottlesPerPack,packs=r.second.packs,bottles=r.second.packs*r.first.bottlesPerPack+r.second.looseBottles)}
   insertDispatchLines(rows)
   // Automatically allocate dispatched packs to this customer's oldest open matching orders.
   if(batch.customerId!=null&&batch.salesOrderId==null){
@@ -324,8 +328,12 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
     }
    }
   }
-  rows.forEach{line->insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_OUT",quantity=-line.packs,unit="PACK",sourceType="dispatch",sourceId=id.toString(),note=batch.dispatchReference,actorId=actorId))}
-  val payload=JSONArray();rows.forEach{line->payload.put(JSONObject().put("productId",line.productId).put("productName",line.productNameSnapshot).put("packs",line.packs).put("bottles",line.bottles))}
+  rows.forEach{line->
+   if(line.packs>0) insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_OUT",quantity=-line.packs,unit="PACK",sourceType="dispatch",sourceId=id.toString(),note=batch.dispatchReference,actorId=actorId))
+   val loose=line.bottles-line.packs*line.packSizeSnapshot
+   if(loose>0) insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_LOOSE_OUT",quantity=-loose,unit="BOTTLE",sourceType="dispatch",sourceId=id.toString(),note=batch.dispatchReference,actorId=actorId))
+  }
+  val payload=JSONArray();rows.forEach{line->payload.put(JSONObject().put("productId",line.productId).put("productName",line.productNameSnapshot).put("packs",line.packs).put("looseBottles",line.bottles-line.packs*line.packSizeSnapshot).put("bottles",line.bottles))}
   insertAudit(AuditEventEntity(eventType="DISPATCH_POSTED",entityType="dispatch",entityId=id.toString(),afterJson=payload.toString(),reason="Dispatch posted",actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="dispatch:"+organisationId+":"+batch.idempotencyKey,organisationId=organisationId,eventType="DISPATCH_POSTED",payloadJson=payload.toString()))
   return DispatchPostResult(id,batch.dispatchReference,rows.size)
