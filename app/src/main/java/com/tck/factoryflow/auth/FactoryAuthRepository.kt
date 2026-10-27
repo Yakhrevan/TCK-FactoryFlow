@@ -13,7 +13,8 @@ data class FactorySession(
     val role: String,
     val name: String = "",
     val allowedModules: String = "ALL",
-    val isCloud: Boolean = false
+    val isCloud: Boolean = false,
+    val factoryIds: List<String> = listOf("factory-01")
 )
 
 private data class MemberProfile(
@@ -21,7 +22,8 @@ private data class MemberProfile(
     val role: String,
     val name: String,
     val allowedModules: String,
-    val active: Boolean
+    val active: Boolean,
+    val factoryIds: List<String>
 )
 
 class FactoryAuthRepository(private val context: Context) {
@@ -54,6 +56,8 @@ class FactoryAuthRepository(private val context: Context) {
         val docOrg = memberDoc.getString("organisationId")
         val role = memberDoc.getString("role")?.lowercase()?.trim()
         val active = memberDoc.getBoolean("active") == true
+        val factoryIds = (memberDoc.get("factoryIds") as? List<*>)?.filterIsInstance<String>()?.filter { it.isNotBlank() }?.distinct().orEmpty()
+        if (factoryIds.isEmpty()) error("Factory membership has no assigned factory IDs. Ask the administrator to configure factoryIds.")
         if (docOrg != org || role.isNullOrBlank()) {
             error("Factory membership is incomplete or belongs to another organisation.")
         }
@@ -66,7 +70,8 @@ class FactoryAuthRepository(private val context: Context) {
                 ?: (tokenClaims?.get("name") as? String).orEmpty(),
             allowedModules = memberDoc.getString("allowedModules")?.takeIf { it.isNotBlank() }
                 ?: (tokenClaims?.get("allowedModules") as? String ?: "ALL"),
-            active = active
+            active = active,
+            factoryIds = factoryIds
         )
     }
 
@@ -81,7 +86,7 @@ class FactoryAuthRepository(private val context: Context) {
             auth.signOut()
             error("This staff account has been deactivated. Please contact the administrator.")
         }
-        val session = FactorySession(user.uid, user.email, profile.org, profile.role, profile.name, profile.allowedModules, isCloud = true)
+        val session = FactorySession(user.uid, user.email, profile.org, profile.role, profile.name, profile.allowedModules, isCloud = true, factoryIds = profile.factoryIds)
         saveLocalSession(session)
         return session
     }
