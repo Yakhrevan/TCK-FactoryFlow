@@ -525,7 +525,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
        }
        Spacer(Modifier.width(4.dp))
        IconButton(onClick={deletingProduct=p}){
-        Icon(Icons.Default.DeleteOutline,contentDescription="Remove product",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
+        Icon(Icons.Default.Archive,contentDescription="Archive product",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
        }
       }
      }
@@ -1549,17 +1549,17 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   val p = deletingProduct!!
   AlertDialog(
    onDismissRequest={deletingProduct=null},
-   title={Text("Delete Product",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Navy)},
+   title={Text("Archive Product",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Navy)},
    text={
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-     Text("Are you sure you want to permanently remove this product from the factory catalog?",fontSize=13.sp,color=Navy)
+     Text("Archive this product from active operations? Production, packing, dispatch, stock movements and reports will retain its history.",fontSize=13.sp,color=Navy)
      Surface(color=Color(0xFFFFF0F0),shape=RoundedCornerShape(10.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFFFFD1D1))){
       Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
        Text(p.name,fontWeight=FontWeight.Bold,fontSize=14.sp,color=Color(0xFFB42318))
        Text("${p.sizeLabel} · ${p.colour} · ${if(p.bottlesPerPack>0)"${p.bottlesPerPack}/pack" else "No pack size"}",fontSize=11.sp,color=Muted)
       }
      }
-     Text("This will record an audit trail entry and sync to the server.",fontSize=11.sp,color=Muted)
+     Text("The product can be reactivated later. Existing records will not be deleted.",fontSize=11.sp,color=Muted)
     }
    },
    confirmButton={
@@ -1567,10 +1567,10 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      onClick={
       scope.launch{
        runCatching{
-        require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot delete products"}
+        require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot archive products"}
         dao.removeProduct(p.id,session?.uid?:"local","Product deleted by administrator",session?.organisationId?:"local-org")
         SyncScheduler.runNow(context)
-        "Product ${p.name} deleted"
+        "Product ${p.name} archived; history preserved"
        }.onSuccess{message=it}.onFailure{message=it.message}
       }
       deletingProduct=null
@@ -1578,7 +1578,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB42318)),
      shape=RoundedCornerShape(10.dp)
     ){
-     Text("Delete Product",fontWeight=FontWeight.Bold)
+     Text("Archive Product",fontWeight=FontWeight.Bold)
     }
    },
    dismissButton={
