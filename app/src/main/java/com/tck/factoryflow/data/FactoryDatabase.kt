@@ -73,6 +73,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
 @Dao abstract class FactoryDao {
  @Query("SELECT * FROM staff_members ORDER BY name COLLATE NOCASE") abstract fun observeStaffMembers():Flow<List<StaffMemberEntity>>
  @Query("SELECT * FROM staff_members WHERE email=:email LIMIT 1") abstract suspend fun staffByEmail(email:String):StaffMemberEntity?
+ @Query("SELECT * FROM staff_members WHERE id=:id LIMIT 1") abstract suspend fun staffById(id:Long):StaffMemberEntity?
  @Insert(onConflict=OnConflictStrategy.REPLACE) abstract suspend fun insertStaffMember(staff:StaffMemberEntity):Long
  @Query("UPDATE staff_members SET name=:name,role=:role,allowedModules=:allowedModules,active=:active,updatedAt=:updatedAt WHERE id=:id") abstract suspend fun updateStaffMember(id:Long,name:String,role:String,allowedModules:String,active:Boolean,updatedAt:Long=System.currentTimeMillis()):Int
  @Query("UPDATE staff_members SET active=:active,updatedAt=:updatedAt WHERE id=:id") abstract suspend fun setStaffMemberActive(id:Long,active:Boolean,updatedAt:Long=System.currentTimeMillis()):Int
