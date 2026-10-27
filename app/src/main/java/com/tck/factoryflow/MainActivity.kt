@@ -651,14 +651,18 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  }
  PageTab.STOCK->{
   val totalPacked=packing.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.completePacks}}
+  val loosePacked=packing.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.looseBottles}}
   val legacyDispatched=dispatches.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.packsDispatched}}
   val validBatchIds=dispatchBatches.filter{it.status=="POSTED"}.map{it.id}.toSet()
-  val batchedDispatched=dispatchLines.filter{it.batchId in validBatchIds}.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.packs}}
+  val postedLines=dispatchLines.filter{it.batchId in validBatchIds}
+  val batchedDispatched=postedLines.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.packs}}
+  val looseDispatched=postedLines.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{(it.bottles-it.packs*it.packSizeSnapshot).coerceAtLeast(0)}}
   val totalAvailable=active.sumOf{((totalPacked[it.id]?:0)-(legacyDispatched[it.id]?:0)-(batchedDispatched[it.id]?:0)).coerceAtLeast(0)}
+  val totalLooseAvailable=active.sumOf{((loosePacked[it.id]?:0)-(looseDispatched[it.id]?:0)).coerceAtLeast(0)}
   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Text("INVENTORY CONTROL",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Finished stock",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Packed goods ready for dispatch",fontSize=12.sp,color=Muted)}
+   item{Text("INVENTORY CONTROL",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Finished stock",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Complete packs and loose bottles ready for dispatch",fontSize=12.sp,color=Muted)}
    item{Surface(color=Navy,shape=RoundedCornerShape(22.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("TOTAL AVAILABLE PACKS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(totalAvailable.toString(),fontSize=36.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text(active.size.toString()+" active product types",fontSize=12.sp,color=Color(0xFFD4E2F0))}}}
-   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric("Packed",totalPacked.values.sum().toString(),Modifier.weight(1f));Metric("Dispatched",(legacyDispatched.values.sum()+batchedDispatched.values.sum()).toString(),Modifier.weight(1f))}}
+   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric("Available loose bottles",totalLooseAvailable.toString(),Modifier.weight(1f));Metric("Dispatched packs",(legacyDispatched.values.sum()+batchedDispatched.values.sum()).toString(),Modifier.weight(1f))}}
    item{
     val configuredCount=active.count{it.bottlesPerPack>0}
     val lowCount=active.count{p->((totalPacked[p.id]?:0)-(legacyDispatched[p.id]?:0)-(batchedDispatched[p.id]?:0)).coerceAtLeast(0)<=5}
@@ -675,6 +679,8 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     val packedCount=totalPacked[p.id]?:0
     val sent=(legacyDispatched[p.id]?:0)+(batchedDispatched[p.id]?:0)
     val available=(packedCount-sent).coerceAtLeast(0)
+    val looseSent=looseDispatched[p.id]?:0
+    val looseAvailable=((loosePacked[p.id]?:0)-looseSent).coerceAtLeast(0)
     val configured=p.bottlesPerPack>0
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
      Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
@@ -683,7 +689,8 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
        Column(Modifier.weight(1f)){Text(p.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=16.sp);Text(if(configured)p.bottlesPerPack.toString()+" bottles per pack" else "Pack size not configured",fontSize=11.sp,color=if(configured)Muted else Color(0xFF9B5B00))}
        Column(horizontalAlignment=Alignment.End){Text(available.toString(),fontSize=24.sp,fontWeight=FontWeight.ExtraBold,color=if(available<=5)Color(0xFFB45309) else Navy);Text("available packs",fontSize=9.sp,color=Muted)}
       }
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Packed",packedCount,Modifier.weight(1f));StockMiniMetric("Dispatched",sent,Modifier.weight(1f));StockMiniMetric("Loose bottles",packing.filter{it.productId==p.id}.sumOf{it.looseBottles},Modifier.weight(1f))}
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Packed",packedCount,Modifier.weight(1f));StockMiniMetric("Dispatched",sent,Modifier.weight(1f));StockMiniMetric("Loose available",looseAvailable,Modifier.weight(1f))}
+      if(looseSent>0)Text("Loose bottles dispatched: $looseSent",fontSize=10.sp,color=Muted)
       if(!configured)Text("Configure pack size in Products before posting packing or dispatch.",fontSize=11.sp,color=Color(0xFF9B5B00))
      }
     }
