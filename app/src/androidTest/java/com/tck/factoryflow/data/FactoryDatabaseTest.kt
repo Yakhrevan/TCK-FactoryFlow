@@ -78,7 +78,11 @@ class FactoryDatabaseTest {
    assertEquals(1,line.packs)
    assertEquals(13,line.bottles)
    assertEquals(10,line.packSizeSnapshot)
-   assertEquals(2,dao.totalCompletePacks(product)-dao.legacyDispatchedPacks(product)-dao.batchedDispatchedPacks(product)+0) // one pack remains only if packing history has another pack
+   assertEquals(0,dao.totalCompletePacks(product)-dao.legacyDispatchedPacks(product)-dao.batchedDispatchedPacks(product))
+   assertEquals(2,dao.totalLooseBottlesPacked(product)-dao.totalDispatchedLooseBottles(product))
+   assertTrue(dao.reverseDispatch(posted.batchId,"test reversal","tester","org-test"))
+   assertEquals(1,dao.totalCompletePacks(product)-dao.legacyDispatchedPacks(product)-dao.batchedDispatchedPacks(product))
+   assertEquals(5,dao.totalLooseBottlesPacked(product)-dao.totalDispatchedLooseBottles(product))
   }
  }
  @Test fun mixedDispatchRejectsLooseBottleOversell() {
