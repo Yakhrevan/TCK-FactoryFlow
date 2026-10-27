@@ -25,7 +25,7 @@ data class CloudStockItem(
     val looseBottles: Int
 )
 
-data class CloudStockSnapshot(
+data class CloudPackingPostResult(val idempotencyKey: String, val completePacks: Int, val looseBottles: Int)\n\ndata class CloudStockSnapshot(
     val organisationId: String,
     val factoryId: String,
     val serverTime: String,
@@ -104,7 +104,7 @@ class CloudInventoryRepository(context: Context) {
         return key
     }
 
-    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): String {
+    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): CloudPackingPostResult {
         val scope = scope(session)
         val canonical = JSONObject()
             .put("organisationId", scope.getValue("organisationId"))
