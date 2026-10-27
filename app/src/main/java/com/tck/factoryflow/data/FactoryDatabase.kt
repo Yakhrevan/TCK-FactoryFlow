@@ -9,7 +9,14 @@ import org.json.JSONArray
 import com.tck.factoryflow.domain.ProductionQuantities
 import java.security.MessageDigest
 
-fun stableProductCode(name:String,sizeLabel:String,colour:String):String {\n    val canonical=listOf(name.trim().lowercase(),sizeLabel.trim().lowercase(),colour.trim().lowercase()).joinToString("|")\n    val digest=MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }\n    return "p-"+digest.take(32)\n}\n\n@Entity(tableName="products", indices=[Index(value=["name"], unique=true),Index(value=["productCode"], unique=true)])\ndata class ProductEntity(
+fun stableProductCode(name:String,sizeLabel:String,colour:String):String {
+    val canonical=listOf(name.trim().lowercase(),sizeLabel.trim().lowercase(),colour.trim().lowercase()).joinToString("|")
+    val digest=MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    return "p-"+digest.take(32)
+}
+
+@Entity(tableName="products", indices=[Index(value=["name"], unique=true),Index(value=["productCode"], unique=true)])
+data class ProductEntity(
     @PrimaryKey(autoGenerate=true) val id:Long=0,
     val name:String,
     val sizeLabel:String,
@@ -18,7 +25,8 @@ fun stableProductCode(name:String,sizeLabel:String,colour:String):String {\n    
     val active:Boolean=true,
     val createdAt:Long=System.currentTimeMillis(),
     val iconName:String="bottle_default",
-    val imageUri:String=""
+    val imageUri:String="",
+    @ColumnInfo(defaultValue="''") val productCode:String=stableProductCode(name,sizeLabel,colour)
 )
 @Entity(tableName="product_config_history",indices=[Index("productId"),Index("changedAt")])
 data class ProductConfigHistoryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productName:String,val sizeLabel:String,val colour:String,val bottlesPerPack:Int,val active:Boolean,val changedAt:Long=System.currentTimeMillis(),val changedBy:String="local",val reason:String="Configuration updated")
