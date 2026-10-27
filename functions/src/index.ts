@@ -194,6 +194,85 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
   return result;
 });
 
+type ProductionInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; productionDate:string; producedBottles:number; goodBottles:number; rejectedBottles:number; machineId?:string; lineId?:string; remarks?:string };
+type PackingInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; packingDate:string; bottlesConsumed:number; remarks?:string };
+function nonNegativeInteger(value:unknown,label:string):number { if(typeof value!=="number"||!Number.isSafeInteger(value)||value<0) throw new HttpsError("invalid-argument",label+" must be a non-negative whole number."); return value; }
+function validDate(value:unknown,label:string):string { const date=requiredString(value,label); if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||Number.isNaN(Date.parse(date+"T00:00:00Z"))) throw new HttpsError("invalid-argument",label+" must be a valid YYYY-MM-DD date."); return date; }
+
+/** Server-authoritative production posting. Stock updates and ledger entries commit atomically. */
+export const postProduction = onCall({ enforceAppCheck:true }, async (request) => {
+ if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
+ const data=request.data as Partial<ProductionInput>;
+ const orgId=requiredString(data.organisationId,"organisationId"), factoryId=requiredString(data.factoryId,"factoryId"), key=requiredString(data.idempotencyKey,"idempotencyKey"), productId=requiredString(data.productId,"productId");
+ const date=validDate(data.productionDate,"productionDate"), produced=nonNegativeInteger(data.producedBottles,"producedBottles"), good=nonNegativeInteger(data.goodBottles,"goodBottles"), rejected=nonNegativeInteger(data.rejectedBottles,"rejectedBottles");
+ if(produced<=0||good+rejected!==produced||!Number.isSafeInteger(good+rejected)) throw new HttpsError("invalid-argument","Produced bottles must equal good plus rejected bottles, and production must be positive.");
+ const machineId=typeof data.machineId==="string"?data.machineId:"", lineId=typeof data.lineId==="string"?data.lineId:"", remarks=typeof data.remarks==="string"?data.remarks.slice(0,2000):"";
+ const fingerprint=JSON.stringify({orgId,factoryId,actorUid:request.auth.uid,productId,date,produced,good,rejected,machineId,lineId,remarks});
+ const {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager","operator","production","production_staff"]);
+ const root="organisations/"+orgId+"/factories/"+factoryId, runRef=db.doc(root+"/productions/"+key), productRef=db.doc(root+"/products/"+productId), stockRef=db.doc(root+"/stock/"+productId), machineRef=machineId?db.doc(root+"/machines/"+machineId):null;
+ return db.runTransaction(async(tx)=>{
+  const existing=await tx.get(runRef); if(existing.exists){const prior=existing.data()!; if(prior.actorUid!==request.auth!.uid||prior.organisationId!==orgId||prior.factoryId!==factoryId||prior.requestFingerprint!==fingerprint) throw new HttpsError("already-exists","This idempotency key was already used for a different production run."); return {productionId:runRef.id,status:prior.status as string,duplicate:true};}
+  const productSnap=await tx.get(productRef), stockSnap=await tx.get(stockRef), machineSnap=machineRef?await tx.get(machineRef):null;
+  if(!productSnap.exists||productSnap.data()?.active!==true) throw new HttpsError("failed-precondition","Product is missing or inactive in the authoritative factory catalog.");
+  if(machineRef&&(!machineSnap?.exists||machineSnap.data()?.status!=="RUNNING")) throw new HttpsError("failed-precondition","Selected machine is missing or not running.");
+  const stock=stockSnap.exists?stockSnap.data()!: {}, unpacked=stock.unpackedGoodBottles??0;
+  if(!Number.isSafeInteger(unpacked)||unpacked<0||!Number.isSafeInteger(unpacked+good)) throw new HttpsError("failed-precondition","Unpacked bottle stock is invalid or exceeds the supported range.");
+  tx.create(runRef,{organisationId:orgId,factoryId,idempotencyKey:key,requestFingerprint:fingerprint,productId,productNameSnapshot:String(productSnap.data()?.name??productId),productionDate:date,producedBottles:produced,goodBottles:good,rejectedBottles:rejected,machineId,lineId,remarks,status:"POSTED",actorUid:request.auth!.uid,actorRole:role,createdAt:FieldValue.serverTimestamp(),reversalId:null});
+  tx.set(stockRef,{organisationId:orgId,factoryId,productId,unpackedGoodBottles:unpacked+good,completePacks:stock.completePacks??0,looseBottles:stock.looseBottles??0,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  const name=String(productSnap.data()?.name??productId);
+  if(good>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:good,unit:"BOTTLE",transactionType:"PRODUCTION_GOOD_IN",sourceType:"production",sourceId:key,idempotencyKey:key+":"+productId+":good",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  if(rejected>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:rejected,unit:"BOTTLE",transactionType:"PRODUCTION_REJECTED",sourceType:"production",sourceId:key,idempotencyKey:key+":"+productId+":rejected",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  return {productionId:runRef.id,status:"POSTED",duplicate:false,unpackedGoodBottles:unpacked+good};
+ });
+});
+
+/** Server-authoritative packing: consume unpacked good bottles and create finished stock atomically. */
+export const postPacking = onCall({ enforceAppCheck:true }, async (request) => {
+ if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
+ const data=request.data as Partial<PackingInput>, orgId=requiredString(data.organisationId,"organisationId"), factoryId=requiredString(data.factoryId,"factoryId"), key=requiredString(data.idempotencyKey,"idempotencyKey"), productId=requiredString(data.productId,"productId"), date=validDate(data.packingDate,"packingDate"), consumed=positiveInteger(data.bottlesConsumed,"bottlesConsumed"), remarks=typeof data.remarks==="string"?data.remarks.slice(0,2000):"";
+ const fingerprint=JSON.stringify({orgId,factoryId,actorUid:request.auth.uid,productId,date,consumed,remarks});
+ const {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager","operator","packing","packing_staff"]);
+ const root="organisations/"+orgId+"/factories/"+factoryId, packingRef=db.doc(root+"/packings/"+key), productRef=db.doc(root+"/products/"+productId), stockRef=db.doc(root+"/stock/"+productId);
+ return db.runTransaction(async(tx)=>{
+  const existing=await tx.get(packingRef); if(existing.exists){const prior=existing.data()!; if(prior.actorUid!==request.auth!.uid||prior.organisationId!==orgId||prior.factoryId!==factoryId||prior.requestFingerprint!==fingerprint) throw new HttpsError("already-exists","This idempotency key was already used for a different packing run."); return {packingId:packingRef.id,status:prior.status as string,duplicate:true};}
+  const productSnap=await tx.get(productRef), stockSnap=await tx.get(stockRef);
+  if(!productSnap.exists||productSnap.data()?.active!==true) throw new HttpsError("failed-precondition","Product is missing or inactive in the authoritative factory catalog.");
+  const packSize=productSnap.data()?.bottlesPerPack; if(!Number.isSafeInteger(packSize)||packSize<=0) throw new HttpsError("failed-precondition","Product pack size is not configured in the authoritative catalog.");
+  const stock=stockSnap.exists?stockSnap.data()!: {}, unpacked=stock.unpackedGoodBottles??0, packs=Math.floor(consumed/packSize), loose=consumed%packSize, completePacks=stock.completePacks??0, looseBottles=stock.looseBottles??0;
+  if(!Number.isSafeInteger(unpacked)||unpacked<consumed||!Number.isSafeInteger(completePacks)||completePacks<0||!Number.isSafeInteger(looseBottles)||looseBottles<0||!Number.isSafeInteger(completePacks+packs)||!Number.isSafeInteger(looseBottles+loose)) throw new HttpsError("failed-precondition","Insufficient or invalid unpacked bottle stock. Available: "+(Number.isSafeInteger(unpacked)?unpacked:0)+".");
+  const name=String(productSnap.data()?.name??productId);
+  tx.create(packingRef,{organisationId:orgId,factoryId,idempotencyKey:key,requestFingerprint:fingerprint,productId,productNameSnapshot:name,packingDate:date,bottlesConsumed:consumed,completePacks:packs,looseBottles:loose,remarks,status:"POSTED",actorUid:request.auth!.uid,actorRole:role,createdAt:FieldValue.serverTimestamp(),reversalId:null});
+  tx.update(stockRef,{unpackedGoodBottles:unpacked-consumed,completePacks:completePacks+packs,looseBottles:looseBottles+loose,updatedAt:FieldValue.serverTimestamp()});
+  tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:-consumed,unit:"BOTTLE",transactionType:"PACKING_BOTTLES_OUT",sourceType:"packing",sourceId:key,idempotencyKey:key+":"+productId+":bottles-out",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  if(packs>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:packs,unit:"PACK",transactionType:"PACKING_PACKS_IN",sourceType:"packing",sourceId:key,idempotencyKey:key+":"+productId+":packs-in",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  if(loose>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:loose,unit:"BOTTLE",transactionType:"PACKING_LOOSE_IN",sourceType:"packing",sourceId:key,idempotencyKey:key+":"+productId+":loose-in",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  return {packingId:packingRef.id,status:"POSTED",duplicate:false,completePacks:packs,looseBottles:loose};
+ });
+});
+
+/** Packing reversal is allowed only while its finished stock remains available. */
+export const reversePacking = onCall({ enforceAppCheck:true }, async (request) => {
+ if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
+ const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), packingId=requiredString(request.data?.packingId,"packingId"), reason=requiredString(request.data?.reason,"reason");
+ const {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager"]), root="organisations/"+orgId+"/factories/"+factoryId, packingRef=db.doc(root+"/packings/"+packingId), reversalRef=db.doc(root+"/packingReversals/"+packingId);
+ return db.runTransaction(async(tx)=>{
+  const packingSnap=await tx.get(packingRef), reversalSnap=await tx.get(reversalRef);
+  if(!packingSnap.exists) throw new HttpsError("not-found","Packing record not found."); if(reversalSnap.exists) return {reversed:false,duplicate:true};
+  const packing=packingSnap.data()!; if(packing.status!=="POSTED"||packing.organisationId!==orgId||packing.factoryId!==factoryId) throw new HttpsError("failed-precondition","Only a posted packing run in this factory can be reversed.");
+  const productId=String(packing.productId??""), consumed=packing.bottlesConsumed, packs=packing.completePacks, loose=packing.looseBottles;
+  if(!productId||!Number.isSafeInteger(consumed)||consumed<=0||!Number.isSafeInteger(packs)||packs<0||!Number.isSafeInteger(loose)||loose<0) throw new HttpsError("failed-precondition","Packing quantities are invalid.");
+  const stockRef=db.doc(root+"/stock/"+productId), stockSnap=await tx.get(stockRef); if(!stockSnap.exists) throw new HttpsError("failed-precondition","Stock balance is missing.");
+  const stock=stockSnap.data()!, unpacked=stock.unpackedGoodBottles??0, currentPacks=stock.completePacks??0, currentLoose=stock.looseBottles??0;
+  if(!Number.isSafeInteger(unpacked)||unpacked<0||!Number.isSafeInteger(currentPacks)||currentPacks<packs||!Number.isSafeInteger(currentLoose)||currentLoose<loose) throw new HttpsError("failed-precondition","Cannot reverse packing because finished stock has already been dispatched or adjusted.");
+  tx.create(reversalRef,{organisationId:orgId,factoryId,packingId,reason,actorUid:request.auth!.uid,actorRole:role,createdAt:FieldValue.serverTimestamp()});
+  tx.update(packingRef,{status:"REVERSED",reversalId:reversalRef.id,reversedAt:FieldValue.serverTimestamp()}); tx.update(stockRef,{unpackedGoodBottles:unpacked+consumed,completePacks:currentPacks-packs,looseBottles:currentLoose-loose,updatedAt:FieldValue.serverTimestamp()});
+  const name=String(packing.productNameSnapshot??productId);
+  tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:consumed,unit:"BOTTLE",transactionType:"PACKING_REVERSAL_BOTTLES_IN",sourceType:"packingReversal",sourceId:packingId,idempotencyKey:"reverse:"+packingId+":"+productId+":bottles",reason,actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  if(packs>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:-packs,unit:"PACK",transactionType:"PACKING_REVERSAL_PACKS_OUT",sourceType:"packingReversal",sourceId:packingId,idempotencyKey:"reverse:"+packingId+":"+productId+":packs",reason,actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  if(loose>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:-loose,unit:"BOTTLE",transactionType:"PACKING_REVERSAL_LOOSE_OUT",sourceType:"packingReversal",sourceId:packingId,idempotencyKey:"reverse:"+packingId+":"+productId+":loose",reason,actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  return {reversed:true,duplicate:false};
+ });
+});
 export const reverseDispatch = onCall({ enforceAppCheck: true }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required.");
   const orgId = requiredString(request.data?.organisationId, "organisationId");
