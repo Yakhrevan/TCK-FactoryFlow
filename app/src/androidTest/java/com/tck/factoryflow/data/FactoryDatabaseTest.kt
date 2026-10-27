@@ -45,7 +45,7 @@ class FactoryDatabaseTest {
   kotlinx.coroutines.runBlocking {
    val product=dao.insertProduct(ProductEntity(name="1L",sizeLabel="1L",bottlesPerPack=100))
    val batch=DispatchBatchEntity(idempotencyKey="too-many",dispatchReference="DSP-2",dispatchDate="2026-10-24",customerId=null,customerNameSnapshot="Customer")
-   assertThrows(IllegalStateException::class.java){ kotlinx.coroutines.runBlocking { dao.postMultiLineDispatch(batch,listOf(DispatchRequestLine(product,1)),"org-test","tester") } }
+   assertThrows(IllegalArgumentException::class.java){ kotlinx.coroutines.runBlocking { dao.postMultiLineDispatch(batch,listOf(DispatchRequestLine(product,1)),"org-test","tester") } }
   }
  }
  @Test fun concurrentDispatchesCannotOversellLastPack() {
@@ -164,4 +164,159 @@ class FactoryDatabaseTest {
   }
  }
 
+ @Test fun migrationSixToSevenAddsCapacityAndLineSnapshots() {
+  val context=ApplicationProvider.getApplicationContext<Context>()
+  val name="factoryflow-migration-6-7-test.db"
+  val helper=androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
+   androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context).name(name).callback(
+    object:androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(6){
+     override fun onCreate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+      db.execSQL("CREATE TABLE production_lines (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,lineCode TEXT NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL,status TEXT NOT NULL,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL)")
+      db.execSQL("CREATE TABLE production_entries (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,productId INTEGER NOT NULL,productNameSnapshot TEXT NOT NULL,productionDate TEXT NOT NULL,producedBottles INTEGER NOT NULL,goodBottles INTEGER NOT NULL,rejectedBottles INTEGER NOT NULL,machineName TEXT NOT NULL,remarks TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+      db.execSQL("CREATE TABLE production_plans (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,planDate TEXT NOT NULL,shift TEXT NOT NULL,productId INTEGER NOT NULL,productNameSnapshot TEXT NOT NULL,targetBottles INTEGER NOT NULL,assignedMachineId INTEGER,status TEXT NOT NULL,notes TEXT NOT NULL,createdBy TEXT NOT NULL,createdAt INTEGER NOT NULL)")
+     }
+     override fun onUpgrade(db:androidx.sqlite.db.SupportSQLiteDatabase,oldVersion:Int,newVersion:Int){}
+    }
+   ).build()
+  )
+  try{
+   val database=helper.writableDatabase
+   FactoryDatabase.MIGRATION_6_7.migrate(database)
+   val lineColumns=mutableSetOf<String>()
+   database.query("PRAGMA table_info(production_lines)").use{while(it.moveToNext())lineColumns.add(it.getString(1))}
+   val prodColumns=mutableSetOf<String>()
+   database.query("PRAGMA table_info(production_entries)").use{while(it.moveToNext())prodColumns.add(it.getString(1))}
+   val planColumns=mutableSetOf<String>()
+   database.query("PRAGMA table_info(production_plans)").use{while(it.moveToNext())planColumns.add(it.getString(1))}
+   assertTrue(lineColumns.containsAll(setOf("targetCapacity","capacityUnit")))
+   assertTrue(prodColumns.containsAll(setOf("lineId","lineNameSnapshot","machineId")))
+   assertTrue(planColumns.contains("lineId"))
+  }finally{helper.close();context.deleteDatabase(name)}
+ }
+
+ @Test fun productionRejectsStoppedMachineWhenMachineIdProvided() {
+  kotlinx.coroutines.runBlocking {
+   val lineId=dao.insertProductionLine(ProductionLineEntity(lineCode="LINE-01",name="Line 1"))
+   val machineId=dao.insertMachine(MachineEntity(machineCode="BLOW-01",name="Blowing Machine 1",machineType="Blowing",lineId=lineId,status="STOPPED"))
+   val product=dao.insertProduct(ProductEntity(name="500ml Line Test",sizeLabel="500ml",bottlesPerPack=12))
+   assertThrows(IllegalArgumentException::class.java) {
+    kotlinx.coroutines.runBlocking {
+     dao.postProduction(
+      ProductionEntryEntity(productId=product,productNameSnapshot="500ml Line Test",productionDate="2026-10-26",producedBottles=100,goodBottles=98,rejectedBottles=2,lineId=lineId,lineNameSnapshot="Line 1",machineId=machineId,machineName="Blowing Machine 1"),
+      "org-test","tester"
+     )
+    }
+   }
+  }
+ }
+
+ @Test fun lineAndMachineAssignmentWorkflow() {
+  kotlinx.coroutines.runBlocking {
+   val lineId=dao.insertProductionLine(ProductionLineEntity(lineCode="PL-02",name="Bottling Line 02",targetCapacity=2000,capacityUnit="BOTTLES_PER_HOUR"))
+   val machineId=dao.insertMachine(MachineEntity(machineCode="FILL-02",name="Filling Machine 02",machineType="Filling",status="RUNNING"))
+   dao.assignMachineToLine(machineId,lineId)
+   val machines=dao.machinesForLine(lineId)
+   assertEquals(1,machines.size)
+   assertEquals("FILL-02",machines.first().machineCode)
+   assertEquals(lineId,machines.first().lineId)
+  }
+ }
+
+ @Test fun productionAssociatesLineAndRunningMachine() {
+  kotlinx.coroutines.runBlocking {
+   val lineId=dao.insertProductionLine(ProductionLineEntity(lineCode="LINE-A",name="Line A",targetCapacity=3000,capacityUnit="BOTTLES_PER_HOUR"))
+   val machineId=dao.insertMachine(MachineEntity(machineCode="BLOW-A",name="Blower A",machineType="Blowing",lineId=lineId,status="RUNNING"))
+   val product=dao.insertProduct(ProductEntity(name="300ml Run Test",sizeLabel="300ml",bottlesPerPack=24))
+   val entryId=dao.postProduction(
+    ProductionEntryEntity(
+     productId=product,
+     productNameSnapshot="300ml Run Test",
+     productionDate="2026-10-26",
+     producedBottles=500,
+     goodBottles=480,
+     rejectedBottles=20,
+     lineId=lineId,
+     lineNameSnapshot="Line A",
+     machineId=machineId,
+     machineName="Blower A",
+     remarks="Shift: Day"
+    ),
+    "org-test",
+    "tester"
+   )
+   val runs=dao.observeProduction().first()
+   val saved=runs.firstOrNull{it.id==entryId}
+   assertNotNull(saved)
+   assertEquals(lineId,saved!!.lineId)
+   assertEquals("Line A",saved.lineNameSnapshot)
+   assertEquals(machineId,saved.machineId)
+   assertEquals("Blower A",saved.machineName)
+   assertEquals(480,dao.totalGoodBottles(product))
+   assertEquals(20,dao.totalRejectedBottles(product))
+  }
+ }
+
+ @Test fun breakdownAndMaintenanceLifecycleRestoresMachine() {
+  kotlinx.coroutines.runBlocking {
+   val lineId=dao.insertProductionLine(ProductionLineEntity(lineCode="LINE-B",name="Line B"))
+   val machineId=dao.insertMachine(MachineEntity(machineCode="CAP-01",name="Capping Machine 01",machineType="Capping",lineId=lineId,status="RUNNING"))
+   val product=dao.insertProduct(ProductEntity(name="1L Test",sizeLabel="1L",bottlesPerPack=12))
+
+   // 1. Machine breaks down -> DOWN
+   dao.updateMachineStatus(machineId,"DOWN")
+   val eventId=dao.insertMachineEvent(
+    MachineEventEntity(machineId=machineId,machineNameSnapshot="Capping Machine 01",eventType="DOWNTIME",startedAt=System.currentTimeMillis()-1800000,reason="Feeder jam",status="OPEN",performedBy="operator")
+   )
+   assertEquals("DOWN",dao.machineById(machineId)!!.status)
+
+   // 2. Production attempt on down machine must fail
+   assertThrows(IllegalArgumentException::class.java) {
+    kotlinx.coroutines.runBlocking {
+     dao.postProduction(
+      ProductionEntryEntity(productId=product,productNameSnapshot="1L Test",productionDate="2026-10-26",producedBottles=100,goodBottles=100,rejectedBottles=0,lineId=lineId,lineNameSnapshot="Line B",machineId=machineId,machineName="Capping Machine 01"),
+      "org-test","tester"
+     )
+    }
+   }
+
+   // 3. Maintenance resolution and return to RUNNING service
+   val closed=dao.closeMachineEvent(eventId,completionNotes="Jam cleared and sensor calibrated",partsUsed="None",completedBy="technician")
+   assertEquals(1,closed)
+   dao.updateMachineStatus(machineId,"RUNNING")
+   assertEquals("RUNNING",dao.machineById(machineId)!!.status)
+
+   // 4. Production now succeeds
+   val entryId=dao.postProduction(
+    ProductionEntryEntity(productId=product,productNameSnapshot="1L Test",productionDate="2026-10-26",producedBottles=100,goodBottles=98,rejectedBottles=2,lineId=lineId,lineNameSnapshot="Line B",machineId=machineId,machineName="Capping Machine 01"),
+    "org-test","tester"
+   )
+   assertTrue(entryId>0)
+  }
+ }
+
+ @Test fun historicalProductionLineSnapshotPreservedAfterReassignment() {
+  kotlinx.coroutines.runBlocking {
+   val line1=dao.insertProductionLine(ProductionLineEntity(lineCode="LINE-01",name="Bottle Production Line 01"))
+   val line2=dao.insertProductionLine(ProductionLineEntity(lineCode="LINE-02",name="Bottle Production Line 02"))
+   val machineId=dao.insertMachine(MachineEntity(machineCode="LAB-01",name="Labelling Machine 01",machineType="Labelling",lineId=line1,status="RUNNING"))
+   val product=dao.insertProduct(ProductEntity(name="200ml Green",sizeLabel="200ml",colour="Green",bottlesPerPack=30))
+
+   // Post production while on Line 01
+   val runId=dao.postProduction(
+    ProductionEntryEntity(productId=product,productNameSnapshot="200ml Green",productionDate="2026-10-26",producedBottles=600,goodBottles=590,rejectedBottles=10,lineId=line1,lineNameSnapshot="Bottle Production Line 01",machineId=machineId,machineName="Labelling Machine 01"),
+    "org-test","tester"
+   )
+
+   // Reassign machine to Line 02
+   dao.assignMachineToLine(machineId,line2)
+   val machineAfter=dao.machineById(machineId)!!
+   assertEquals(line2,machineAfter.lineId)
+
+   // Historical production run must still point to Line 01 snapshot
+   val historicalRun=dao.observeProduction().first().first{it.id==runId}
+   assertEquals(line1,historicalRun.lineId)
+   assertEquals("Bottle Production Line 01",historicalRun.lineNameSnapshot)
+   assertEquals(machineId,historicalRun.machineId)
+  }
+ }
 }

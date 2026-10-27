@@ -14,3 +14,4 @@ keystore.properties
 google-services.json
 *.apk
 *.zip
+.kotlin/

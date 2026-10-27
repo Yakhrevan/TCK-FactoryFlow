@@ -36,11 +36,21 @@ import com.tck.factoryflow.auth.FactoryPermissions
 import com.tck.factoryflow.auth.FactoryRole
 import com.tck.factoryflow.auth.FactoryAction
 import com.tck.factoryflow.sync.SyncScheduler
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import com.tck.factoryflow.ui.components.BottleProductCard
+import com.tck.factoryflow.ui.components.ProductThumbnail
+import com.tck.factoryflow.ui.components.BottleIconPicker
 import com.tck.factoryflow.ui.components.DashboardMetricCard
 import com.tck.factoryflow.ui.components.PackCalculationCard
+import com.tck.factoryflow.ui.components.StartupErrorScreen
+import com.tck.factoryflow.ui.components.StartupLoginScreen
 import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,10 +60,83 @@ import org.json.JSONObject
 
 private val Blue=Color(0xFF0756A4); private val Cyan=Color(0xFF13A7D8); private val Navy=Color(0xFF102B4E); private val Page=Color(0xFFF1F7FC); private val Muted=Color(0xFF6B7E93); private val Border=Color(0xFFDCE7F1)
 private fun today()=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
-private fun roleAllows(session:FactorySession?,action:FactoryAction):Boolean = if(session==null) action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PRODUCTION,FactoryAction.CREATE_PACKING,FactoryAction.MANAGE_PRODUCTS,FactoryAction.POST_DISPATCH,FactoryAction.EXPORT_REPORTS,FactoryAction.MANAGE_MACHINES,FactoryAction.MANAGE_QUALITY,FactoryAction.MANAGE_ORDERS,FactoryAction.MANAGE_ELECTRICITY) else runCatching{FactoryPermissions.requireAllowed(FactoryPermissions.fromClaim(session.role),action)}.isSuccess
+private fun isServerOnline(context: android.content.Context): Boolean {
+ val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+ val net = cm.activeNetwork ?: return false
+ val caps = cm.getNetworkCapabilities(net) ?: return false
+ return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
+private fun roleAllows(session:FactorySession?,action:FactoryAction):Boolean {
+ if(session==null) return action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PRODUCTION,FactoryAction.CREATE_PACKING,FactoryAction.MANAGE_PRODUCTS,FactoryAction.POST_DISPATCH,FactoryAction.EXPORT_REPORTS,FactoryAction.MANAGE_MACHINES,FactoryAction.MANAGE_QUALITY,FactoryAction.MANAGE_ORDERS,FactoryAction.MANAGE_ELECTRICITY)
+ val roleCheck = runCatching{FactoryPermissions.requireAllowed(FactoryPermissions.fromClaim(session.role),action)}.isSuccess
+ if(!roleCheck) return false
+ if(session.role.equals("admin",true) || session.role.equals("owner",true)) return true
+ if(session.allowedModules.isBlank() || session.allowedModules == "ALL") return true
+ val mods = session.allowedModules.split(",").map{it.trim().uppercase()}
+ return when(action) {
+  FactoryAction.CREATE_PRODUCTION, FactoryAction.CORRECT_RECORDS -> "PRODUCTION" in mods
+  FactoryAction.CREATE_PACKING -> "PACKING" in mods
+  FactoryAction.POST_DISPATCH, FactoryAction.REVERSE_DISPATCH, FactoryAction.MANAGE_ORDERS -> "DISPATCH" in mods
+  FactoryAction.MANAGE_QUALITY -> "QUALITY" in mods
+  FactoryAction.MANAGE_MACHINES -> "MACHINES" in mods
+  FactoryAction.MANAGE_PRODUCTS, FactoryAction.ADJUST_STOCK -> "PRODUCTS" in mods
+  FactoryAction.EXPORT_REPORTS -> "REPORTS" in mods
+  FactoryAction.MANAGE_STAFF -> "STAFF" in mods
+  else -> true
+ }
+}
 class MainActivity:ComponentActivity(){
  private val db by lazy{FactoryDatabase.get(this)}
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);lifecycleScope.launch{if(db.factoryDao().activeProducts().isEmpty()) listOf(ProductEntity(name="300ml",sizeLabel="300ml",bottlesPerPack=0),ProductEntity(name="500ml",sizeLabel="500ml",bottlesPerPack=0),ProductEntity(name="1 Ltr",sizeLabel="1 litre",bottlesPerPack=0),ProductEntity(name="200ml Green",sizeLabel="200ml",colour="Green",bottlesPerPack=0),ProductEntity(name="200ml Milk White",sizeLabel="200ml",colour="Milk White",bottlesPerPack=0),ProductEntity(name="200ml Clear",sizeLabel="200ml",bottlesPerPack=0)).forEach{runCatching{db.factoryDao().insertProduct(it)}}};if(FirebaseApp.getApps(this).isNotEmpty()){SyncScheduler.schedule(this);SyncScheduler.runNow(this)};setContent{FactoryApp(db.factoryDao())}}
+ override fun onCreate(savedInstanceState:Bundle?){
+  super.onCreate(savedInstanceState)
+  val daoResult = runCatching { db.factoryDao() }
+  if (daoResult.isFailure) {
+   val err = daoResult.exceptionOrNull()?.message ?: "Database initialization error"
+   setContent { StartupErrorScreen(error = err, onRetry = { recreate() }) }
+   return
+  }
+  val dao = daoResult.getOrThrow()
+  lifecycleScope.launch {
+   runCatching {
+    if (dao.activeProducts().isEmpty()) {
+     listOf(
+      ProductEntity(name="300ml",sizeLabel="300ml",bottlesPerPack=0),
+      ProductEntity(name="500ml",sizeLabel="500ml",bottlesPerPack=0),
+      ProductEntity(name="1 Ltr",sizeLabel="1 litre",bottlesPerPack=0),
+      ProductEntity(name="200ml Green",sizeLabel="200ml",colour="Green",bottlesPerPack=0),
+      ProductEntity(name="200ml Milk White",sizeLabel="200ml",colour="Milk White",bottlesPerPack=0),
+      ProductEntity(name="200ml Clear",sizeLabel="200ml",bottlesPerPack=0)
+     ).forEach { dao.insertProduct(it) }
+    }
+    if (dao.activeProductionLines().isEmpty()) {
+     val line1Id = dao.insertProductionLine(
+      ProductionLineEntity(
+       lineCode = "LINE-01",
+       name = "Production Line 1",
+       description = "Main blow-moulding line",
+       targetCapacity = 2500,
+       capacityUnit = "BOTTLES_PER_HOUR",
+       status = "ACTIVE"
+      )
+     )
+     if (dao.activeMachines().isEmpty()) {
+      dao.insertMachine(
+       MachineEntity(machineCode="BLOW-01",name="Blow Machine 1",machineType="Blowing",location="Line 01 - Bay A",status="RUNNING",lineId=line1Id)
+      )
+     }
+    }
+    // Clean up dummy seed machines and lines from earlier builds
+    val dummyCodes = listOf("FILL-01","CAP-01","LBL-01","PACK-01","BLOW-02")
+    dao.activeMachines().filter{it.machineCode in dummyCodes}.forEach{dao.deleteMachine(it.id)}
+    dao.activeProductionLines().filter{it.lineCode=="LINE-02"}.forEach{dao.deleteProductionLine(it.id)}
+   }
+  }
+  if (FirebaseApp.getApps(this).isNotEmpty()) {
+   SyncScheduler.schedule(this)
+   SyncScheduler.runNow(this)
+  }
+  setContent { FactoryApp(dao) }
+ }
 }
 
 @Composable private fun HomeKpiCard(title:String,value:String,detail:String,icon:androidx.compose.ui.graphics.vector.ImageVector,accent:Color,modifier:Modifier=Modifier){
@@ -80,10 +163,13 @@ class MainActivity:ComponentActivity(){
 private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECTRICITY,REPORTS,CUSTOMERS,MACHINES,QUALITY,PLANNING,ORDERS,MOVEMENTS,AUDIT,STAFF,SYNC}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun FactoryApp(dao:FactoryDao){
- var tab by remember{mutableStateOf(PageTab.HOME)}; var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope()
- val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
- val context=LocalContext.current
- LaunchedEffect(context){session=runCatching{FactoryAuthRepository(context).currentSession()}.getOrNull()}
+  var tab by remember{mutableStateOf(PageTab.HOME)}; var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope()
+  val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val staffMembers by dao.observeStaffMembers().collectAsStateWithLifecycle(emptyList()); val productionLines by dao.observeProductionLines().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
+  val context=LocalContext.current
+  LaunchedEffect(context){
+   session=runCatching{FactoryAuthRepository(context).currentSession()}.getOrNull()
+   isCheckingSession=false
+  }
  LaunchedEffect(message){if(message!=null){kotlinx.coroutines.delay(2600);message=null}}
  val databaseBackupLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.sqlite3")) { uri ->
   if(uri!=null) runCatching { FactoryBackupManager.exportSnapshot(context,uri) }.onSuccess { message="Validated database snapshot exported" }.onFailure { message="Database backup failed: "+it.message }
@@ -93,15 +179,16 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  }
  val backupLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
   if(uri!=null) runCatching {
-   val root=JSONObject().put("format","tck-factoryflow-backup").put("version",1).put("exportedAt",System.currentTimeMillis())
+   val root=JSONObject().put("format","tck-factoryflow-backup").put("version",2).put("exportedAt",System.currentTimeMillis())
    root.put("products",JSONArray().apply{products.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("sizeLabel",it.sizeLabel).put("colour",it.colour).put("bottlesPerPack",it.bottlesPerPack).put("active",it.active).put("createdAt",it.createdAt))}})
-   root.put("production",JSONArray().apply{production.forEach{put(JSONObject().put("id",it.id).put("productId",it.productId).put("productName",it.productNameSnapshot).put("date",it.productionDate).put("produced",it.producedBottles).put("good",it.goodBottles).put("rejected",it.rejectedBottles).put("machine",it.machineName).put("remarks",it.remarks).put("createdAt",it.createdAt))}})
+   root.put("productionLines",JSONArray().apply{productionLines.forEach{put(JSONObject().put("id",it.id).put("code",it.lineCode).put("name",it.name).put("description",it.description).put("status",it.status).put("targetCapacity",it.targetCapacity).put("capacityUnit",it.capacityUnit))}})
+   root.put("production",JSONArray().apply{production.forEach{put(JSONObject().put("id",it.id).put("productId",it.productId).put("productName",it.productNameSnapshot).put("date",it.productionDate).put("produced",it.producedBottles).put("good",it.goodBottles).put("rejected",it.rejectedBottles).put("machine",it.machineName).put("lineId",it.lineId).put("lineNameSnapshot",it.lineNameSnapshot).put("machineId",it.machineId).put("remarks",it.remarks).put("createdAt",it.createdAt))}})
    root.put("packing",JSONArray().apply{packing.forEach{put(JSONObject().put("id",it.id).put("productId",it.productId).put("productName",it.productNameSnapshot).put("date",it.packingDate).put("bottlesConsumed",it.bottlesConsumed).put("completePacks",it.completePacks).put("looseBottles",it.looseBottles).put("createdAt",it.createdAt))}})
    root.put("dispatchBatches",JSONArray().apply{dispatchBatches.forEach{put(JSONObject().put("id",it.id).put("reference",it.dispatchReference).put("date",it.dispatchDate).put("customer",it.customerNameSnapshot).put("status",it.status).put("remarks",it.remarks).put("createdAt",it.createdAt))}})
    root.put("dispatchLines",JSONArray().apply{dispatchLines.forEach{put(JSONObject().put("id",it.id).put("batchId",it.batchId).put("productId",it.productId).put("productName",it.productNameSnapshot).put("packs",it.packs).put("bottles",it.bottles))}})
    root.put("customers",JSONArray().apply{customers.forEach{put(JSONObject().put("id",it.id).put("name",it.name).put("phone",it.phone).put("address",it.address).put("gstNumber",it.gstNumber).put("active",it.active))}})
    root.put("meterReadings",JSONArray().apply{meters.forEach{put(JSONObject().put("id",it.id).put("meterId",it.meterId).put("date",it.readingDate).put("start",it.startReading).put("end",it.endReading).put("consumption",it.consumption).put("remarks",it.remarks))}})
-   root.put("machines",JSONArray().apply{machines.forEach{put(JSONObject().put("id",it.id).put("code",it.machineCode).put("name",it.name).put("type",it.machineType).put("location",it.location).put("status",it.status).put("notes",it.notes))}})
+   root.put("machines",JSONArray().apply{machines.forEach{put(JSONObject().put("id",it.id).put("code",it.machineCode).put("name",it.name).put("type",it.machineType).put("location",it.location).put("status",it.status).put("notes",it.notes).put("lineId",it.lineId))}})
    root.put("machineEvents",JSONArray().apply{machineEvents.forEach{put(JSONObject().put("id",it.id).put("machineId",it.machineId).put("machineName",it.machineNameSnapshot).put("type",it.eventType).put("startedAt",it.startedAt).put("endedAt",it.endedAt).put("reason",it.reason).put("maintenanceType",it.maintenanceType).put("status",it.status).put("performedBy",it.performedBy))}})
    root.put("qualityInspections",JSONArray().apply{qualityInspections.forEach{put(JSONObject().put("id",it.id).put("productId",it.productId).put("productName",it.productNameSnapshot).put("date",it.inspectionDate).put("inspected",it.inspectedBottles).put("passed",it.passedBottles).put("failed",it.failedBottles).put("defect",it.defectCategory).put("severity",it.severity).put("notes",it.notes).put("inspector",it.inspectorId))}})
    root.put("productionPlans",JSONArray().apply{plans.forEach{put(JSONObject().put("id",it.id).put("date",it.planDate).put("shift",it.shift).put("productId",it.productId).put("productName",it.productNameSnapshot).put("target",it.targetBottles).put("machineId",it.assignedMachineId).put("status",it.status).put("notes",it.notes))}})
@@ -116,34 +203,99 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   if(uri!=null) runCatching { context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(ReportExport.csv(production,packing,dispatches,meters,dispatchBatches,dispatchLines)) } ?: error("Could not open export destination") }.onSuccess { message="CSV report exported" }.onFailure { message="Export failed: "+it.message }
  }
  MaterialTheme(colorScheme=lightColorScheme(primary=Blue,secondary=Cyan,background=Page,surface=Color.White,outline=Border)){
+ Box(Modifier.fillMaxSize()) {
+ if (isCheckingSession) {
+  Box(Modifier.fillMaxSize().background(Page), contentAlignment = Alignment.Center) {
+   CircularProgressIndicator(color = Blue)
+  }
+ } else if (session == null) {
+  StartupLoginScreen(
+   firebaseConfigured = isServerOnline(context) && FirebaseApp.getApps(context).isNotEmpty(),
+   onFirebaseSignIn = { email, pass, onError ->
+    scope.launch {
+     runCatching {
+      FactoryAuthRepository(context).signIn(email, pass)
+     }.onSuccess {
+      session = it
+      message = "Signed in as ${it.role.uppercase()}"
+      SyncScheduler.runNow(context)
+     }.onFailure { err ->
+      onError(err.message ?: "Sign-in failed. Please check credentials or network.")
+     }
+    }
+   },
+   onOfflineSignIn = { portalId, email, pass, onError ->
+    scope.launch {
+     runCatching {
+      val cleanPortal = portalId.lowercase().trim()
+      val cleanEmail = email.lowercase().trim()
+      if (cleanPortal == "admin") {
+       require(pass.isNotBlank()) { "Please enter your password." }
+       val newSession = FactoryAuthRepository(context).setLocalRole("admin", "Administrator")
+       session = newSession
+       message = "Signed in as ADMINISTRATOR"
+      } else {
+       val staff = dao.staffByEmail(cleanEmail)
+       if (staff != null) {
+        require(staff.active) { "This staff account has been deactivated." }
+        val newSession = FactorySession(
+         uid = staff.uid,
+         email = staff.email,
+         organisationId = "tck-factory-01",
+         role = staff.role,
+         name = staff.name,
+         allowedModules = staff.allowedModules,
+         isCloud = false
+        )
+        FactoryAuthRepository(context).saveLocalSession(newSession)
+        session = newSession
+        message = "Signed in as ${staff.name} (${staff.role.uppercase()})"
+       } else {
+        val roleName = if (cleanPortal == "manager") "manager" else "production_staff"
+        val displayName = if (cleanPortal == "manager") "Factory Manager" else "Production Staff"
+        val newSession = FactoryAuthRepository(context).setLocalRole(roleName, displayName)
+        session = newSession
+        message = "Signed in as ${roleName.uppercase()}"
+       }
+      }
+     }.onFailure { err ->
+      onError(err.message ?: "Authentication failed")
+     }
+    }
+   }
+  )
+ } else {
  Scaffold(topBar={TopAppBar(title={Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Surface(shape=RoundedCornerShape(10.dp),color=Color.White,border=androidx.compose.foundation.BorderStroke(1.dp,Border),modifier=Modifier.size(42.dp)){Box(contentAlignment=Alignment.Center,modifier=Modifier.padding(2.dp)){androidx.compose.foundation.Image(painter=androidx.compose.ui.res.painterResource(R.drawable.tck_brand),contentDescription="TCK Logo",modifier=Modifier.fillMaxSize())}};Column{Text("TCK Bottle Manufacturing",fontWeight=FontWeight.ExtraBold,color=Navy,fontSize=16.sp,maxLines=1);Text("MANUFACTURING OPERATIONS",fontSize=9.sp,color=Muted,letterSpacing=1.2.sp)} }},actions={
- Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(2.dp)){
-  TextButton(onClick={dialog="login"}){
-   Column(horizontalAlignment=Alignment.End){
-    Text(session?.let{it.role.uppercase()}?:"SIGN IN",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue)
-    Text(if(session!=null)"CLOUD ACCOUNT" else if(FirebaseApp.getApps(context).isNotEmpty())"CLOUD READY" else "LOCAL MODE",fontSize=8.sp,color=if(FirebaseApp.getApps(context).isNotEmpty())Color(0xFF16804A) else Muted)
+ Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+  Surface(
+   onClick={dialog="role_switcher"},
+   shape=RoundedCornerShape(20.dp),
+   color=when(session?.role?.lowercase()){"admin","owner"->Color(0xFFF3E8FF);"manager"->Color(0xFFE0F2FE);"production_staff","operator"->Color(0xFFDCFCE7);else->Color(0xFFEFF6FF)},
+   border=androidx.compose.foundation.BorderStroke(1.dp,when(session?.role?.lowercase()){"admin","owner"->Color(0xFFC084FC);"manager"->Cyan;"production_staff","operator"->Color(0xFF86EFAC);else->Color(0xFFBFDBFE)})
+  ){
+   Row(Modifier.padding(horizontal=9.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
+    Box(Modifier.size(7.dp).background(if(FirebaseApp.getApps(context).isNotEmpty())Color(0xFF16804A) else Color(0xFFEAB308),RoundedCornerShape(4.dp)))
+    Text(session?.role?.uppercase()?:"ADMIN",fontSize=10.sp,fontWeight=FontWeight.ExtraBold,color=when(session?.role?.lowercase()){"admin","owner"->Color(0xFF6B21A8);"manager"->Color(0xFF0369A1);"production_staff","operator"->Color(0xFF15803D);else->Blue})
    }
   }
-  Box{
-   IconButton(onClick={showTools=true}){Icon(Icons.Default.MenuOpen,null,tint=Navy)}
-   DropdownMenu(expanded=showTools,onDismissRequest={showTools=false},modifier=Modifier.heightIn(max=560.dp)){
-    Text("FACTORY MODULES",modifier=Modifier.padding(start=16.dp,top=10.dp,bottom=5.dp),fontSize=10.sp,fontWeight=FontWeight.Bold,color=Muted,letterSpacing=1.sp)
-    listOf(PageTab.DISPATCH,PageTab.ELECTRICITY,PageTab.CUSTOMERS,PageTab.MACHINES,PageTab.QUALITY,PageTab.PLANNING,PageTab.ORDERS,PageTab.MOVEMENTS,PageTab.AUDIT,PageTab.STAFF,PageTab.SYNC).forEach{t->
-     DropdownMenuItem(
-      text={Text(when(t){PageTab.DISPATCH->"Dispatch";PageTab.ELECTRICITY->"Electricity & meter readings";PageTab.CUSTOMERS->"Customers";PageTab.MACHINES->"Machines & maintenance";PageTab.QUALITY->"Quality inspections";PageTab.PLANNING->"Production planning";PageTab.ORDERS->"Sales orders";PageTab.MOVEMENTS->"Stock movement history";PageTab.STAFF->"Staff access & permissions";PageTab.SYNC->"Cloud & offline sync";else->"Audit history"})},
-      leadingIcon={Icon(when(t){PageTab.DISPATCH->Icons.Default.LocalShipping;PageTab.ELECTRICITY->Icons.Default.Bolt;PageTab.CUSTOMERS->Icons.Default.People;PageTab.MACHINES->Icons.Default.Settings;PageTab.QUALITY->Icons.Default.Verified;PageTab.PLANNING->Icons.Default.EventNote;PageTab.ORDERS->Icons.Default.ReceiptLong;PageTab.MOVEMENTS->Icons.Default.SwapVert;PageTab.STAFF->Icons.Default.AdminPanelSettings;PageTab.SYNC->Icons.Default.CloudSync;else->Icons.Default.History},null)},
-      onClick={tab=t;showTools=false}
-     )
-    }
-    HorizontalDivider(color=Border)
-    Text("BACKUP & DATA",modifier=Modifier.padding(start=16.dp,top=8.dp,bottom=4.dp),fontSize=10.sp,fontWeight=FontWeight.Bold,color=Muted,letterSpacing=1.sp)
-    DropdownMenuItem(text={Text("Export full JSON backup")},leadingIcon={Icon(Icons.Default.Backup,null)},onClick={showTools=false;if(roleAllows(session,FactoryAction.MANAGE_STAFF))backupLauncher.launch("tck-factoryflow-backup-"+date+".json")else message="Only an owner or administrator can export a full backup"})
-    DropdownMenuItem(text={Text("Export database snapshot")},leadingIcon={Icon(Icons.Default.SaveAlt,null)},onClick={showTools=false;if(roleAllows(session,FactoryAction.MANAGE_STAFF))databaseBackupLauncher.launch("tck-factoryflow-database-"+date+".db")else message="Only an owner or administrator can export a database snapshot"})
-    DropdownMenuItem(text={Text("Restore database snapshot")},leadingIcon={Icon(Icons.Default.Restore,null)},onClick={showTools=false;if(roleAllows(session,FactoryAction.MANAGE_STAFF))databaseRestoreLauncher.launch(arrayOf("application/octet-stream","application/vnd.sqlite3","application/x-sqlite3","*/*"))else message="Only an owner or administrator can restore a database snapshot"})
-   }
+  IconButton(
+   onClick={showTools=true},
+   modifier=Modifier.size(38.dp).background(Color(0xFFEAF5FC),RoundedCornerShape(10.dp))
+  ){
+   Icon(Icons.Default.Menu,contentDescription="Full Slide Menu",tint=Navy,modifier=Modifier.size(20.dp))
+  }
+  IconButton(
+   onClick={
+    FactoryAuthRepository(context).signOut()
+    session=null
+    message="Signed out"
+   },
+   modifier=Modifier.size(38.dp).background(Color(0xFFFEE2E2),RoundedCornerShape(10.dp))
+  ){
+   Icon(Icons.Default.Logout,contentDescription="Sign Out",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
   }
  }
-},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.STOCK,PageTab.DISPATCH,PageTab.REPORTS).forEach{t->NavigationBarItem(selected=tab==t,onClick={tab=t},icon={Icon(when(t){PageTab.HOME->Icons.Default.Home;PageTab.PRODUCTION->Icons.Default.Build;PageTab.STOCK->Icons.Default.Inventory2;PageTab.DISPATCH->Icons.Default.LocalShipping;else->Icons.Default.BarChart},null)},label={Text(when(t){PageTab.HOME->"Home";PageTab.PRODUCTION->"Production";PageTab.STOCK->"Stock";PageTab.DISPATCH->"Dispatch";else->"Reports"},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
+},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.MACHINES,PageTab.DISPATCH,PageTab.STAFF).forEach{t->NavigationBarItem(selected=tab==t,onClick={tab=t},icon={Icon(when(t){PageTab.HOME->Icons.Default.Home;PageTab.PRODUCTION->Icons.Default.Build;PageTab.MACHINES->Icons.Default.PrecisionManufacturing;PageTab.DISPATCH->Icons.Default.LocalShipping;else->Icons.Default.People},null)},label={Text(when(t){PageTab.HOME->"Home";PageTab.PRODUCTION->"Production";PageTab.MACHINES->"Machinery";PageTab.DISPATCH->"Dispatch";else->"Staff"},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
  Box(Modifier.fillMaxSize().padding(padding)){
  when(tab){
  PageTab.HOME->{
@@ -209,11 +361,35 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     }
    }
    item{
+    val activeLinesCount=productionLines.count{it.status=="ACTIVE"}
+    val runningMachinesCount=machines.count{it.status=="RUNNING"}
+    val alertMachines=machines.filter{it.status in setOf("STOPPED","DOWN","MAINTENANCE")}
+    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={tab=PageTab.MACHINES}){
+     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
+        Text("Production lines & machinery",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+        Text("Shop-floor operational status",fontSize=11.sp,color=Muted)
+       }
+       TextButton(onClick={tab=PageTab.MACHINES}){Text("Manage →")}
+      }
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+       Surface(Modifier.weight(1f),color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Active lines",fontSize=10.sp,color=Muted);Text(activeLinesCount.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy)}}
+       Surface(Modifier.weight(1f),color=Color(0xFFE8F7F0),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Running",fontSize=10.sp,color=Muted);Text(runningMachinesCount.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF16804A))}}
+       Surface(Modifier.weight(1f),color=if(alertMachines.isNotEmpty())Color(0xFFFFF3DE) else Color(0xFFE8F7F0),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Attention",fontSize=10.sp,color=Muted);Text(alertMachines.size.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=if(alertMachines.isNotEmpty())Color(0xFF9B5B00) else Color(0xFF16804A))}}
+      }
+      if(alertMachines.isNotEmpty()){
+       Text("⚠️ Needs attention: "+alertMachines.take(3).joinToString{ "${it.name} (${it.status})" },fontSize=11.sp,color=Color(0xFF9B5B00),fontWeight=FontWeight.SemiBold)
+      }
+     }
+    }
+   }
+   item{
     Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
      Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
       Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text("Quick operations",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Start a common factory task",fontSize=11.sp,color=Muted)};Icon(Icons.Default.Bolt,null,tint=Cyan)}
       Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Production",Icons.Default.Build,Color(0xFF147DEB),{dialog="production"},Modifier.weight(1f));HomeActionTile("Packing",Icons.Default.Inventory2,Color(0xFF7656D9),{dialog="packing"},Modifier.weight(1f));HomeActionTile("Dispatch",Icons.Default.LocalShipping,Color(0xFFD98523),{dialog="dispatch"},Modifier.weight(1f))}
-      Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{tab=PageTab.PRODUCTS},Modifier.weight(1f));HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{dialog="meter"},Modifier.weight(1f));HomeActionTile("Customers",Icons.Default.People,Color(0xFF5369DA),{tab=PageTab.CUSTOMERS},Modifier.weight(1f))}
+      Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{tab=PageTab.PRODUCTS},Modifier.weight(1f));HomeActionTile("Machinery",Icons.Default.Settings,Color(0xFF1E88E5),{tab=PageTab.MACHINES},Modifier.weight(1f));HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{dialog="meter"},Modifier.weight(1f))}
      }
     }
    }
@@ -229,31 +405,128 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      }
     }
    }
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Product configuration",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Check bottle and pack setup",fontSize=11.sp,color=Muted)};TextButton(onClick={tab=PageTab.PRODUCTS}){Text("Manage →")}}}
+   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Factory products",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Active bottle lines & pack counts",fontSize=11.sp,color=Muted)};TextButton(onClick={tab=PageTab.PRODUCTS}){Text("Manage →")}}}
    if(active.isEmpty())item{EmptyDashboardState("No active products","Add your factory's bottle types to start recording operations.",Icons.Default.WaterDrop)}
-   items(active.take(6),key={it.id}){p->BottleProductCard(name=p.name,capacity=p.sizeLabel,packSizeLabel=if(p.bottlesPerPack>0)p.bottlesPerPack.toString()+" bottles per pack" else "Pack size not configured",active=p.active,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",onClick={editingProduct=p;dialog="product"})}
+   items(active.take(6),key={it.id}){p->BottleProductCard(name=p.name,capacity=p.sizeLabel,packSizeLabel=if(p.bottlesPerPack>0)"${p.bottlesPerPack} bottles per pack" else "",active=p.active,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",iconName=p.iconName,imageUri=p.imageUri,colour=p.colour,onClick={editingProduct=p;dialog="product"})}
    item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Recent production",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Latest saved production entries",fontSize=11.sp,color=Muted)};TextButton(onClick={tab=PageTab.PRODUCTION}){Text("View all →")}}}
    if(production.isEmpty())item{EmptyDashboardState("No production entries yet","Record the first production run to populate your dashboard.",Icons.Default.Build)}
    else items(production.take(5),key={it.id}){e->Record(e.productNameSnapshot,e.goodBottles.toString()+" good · "+e.rejectedBottles+" rejected",e.productionDate)}
   }
  }
  PageTab.PRODUCTS->{
-  val shown=products.filter{(it.name+" "+it.sizeLabel+" "+it.colour).contains(productSearch,true)}
+  val filteredByStatus = when(productSubTab) {
+   1 -> products.filter{it.active}
+   2 -> products.filter{!it.active}
+   else -> products
+  }
+  val shown = filteredByStatus.filter{(it.name+" "+it.sizeLabel+" "+it.colour).contains(productSearch,true)}
   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("PRODUCT CATALOG",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Products",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(products.count{it.active}.toString()+" active products · "+products.count{!it.active}+" archived",fontSize=12.sp,color=Muted)};Button(onClick={editingProduct=null;dialog="product"},shape=RoundedCornerShape(14.dp)){Icon(Icons.Default.Add,null);Spacer(Modifier.width(5.dp));Text("Add product")}}}
-   item{OutlinedTextField(productSearch,{productSearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(16.dp),leadingIcon={Icon(Icons.Default.Search,null)},placeholder={Text("Search name, size or colour")},label={Text("Find a product")})}
-   item{Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(16.dp)){Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Icon(Icons.Default.Info,null,tint=Blue);Column{Text("Bottle pack setup",fontWeight=FontWeight.Bold,color=Navy);Text("Tap Edit, set bottles per pack, and save. Your existing production and dispatch history stays unchanged.",fontSize=11.sp,color=Muted)}}}}
-   if(shown.isEmpty())item{EmptyDashboardState("No matching products","Try another search or add a product.",Icons.Default.Search)}
+   item{
+    Row(verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f)){
+      Text("PRODUCT MASTER",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp)
+      Text("Products",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+      Text(products.count{it.active}.toString()+" active products · "+products.count{!it.active}+" deactivated",fontSize=12.sp,color=Muted)
+     }
+     Button(onClick={editingProduct=null;dialog="product"},shape=RoundedCornerShape(14.dp)){
+      Icon(Icons.Default.Add,null)
+      Spacer(Modifier.width(5.dp))
+      Text("Add product")
+     }
+    }
+   }
+   item{
+    OutlinedTextField(
+     productSearch,
+     {productSearch=it},
+     modifier=Modifier.fillMaxWidth(),
+     singleLine=true,
+     shape=RoundedCornerShape(16.dp),
+     leadingIcon={Icon(Icons.Default.Search,null)},
+     placeholder={Text("Search name, size or colour")},
+     label={Text("Find a product")}
+    )
+   }
+   item{
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     FilterChip(
+      selected=productSubTab==0,
+      onClick={productSubTab=0},
+      label={Text("All (${products.size})",fontSize=11.sp,fontWeight=FontWeight.Bold)},
+      shape=RoundedCornerShape(20.dp)
+     )
+     FilterChip(
+      selected=productSubTab==1,
+      onClick={productSubTab=1},
+      label={Text("Active (${products.count{it.active}})",fontSize=11.sp,fontWeight=FontWeight.Bold)},
+      shape=RoundedCornerShape(20.dp)
+     )
+     FilterChip(
+      selected=productSubTab==2,
+      onClick={productSubTab=2},
+      label={Text("Deactivated (${products.count{!it.active}})",fontSize=11.sp,fontWeight=FontWeight.Bold)},
+      shape=RoundedCornerShape(20.dp)
+     )
+    }
+   }
+   if(shown.isEmpty())item{EmptyDashboardState("No matching products","Try another search or filter.",Icons.Default.Search)}
    items(shown,key={it.id}){p->
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
-       Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(14.dp)){Icon(when(p.colour.lowercase()){ "green"->Icons.Default.LocalDrink; "milk white"->Icons.Default.WaterDrop; "blue"->Icons.Default.WaterDrop; "amber"->Icons.Default.LocalDrink; else->Icons.Default.WaterDrop},null,tint=when(p.colour.lowercase()){"green"->Color(0xFF16804A);"milk white"->Color(0xFF8494A7);"amber"->Color(0xFFB45309);else->Cyan},modifier=Modifier.padding(12.dp).size(28.dp))}
-       Column(Modifier.weight(1f)){Text(p.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=16.sp);Text(p.sizeLabel+" · "+p.colour,fontSize=12.sp,color=Muted)}
-       Surface(color=if(p.active)Color(0xFFE8F7F0) else Color(0xFFE9EDF2),shape=RoundedCornerShape(30.dp)){Text(if(p.active)"ACTIVE" else "ARCHIVED",modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(p.active)Color(0xFF16804A) else Muted)}
+       ProductThumbnail(imageUri=p.imageUri,iconName=p.iconName,colour=p.colour,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",size=50.dp)
+       Column(Modifier.weight(1f)){
+        Text(p.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=16.sp)
+        Text(p.sizeLabel+" · "+p.colour+if(p.bottlesPerPack>0)" · ${p.bottlesPerPack} per pack" else "",fontSize=12.sp,color=Muted)
+       }
+       Surface(color=if(p.active)Color(0xFFE8F7EE) else Color(0xFFFFF4E5),shape=RoundedCornerShape(30.dp)){
+        Text(if(p.active)"ACTIVE" else "DEACTIVATED",modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(p.active)Color(0xFF16804A) else Color(0xFFB45309))
+       }
       }
       HorizontalDivider(color=Border)
-      Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Pack configuration",fontSize=10.sp,color=Muted);Text(if(p.bottlesPerPack>0)p.bottlesPerPack.toString()+" bottles / pack" else "Not configured",fontWeight=FontWeight.SemiBold,color=if(p.bottlesPerPack>0)Navy else Color(0xFF9B5B00))};TextButton(onClick={editingProduct=p;dialog="product"}){Icon(Icons.Default.Edit,null);Spacer(Modifier.width(4.dp));Text("Edit")};if(p.active)TextButton(onClick={scope.launch{runCatching{dao.updateProductWithHistory(p.id,p.name,p.sizeLabel,p.colour,p.bottlesPerPack,false,session?.uid?:"local","Product archived",session?.organisationId?:"local-org")}.onSuccess{message="Product archived with history"}.onFailure{message=it.message}}}){Text("Archive",color=Color(0xFFB45309))}}
+      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.End,modifier=Modifier.fillMaxWidth()){
+       OutlinedButton(onClick={editingProduct=p;dialog="product"},shape=RoundedCornerShape(10.dp)){
+        Icon(Icons.Default.Edit,null,modifier=Modifier.size(15.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("Edit",fontSize=11.sp)
+       }
+       Spacer(Modifier.width(8.dp))
+       if(p.active){
+        TextButton(onClick={
+         scope.launch{
+          runCatching{
+           dao.updateProductWithHistory(p.id,p.name,p.sizeLabel,p.colour,p.bottlesPerPack,false,session?.uid?:"local","Product deactivated",session?.organisationId?:"tck-factory-01",p.iconName,p.imageUri)
+          }.onSuccess{
+           SyncScheduler.runNow(context)
+           message="${p.name} deactivated"
+          }.onFailure{message=it.message}
+         }
+        }){
+         Icon(Icons.Default.Block,null,tint=Color(0xFFB45309),modifier=Modifier.size(15.dp))
+         Spacer(Modifier.width(4.dp))
+         Text("Deactivate",color=Color(0xFFB45309),fontSize=11.sp)
+        }
+       }else{
+        TextButton(onClick={
+         scope.launch{
+          runCatching{
+           dao.updateProductWithHistory(p.id,p.name,p.sizeLabel,p.colour,p.bottlesPerPack,true,session?.uid?:"local","Product activated",session?.organisationId?:"tck-factory-01",p.iconName,p.imageUri)
+          }.onSuccess{
+           SyncScheduler.runNow(context)
+           message="${p.name} activated"
+          }.onFailure{message=it.message}
+         }
+        }){
+         Icon(Icons.Default.CheckCircle,null,tint=Color(0xFF16804A),modifier=Modifier.size(15.dp))
+         Spacer(Modifier.width(4.dp))
+         Text("Activate",color=Color(0xFF16804A),fontSize=11.sp)
+        }
+       }
+       Spacer(Modifier.width(4.dp))
+       IconButton(onClick={deletingProduct=p}){
+        Icon(Icons.Default.DeleteOutline,contentDescription="Remove product",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
+       }
+      }
      }
     }
    }
@@ -418,24 +691,364 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  }
  PageTab.MACHINES->{
   val now=System.currentTimeMillis();val windowStart=now-7L*24*60*60*1000
-  val stoppedMillis=machineEvents.filter{it.eventType=="MACHINE_STOPPED"&&(it.endedAt?:now)>windowStart}.sumOf{(minOf(it.endedAt?:now,now)-maxOf(it.startedAt,windowStart)).coerceAtLeast(0L)}
+  val stoppedMillis=machineEvents.filter{it.eventType in setOf("DOWNTIME","MACHINE_STOPPED")&&(it.endedAt?:now)>windowStart}.sumOf{(minOf(it.endedAt?:now,now)-maxOf(it.startedAt,windowStart)).coerceAtLeast(0L)}
   val capacityMillis=machines.size.toLong()*7*24*60*60*1000
   val availability=if(capacityMillis>0)((capacityMillis-stoppedMillis).coerceAtLeast(0L)*100.0/capacityMillis).coerceIn(0.0,100.0) else 0.0
-  LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("SHOP-FLOOR ASSETS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp);Text("Machine management",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(machines.size.toString()+" registered machines",fontSize=12.sp,color=Muted)};Button(onClick={dialog="machine"},shape=RoundedCornerShape(13.dp)){Icon(Icons.Default.Add,null);Text(" Add")}}}
-   item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("Running",machines.count{it.status=="RUNNING"}.toString(),Modifier.weight(1f));Metric("Stopped",machines.count{it.status!="RUNNING"}.toString(),Modifier.weight(1f))}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("7-day stopped",String.format(Locale.US,"%.1f h",stoppedMillis/3600000.0),Modifier.weight(1f));Metric("Availability est.",String.format(Locale.US,"%.1f%%",availability),Modifier.weight(1f))}};item{Text("Estimate uses logged stop/restart intervals only; missing operator logs will overstate availability.",fontSize=10.sp,color=Muted)}
-   if(machines.isEmpty())item{EmptyDashboardState("No machines registered","Add your filling, capping, labelling or packing machines.",Icons.Default.Settings)}
-   items(machines,key={it.id}){m->Surface(color=Color.White,shape=RoundedCornerShape(17.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-    Row(verticalAlignment=Alignment.CenterVertically){Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Settings,null,tint=Blue,modifier=Modifier.padding(10.dp))};Column(Modifier.weight(1f).padding(start=10.dp)){Text(m.name,fontWeight=FontWeight.Bold,color=Navy);Text(m.machineCode+" · "+m.machineType,fontSize=11.sp,color=Muted);if(m.location.isNotBlank())Text(m.location,fontSize=11.sp,color=Muted)};Text(m.status,fontSize=10.sp,fontWeight=FontWeight.Bold,color=if(m.status=="RUNNING")Color(0xFF16804A) else Color(0xFFB45309))}
-    Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Button(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot change machine status"};val now=System.currentTimeMillis();val next=if(m.status=="RUNNING")"STOPPED" else "RUNNING";if(next=="STOPPED"){val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=m.id,machineNameSnapshot=m.name,eventType="MACHINE_STOPPED",startedAt=now,reason="Operator stopped machine",status="OPEN",performedBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-stop:"+eventId,organisationId=session?.organisationId?:"local-org",eventType="MACHINE_STOPPED",payloadJson=JSONObject().put("machineId",m.id).put("eventId",eventId).toString()))}else{machineEvents.filter{it.machineId==m.id&&it.eventType=="MACHINE_STOPPED"&&it.status=="OPEN"}.maxByOrNull{it.startedAt}?.let{dao.closeMachineEvent(it.id)};val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=m.id,machineNameSnapshot=m.name,eventType="MACHINE_STARTED",startedAt=now,endedAt=now,reason="Operator restarted machine",status="CLOSED",performedBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-start:"+eventId,organisationId=session?.organisationId?:"local-org",eventType="MACHINE_STARTED",payloadJson=JSONObject().put("machineId",m.id).put("eventId",eventId).toString()))};dao.updateMachineStatus(m.id,next);dao.insertAudit(AuditEventEntity(eventType="MACHINE_STATUS_CHANGED",entityType="machine",entityId=m.id.toString(),beforeJson=m.status,afterJson=next,reason="Status changed from machine screen",actorId=session?.uid?:"local"));message="Machine status updated"}.onFailure{message=it.message}}},modifier=Modifier.weight(1f),shape=RoundedCornerShape(11.dp)){Text(if(m.status=="RUNNING")"Stop machine" else "Mark running")}
-     OutlinedButton(onClick={dialog="machineEvent";selectedMachineId=m.id},modifier=Modifier.weight(1f),shape=RoundedCornerShape(11.dp)){Text("Log downtime")}
-     OutlinedButton(onClick={dialog="maintenance";selectedMachineId=m.id},modifier=Modifier.weight(1f),shape=RoundedCornerShape(11.dp)){Text("Maintenance")}
+
+  Column(Modifier.fillMaxSize()){
+   Surface(color=Color.White,tonalElevation=2.dp){
+    TabRow(selectedTabIndex=machineSubTab,containerColor=Color.White,contentColor=Navy){
+     Tab(selected=machineSubTab==0,onClick={machineSubTab=0},text={Text("Lines (${productionLines.size})",fontSize=11.sp,fontWeight=if(machineSubTab==0)FontWeight.Bold else FontWeight.Normal)})
+     Tab(selected=machineSubTab==1,onClick={machineSubTab=1},text={Text("Machinery (${machines.size})",fontSize=11.sp,fontWeight=if(machineSubTab==1)FontWeight.Bold else FontWeight.Normal)})
+     Tab(selected=machineSubTab==2,onClick={machineSubTab=2},text={Text("Maintenance",fontSize=11.sp,fontWeight=if(machineSubTab==2)FontWeight.Bold else FontWeight.Normal)})
+     Tab(selected=machineSubTab==3,onClick={machineSubTab=3},text={Text("Downtime",fontSize=11.sp,fontWeight=if(machineSubTab==3)FontWeight.Bold else FontWeight.Normal)})
     }
-   }}}
-   item{Text("Downtime & maintenance history",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)}
-   items(machineEvents,key={it.id}){e->val durationMinutes=((e.endedAt?:System.currentTimeMillis())-e.startedAt).coerceAtLeast(0L)/60000L;Surface(color=Color.White,shape=RoundedCornerShape(13.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(12.dp)){Text(e.machineNameSnapshot+" · "+e.eventType,fontWeight=FontWeight.Bold,color=Navy);Text(e.reason.ifBlank{e.maintenanceType},fontSize=12.sp,color=Muted);Text("Duration: "+(durationMinutes/60)+"h "+(durationMinutes%60)+"m · Started "+SimpleDateFormat("dd MMM, HH:mm",Locale.US).format(Date(e.startedAt)),fontSize=10.sp,color=Blue);if(e.completionNotes.isNotBlank())Text("Completion: "+e.completionNotes,fontSize=11.sp,color=Navy);if(e.partsUsed.isNotBlank())Text("Parts used: "+e.partsUsed,fontSize=11.sp,color=Muted);if(e.completedBy.isNotBlank())Text("Completed by: "+e.completedBy,fontSize=10.sp,color=Muted);Row(verticalAlignment=Alignment.CenterVertically){Text(if(e.status=="OPEN")"OPEN" else "CLOSED",Modifier.weight(1f),fontSize=10.sp,fontWeight=FontWeight.Bold,color=if(e.status=="OPEN")Color(0xFFB45309) else Color(0xFF16804A));if(e.status=="OPEN")TextButton(onClick={selectedMachineEventId=e.id;dialog="closeMachineEvent"}){Text("Complete / close")}}}}}
+   }
+   when(machineSubTab){
+    0->{
+     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+      item{
+       Row(verticalAlignment=Alignment.CenterVertically){
+        Column(Modifier.weight(1f)){
+         Text("PRODUCTION INFRASTRUCTURE",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp)
+         Text("Production lines",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+         Text(productionLines.size.toString()+" operational line(s)",fontSize=12.sp,color=Muted)
+        }
+        Button(onClick={editingLine=null;dialog="line"},shape=RoundedCornerShape(13.dp)){
+         Icon(Icons.Default.Add,null)
+         Spacer(Modifier.width(4.dp))
+         Text("Add line")
+        }
+       }
+      }
+      item{
+       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Metric("Active lines",productionLines.count{it.status=="ACTIVE"}.toString(),Modifier.weight(1f))
+        Metric("Inactive",productionLines.count{it.status!="ACTIVE"}.toString(),Modifier.weight(1f))
+        Metric("Assigned assets",machines.count{it.lineId!=null}.toString(),Modifier.weight(1f))
+       }
+      }
+      if(productionLines.isEmpty()){
+       item{EmptyDashboardState("No production lines","Create a production line to group machines and track production flow.",Icons.Default.PrecisionManufacturing)}
+      }
+      items(productionLines,key={it.id}){line->
+       val lineMachines=machines.filter{it.lineId==line.id}
+       Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+        Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+         Row(verticalAlignment=Alignment.CenterVertically){
+          Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){
+           Icon(Icons.Default.PrecisionManufacturing,null,tint=Blue,modifier=Modifier.padding(10.dp).size(24.dp))
+          }
+          Column(Modifier.weight(1f).padding(start=10.dp)){
+           Text(line.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=16.sp)
+           Text(line.lineCode+(if(line.description.isNotBlank()) " · "+line.description else ""),fontSize=11.sp,color=Muted)
+          }
+          Surface(color=if(line.status=="ACTIVE")Color(0xFFE8F7F0) else Color(0xFFE9EDF2),shape=RoundedCornerShape(30.dp)){
+           Text(line.status,modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(line.status=="ACTIVE")Color(0xFF16804A) else Muted)
+          }
+         }
+         if(line.targetCapacity>0){
+          Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+           Icon(Icons.Default.Speed,null,tint=Blue,modifier=Modifier.size(16.dp))
+           Text("Target capacity: ${line.targetCapacity} ${line.capacityUnit.lowercase().replace('_',' ')}",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+          }
+         }
+         HorizontalDivider(color=Border)
+         Text("Assigned equipment (${lineMachines.size})",fontSize=11.sp,fontWeight=FontWeight.Bold,color=Muted)
+         if(lineMachines.isEmpty()){
+          Text("No machines currently assigned to this line. Assign equipment from the Machinery tab.",fontSize=11.sp,color=Color(0xFF9B5B00))
+         } else {
+          Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+           lineMachines.chunked(2).forEach{rowChunk->
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+             rowChunk.forEach{m->
+              Surface(modifier=Modifier.weight(1f),color=Page,shape=RoundedCornerShape(8.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+               Row(Modifier.padding(horizontal=8.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
+                Icon(Icons.Default.Circle,null,tint=if(m.status=="RUNNING")Color(0xFF16804A) else Color(0xFFB45309),modifier=Modifier.size(8.dp))
+                Text(m.name,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Navy,maxLines=1)
+               }
+              }
+             }
+             if(rowChunk.size==1){
+              Spacer(Modifier.weight(1f))
+             }
+            }
+           }
+          }
+         }
+         Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+          OutlinedButton(onClick={editingLine=line;dialog="line"},modifier=Modifier.weight(1f),shape=RoundedCornerShape(11.dp)){
+           Icon(Icons.Default.Edit,null,modifier=Modifier.size(15.dp))
+           Spacer(Modifier.width(4.dp))
+           Text("Edit",fontSize=11.sp)
+          }
+          Button(onClick={
+           scope.launch{
+            runCatching{
+             require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot change line status"}
+             val nextStatus=if(line.status=="ACTIVE")"INACTIVE" else "ACTIVE"
+             dao.updateProductionLine(line.id,line.name,line.description,line.targetCapacity,line.capacityUnit,nextStatus)
+             SyncScheduler.runNow(context)
+             message="Line status updated to $nextStatus"
+            }.onFailure{message=it.message}
+           }
+          },modifier=Modifier.weight(1.2f),shape=RoundedCornerShape(11.dp),colors=ButtonDefaults.buttonColors(containerColor=if(line.status=="ACTIVE")Color(0xFFB45309) else Color(0xFF16804A))){
+           Text(if(line.status=="ACTIVE")"Deactivate" else "Activate",fontSize=11.sp)
+          }
+          IconButton(onClick={deletingLine=line}){
+           Icon(Icons.Default.DeleteOutline,null,tint=Color(0xFFB42318),modifier=Modifier.size(20.dp))
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+    1->{
+      val filteredMachines=machines.filter{
+       (selectedLineFilterId==null||it.lineId==selectedLineFilterId)&&
+       (it.name+" "+it.machineCode+" "+it.machineType+" "+it.location).contains(machineSearch,true)
+      }
+      LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+       item{
+        Row(verticalAlignment=Alignment.CenterVertically){
+         Column(Modifier.weight(1f)){
+          Text("SHOP-FLOOR ASSETS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp)
+          Text("Machinery & equipment",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+          Text(machines.size.toString()+" registered asset(s)",fontSize=12.sp,color=Muted)
+         }
+         Button(onClick={editingMachine=null;dialog="machine"},shape=RoundedCornerShape(13.dp)){
+          Icon(Icons.Default.Add,null)
+          Spacer(Modifier.width(4.dp))
+          Text("Add asset")
+         }
+        }
+       }
+       item{
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+         Metric("Running",machines.count{it.status=="RUNNING"}.toString(),Modifier.weight(1f))
+         Metric("Attention",machines.count{it.status in setOf("DOWN","MAINTENANCE")}.toString(),Modifier.weight(1f))
+         Metric("Stopped",machines.count{it.status=="STOPPED"}.toString(),Modifier.weight(1f))
+        }
+       }
+       item{
+        OutlinedTextField(machineSearch,{machineSearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(14.dp),leadingIcon={Icon(Icons.Default.Search,null)},placeholder={Text("Search asset name, code, type or location")},label={Text("Filter machinery")})
+       }
+       item{
+        Text("FILTER BY PRODUCTION LINE",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.2.sp)
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+         FilterChip(selected=selectedLineFilterId==null,onClick={selectedLineFilterId=null},label={Text("All lines (${machines.size})",fontSize=10.sp)})
+         productionLines.forEach{pl->
+          val count=machines.count{it.lineId==pl.id}
+          FilterChip(selected=selectedLineFilterId==pl.id,onClick={selectedLineFilterId=if(selectedLineFilterId==pl.id)null else pl.id},label={Text("${pl.lineCode} ($count)",fontSize=10.sp)})
+         }
+        }
+       }
+       if(filteredMachines.isEmpty()){
+        item{EmptyDashboardState("No machinery matching criteria","Register a machine or clear the line filter.",Icons.Default.Settings)}
+       }
+       items(filteredMachines,key={it.id}){m->
+        val assignedLine=productionLines.firstOrNull{it.id==m.lineId}
+        val isRunning=m.status=="RUNNING"
+        val statusColor=when(m.status){"RUNNING"->Color(0xFF16804A);"STOPPED"->Color(0xFFB45309);"DOWN"->Color(0xFFB42318);else->Color(0xFF7656D9)}
+        Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+         Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+          Row(verticalAlignment=Alignment.CenterVertically){
+           Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){
+            Icon(Icons.Default.Settings,null,tint=Blue,modifier=Modifier.padding(10.dp))
+           }
+           Column(Modifier.weight(1f).padding(start=10.dp)){
+            Text(m.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp)
+            Text(m.machineCode+" · "+m.machineType,fontSize=11.sp,color=Muted)
+            if(m.location.isNotBlank())Text(m.location,fontSize=11.sp,color=Muted)
+           }
+           Surface(color=statusColor.copy(alpha=0.12f),shape=RoundedCornerShape(30.dp)){
+            Text(m.status,modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=statusColor)
+           }
+          }
+          Surface(color=Page,shape=RoundedCornerShape(10.dp)){
+           Row(Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)){
+             Icon(Icons.Default.PrecisionManufacturing,null,tint=Blue,modifier=Modifier.size(14.dp))
+             Text(if(assignedLine!=null)"Line: ${assignedLine.name} (${assignedLine.lineCode})" else "Line: Not assigned to any line",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(assignedLine!=null)Navy else Color(0xFF9B5B00))
+            }
+            TextButton(onClick={assigningMachine=m;dialog="assignLine"},contentPadding=PaddingValues(0.dp)){
+             Text("Reassign",fontSize=11.sp,color=Blue)
+            }
+           }
+          }
+          Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+           Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+            Button(onClick={
+             scope.launch{
+              runCatching{
+               require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot change machine status"}
+               val now=System.currentTimeMillis()
+               val next=if(m.status=="RUNNING")"STOPPED" else "RUNNING"
+               if(next=="STOPPED"){
+                val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=m.id,machineNameSnapshot=m.name,eventType="MACHINE_STOPPED",startedAt=now,reason="Operator stopped machine",status="OPEN",performedBy=session?.uid?:"local"))
+                dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-stop:$eventId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_STOPPED",payloadJson=JSONObject().put("machineId",m.id).put("eventId",eventId).toString()))
+               }else{
+                machineEvents.filter{it.machineId==m.id&&it.eventType=="MACHINE_STOPPED"&&it.status=="OPEN"}.maxByOrNull{it.startedAt}?.let{dao.closeMachineEvent(it.id)}
+                val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=m.id,machineNameSnapshot=m.name,eventType="MACHINE_STARTED",startedAt=now,endedAt=now,reason="Operator marked machine running",status="CLOSED",performedBy=session?.uid?:"local"))
+                dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-start:$eventId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_STARTED",payloadJson=JSONObject().put("machineId",m.id).put("eventId",eventId).toString()))
+               }
+               dao.updateMachineStatus(m.id,next)
+               SyncScheduler.runNow(context)
+               message="Machine status updated to $next"
+              }.onFailure{message=it.message}
+             }
+            },modifier=Modifier.weight(1f),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=if(isRunning)Color(0xFFB45309) else Color(0xFF16804A))){
+             Text(if(isRunning)"Stop" else "Mark running",fontSize=11.sp)
+            }
+            OutlinedButton(onClick={selectedMachineId=m.id;dialog="logDowntime"},modifier=Modifier.weight(1f),shape=RoundedCornerShape(10.dp)){
+             Text("Downtime",fontSize=11.sp)
+            }
+            OutlinedButton(onClick={selectedMachineId=m.id;dialog="scheduleMaintenance"},modifier=Modifier.weight(1f),shape=RoundedCornerShape(10.dp)){
+             Text("Service",fontSize=11.sp)
+            }
+           }
+           Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){
+            OutlinedButton(onClick={editingMachine=m;dialog="machine"},modifier=Modifier.weight(1f),shape=RoundedCornerShape(10.dp)){
+             Icon(Icons.Default.Edit,null,modifier=Modifier.size(15.dp),tint=Blue)
+             Spacer(Modifier.width(4.dp))
+             Text("Edit",fontSize=11.sp,color=Blue)
+            }
+            Button(onClick={
+             scope.launch{
+              runCatching{
+               require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot change machine status"}
+               val nextStatus = if(m.status=="DEACTIVATED") "RUNNING" else "DEACTIVATED"
+               dao.updateMachineStatus(m.id,nextStatus)
+               SyncScheduler.runNow(context)
+               message="Machine set to $nextStatus"
+              }.onFailure{message=it.message}
+             }
+            },modifier=Modifier.weight(1.2f),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=if(m.status=="DEACTIVATED") Color(0xFF16804A) else Color(0xFF6B7E93))){
+             Text(if(m.status=="DEACTIVATED") "Activate" else "Deactivate",fontSize=11.sp)
+            }
+            IconButton(onClick={deletingMachine=m}){
+             Icon(Icons.Default.DeleteOutline,null,tint=Color(0xFFB42318),modifier=Modifier.size(20.dp))
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    2->{
+      val serviceRecords=machineEvents.filter{it.eventType=="MAINTENANCE"}
+      val openService=serviceRecords.filter{it.status=="OPEN"}
+      LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+       item{
+        Row(verticalAlignment=Alignment.CenterVertically){
+         Column(Modifier.weight(1f)){
+          Text("EQUIPMENT SERVICE",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp)
+          Text("Maintenance",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+          Text("Preventive scheduling & service work orders",fontSize=12.sp,color=Muted)
+         }
+         Button(onClick={selectedMachineId=null;dialog="scheduleMaintenance"},shape=RoundedCornerShape(13.dp)){
+          Icon(Icons.Default.Add,null)
+          Spacer(Modifier.width(4.dp))
+          Text("Schedule")
+         }
+        }
+       }
+       item{
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+         Metric("Active service",openService.size.toString(),Modifier.weight(1f))
+         Metric("Completed",serviceRecords.count{it.status=="CLOSED"}.toString(),Modifier.weight(1f))
+        }
+       }
+       if(serviceRecords.isEmpty()){
+        item{EmptyDashboardState("No maintenance records","Schedule preventive or corrective service for factory equipment.",Icons.Default.Build)}
+       }
+       items(serviceRecords,key={it.id}){e->
+        val durationMinutes=((e.endedAt?:System.currentTimeMillis())-e.startedAt).coerceAtLeast(0L)/60000L
+        Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+         Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+          Row(verticalAlignment=Alignment.CenterVertically){
+           Column(Modifier.weight(1f)){
+            Text(e.machineNameSnapshot,fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp)
+            Text(e.maintenanceType.ifBlank{"Maintenance"}+" · Started "+SimpleDateFormat("dd MMM, HH:mm",Locale.US).format(Date(e.startedAt)),fontSize=11.sp,color=Muted)
+           }
+           Surface(color=if(e.status=="OPEN")Color(0xFFFFF3DE) else Color(0xFFE8F7F0),shape=RoundedCornerShape(30.dp)){
+            Text(e.status,modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(e.status=="OPEN")Color(0xFFB45309) else Color(0xFF16804A))
+           }
+          }
+          if(e.reason.isNotBlank())Text("Work scope: "+e.reason,fontSize=12.sp,color=Navy)
+          Text("Duration: "+(durationMinutes/60)+"h "+(durationMinutes%60)+"m · Logged by: "+e.performedBy,fontSize=11.sp,color=Blue)
+          if(e.completionNotes.isNotBlank())Text("Summary: "+e.completionNotes,fontSize=11.sp,color=Navy)
+          if(e.partsUsed.isNotBlank())Text("Parts / materials: "+e.partsUsed,fontSize=11.sp,color=Muted)
+          if(e.completedBy.isNotBlank())Text("Completed by: "+e.completedBy,fontSize=10.sp,color=Muted)
+          if(e.status=="OPEN"){
+           Button(onClick={selectedMachineEventId=e.id;dialog="closeMachineEvent"},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(11.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF16804A))){
+            Text("Complete service & restore machine")
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    3->{
+      val stoppageRecords=machineEvents.filter{it.eventType in setOf("DOWNTIME","MACHINE_STOPPED")}
+      val openStoppages=stoppageRecords.filter{it.status=="OPEN"}
+      LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+       item{
+        Row(verticalAlignment=Alignment.CenterVertically){
+         Column(Modifier.weight(1f)){
+          Text("STOPPAGE LOG",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp)
+          Text("Machine downtime",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+          Text("Stoppages, breakdowns and availability tracking",fontSize=12.sp,color=Muted)
+         }
+         Button(onClick={selectedMachineId=null;dialog="logDowntime"},shape=RoundedCornerShape(13.dp)){
+          Icon(Icons.Default.Add,null)
+          Spacer(Modifier.width(4.dp))
+          Text("Log stoppage")
+         }
+        }
+       }
+       item{
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+         Metric("Active breakdowns",openStoppages.size.toString(),Modifier.weight(1f))
+         Metric("7-day stopped",String.format(Locale.US,"%.1f h",stoppedMillis/3600000.0),Modifier.weight(1f))
+         Metric("Availability est.",String.format(Locale.US,"%.1f%%",availability),Modifier.weight(1f))
+        }
+       }
+       if(stoppageRecords.isEmpty()){
+        item{EmptyDashboardState("No downtime recorded","Equipment is running normally with zero logged stoppages.",Icons.Default.CheckCircle)}
+       }
+       items(stoppageRecords,key={it.id}){e->
+        val durationMinutes=((e.endedAt?:System.currentTimeMillis())-e.startedAt).coerceAtLeast(0L)/60000L
+        Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+         Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+          Row(verticalAlignment=Alignment.CenterVertically){
+           Column(Modifier.weight(1f)){
+            Text(e.machineNameSnapshot,fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp)
+            Text(e.eventType+" · Started "+SimpleDateFormat("dd MMM, HH:mm",Locale.US).format(Date(e.startedAt)),fontSize=11.sp,color=Muted)
+           }
+           Surface(color=if(e.status=="OPEN")Color(0xFFFFF0F0) else Color(0xFFE8F7F0),shape=RoundedCornerShape(30.dp)){
+            Text(e.status,modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(e.status=="OPEN")Color(0xFFB42318) else Color(0xFF16804A))
+           }
+          }
+          Text("Reason: "+e.reason.ifBlank{"Unspecified stoppage"},fontSize=12.sp,color=Navy)
+          Text("Duration: "+(durationMinutes/60)+"h "+(durationMinutes%60)+"m · Performed by: "+e.performedBy,fontSize=11.sp,color=Blue)
+          if(e.completionNotes.isNotBlank())Text("Resolution: "+e.completionNotes,fontSize=11.sp,color=Navy)
+          if(e.status=="OPEN"){
+           Button(onClick={selectedMachineEventId=e.id;dialog="closeMachineEvent"},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(11.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF16804A))){
+            Text("Resolve & restore to RUNNING service")
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
   }
- }
  PageTab.QUALITY->{
   val inspected=qualityInspections.sumOf{it.inspectedBottles};val failed=qualityInspections.sumOf{it.failedBottles}
   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
@@ -489,11 +1102,234 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   val currentRole=session?.role?.let{runCatching{FactoryPermissions.fromClaim(it)}.getOrNull()}
   val roles=FactoryRole.values().toList()
   val actions=FactoryAction.values().toList()
+  val canManageStaff=roleAllows(session,FactoryAction.MANAGE_STAFF)
+  var showMatrix by remember{mutableStateOf(false)}
+
   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Text("ACCESS GOVERNANCE",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp);Text("Staff & permissions",fontSize=27.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Role-based access matrix used by the app",fontSize=12.sp,color=Muted)}
-   item{Surface(color=Navy,shape=RoundedCornerShape(18.dp)){Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){Text("CURRENT SESSION",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.sp);Text(if(session!=null)session!!.role.uppercase() else "LOCAL DEVICE MODE",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text(if(session!=null)"Organisation: "+session!!.organisationId else "No cloud identity loaded. Local mode should be used only on a trusted device.",fontSize=11.sp,color=Color(0xFFD4E2F0))}}}
-   item{Text("Role capability reference",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Cloud staff roles are resolved from trusted Firebase custom claims. This screen is read-only; staff assignments must be changed by an authorised administrator.",fontSize=12.sp,color=Muted)}
-   items(roles){role->Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(role==currentRole)Blue else Border)){Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){Row(verticalAlignment=Alignment.CenterVertically){Text(role.name.replace("_"," "),Modifier.weight(1f),fontWeight=FontWeight.Bold,color=Navy);if(role==currentRole)Text("CURRENT ROLE",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Blue)};val permitted=actions.filter{FactoryPermissions.allows(role,it)};Text("Allowed actions",fontSize=10.sp,color=Muted);Text(permitted.joinToString(" · "){it.name.lowercase().replace("_"," ")},fontSize=11.sp,color=Navy);Text("Restricted: "+actions.filter{!FactoryPermissions.allows(role,it)}.joinToString(" · "){it.name.lowercase().replace("_"," ")},fontSize=10.sp,color=Color(0xFF9B5B00))}}}
+   item{
+    Row(verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f)){
+      Text("STAFF & SECURITY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp)
+      Text("Team & access",fontSize=27.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+      Text("Manage staff credentials, permissions and active status",fontSize=12.sp,color=Muted)
+     }
+     if(canManageStaff){
+      Button(
+       onClick={editingStaff=null;dialog="staff"},
+       shape=RoundedCornerShape(13.dp),
+       colors=ButtonDefaults.buttonColors(containerColor=Blue)
+      ){
+       Icon(Icons.Default.PersonAdd,null,modifier=Modifier.size(18.dp))
+       Spacer(Modifier.width(6.dp))
+       Text("Create Staff",fontSize=13.sp,fontWeight=FontWeight.Bold)
+      }
+     }
+    }
+   }
+
+   item{
+    Surface(color=Navy,shape=RoundedCornerShape(18.dp)){
+     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("LOGGED IN ACCOUNT",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.sp)
+        Text(session?.name?.ifBlank{null}?:session?.role?.uppercase()?:"LOCAL ADMINISTRATOR",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Color.White)
+        Text(session?.email?:if(session!=null)"Organisation: "+session!!.organisationId else "Local Device Mode · Storage active",fontSize=11.sp,color=Color(0xFFD4E2F0))
+       }
+       Surface(color=Color.White.copy(alpha=0.15f),shape=RoundedCornerShape(20.dp)){
+        Text(session?.role?.uppercase()?:"ADMIN",modifier=Modifier.padding(horizontal=10.dp,vertical=4.dp),color=Color.White,fontSize=10.sp,fontWeight=FontWeight.Bold)
+       }
+      }
+      if(session?.allowedModules?.isNotBlank()==true&&session?.allowedModules!="ALL"){
+       Text("Allowed modules: "+session!!.allowedModules.split(",").joinToString(", "){it.trim().lowercase().replaceFirstChar{c->c.uppercase()}},fontSize=11.sp,color=Cyan)
+      }
+     }
+    }
+   }
+
+   item{
+    Row(verticalAlignment=Alignment.CenterVertically){
+     Text("STAFF ACCOUNTS (${staffMembers.size})",modifier=Modifier.weight(1f),fontSize=14.sp,fontWeight=FontWeight.Bold,color=Navy)
+    }
+   }
+
+   if(staffMembers.isEmpty()){
+    item{
+     EmptyDashboardState(
+      "No staff accounts registered",
+      "Tap '+ Create Staff' to provision new staff credentials with customized module access.",
+      Icons.Default.PeopleOutline
+     )
+    }
+   }
+
+   items(staffMembers,key={it.id}){staff->
+    Surface(
+     color=Color.White,
+     shape=RoundedCornerShape(16.dp),
+     border=androidx.compose.foundation.BorderStroke(1.dp,if(staff.active)Border else Color(0xFFFFD1D1))
+    ){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Box(
+        Modifier.size(38.dp).background(if(staff.active)Color(0xFFE0F2FE) else Color(0xFFFEE2E2),RoundedCornerShape(10.dp)),
+        contentAlignment=Alignment.Center
+       ){
+        Icon(
+         if(staff.active)Icons.Default.Person else Icons.Default.PersonOff,
+         null,
+         tint=if(staff.active)Blue else Color(0xFFB42318),
+         modifier=Modifier.size(20.dp)
+        )
+       }
+       Spacer(Modifier.width(10.dp))
+       Column(Modifier.weight(1f)){
+        Text(staff.name,fontWeight=FontWeight.Bold,fontSize=15.sp,color=Navy)
+        Text(staff.email,fontSize=12.sp,color=Muted)
+       }
+       Surface(
+        color=if(staff.active)Color(0xFFE8F7F0) else Color(0xFFFFF0F0),
+        shape=RoundedCornerShape(20.dp)
+       ){
+        Text(
+         if(staff.active)"ACTIVE" else "DEACTIVATED",
+         modifier=Modifier.padding(horizontal=8.dp,vertical=3.dp),
+         fontSize=9.sp,
+         fontWeight=FontWeight.Bold,
+         color=if(staff.active)Color(0xFF16804A) else Color(0xFFB42318)
+        )
+       }
+      }
+
+      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+       Surface(color=Color(0xFFEEF2F6),shape=RoundedCornerShape(8.dp)){
+        Text("Role: "+staff.role.replace("_"," "),modifier=Modifier.padding(horizontal=8.dp,vertical=3.dp),fontSize=10.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+       }
+      }
+
+      val modulesList = staff.allowedModules.split(",").map{it.trim()}.filter{it.isNotEmpty()}
+      if(modulesList.isNotEmpty()&&staff.allowedModules!="ALL"){
+       Text("Allowed Access:",fontSize=10.sp,fontWeight=FontWeight.SemiBold,color=Muted)
+       Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)){
+        modulesList.take(5).forEach{mod->
+         Surface(color=Color(0xFFE0F2FE),shape=RoundedCornerShape(6.dp)){
+          Text(mod.lowercase().replaceFirstChar{c->c.uppercase()},modifier=Modifier.padding(horizontal=6.dp,vertical=2.dp),fontSize=9.sp,color=Blue,fontWeight=FontWeight.Bold)
+         }
+        }
+        if(modulesList.size>5){
+         Surface(color=Color(0xFFEEF2F6),shape=RoundedCornerShape(6.dp)){
+          Text("+${modulesList.size-5} more",modifier=Modifier.padding(horizontal=6.dp,vertical=2.dp),fontSize=9.sp,color=Muted)
+         }
+        }
+       }
+      }else{
+       Text("Full Access: Admin / Manager standard permissions",fontSize=10.sp,color=Muted)
+      }
+
+      var showStaffWork by remember{mutableStateOf(false)}
+      val staffWorkEvents = auditEvents.filter{it.actorId.equals(staff.email,true) || it.actorId.equals(staff.uid,true) || it.actorId.equals(staff.name,true)}
+      
+      Row(
+       modifier=Modifier.fillMaxWidth().clickable{showStaffWork=!showStaffWork}.padding(vertical=3.dp),
+       verticalAlignment=Alignment.CenterVertically
+      ){
+       Icon(Icons.Default.HistoryEdu,null,tint=Blue,modifier=Modifier.size(15.dp))
+       Spacer(Modifier.width(4.dp))
+       Text("Staff Work History (${staffWorkEvents.size} tasks logged)",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Blue,modifier=Modifier.weight(1f))
+       Icon(if(showStaffWork)Icons.Default.ExpandLess else Icons.Default.ExpandMore,null,tint=Blue,modifier=Modifier.size(16.dp))
+      }
+      if(showStaffWork){
+       Surface(color=Page,shape=RoundedCornerShape(10.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+        Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+         if(staffWorkEvents.isEmpty()){
+          Text("No recorded operations yet for this staff member.",fontSize=11.sp,color=Muted)
+         } else {
+          staffWorkEvents.take(5).forEach{evt->
+           Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            Column(Modifier.weight(1f)){
+             Text(evt.eventType.replace("_"," "),fontSize=11.sp,fontWeight=FontWeight.Bold,color=Navy)
+             Text("${evt.entityType} · ${evt.reason}",fontSize=10.sp,color=Muted)
+            }
+            Text(SimpleDateFormat("dd MMM, HH:mm",Locale.US).format(Date(evt.createdAt)),fontSize=9.sp,color=Muted)
+           }
+          }
+         }
+        }
+       }
+      }
+
+      if(canManageStaff){
+       HorizontalDivider(color=Border)
+       Row(
+        modifier=Modifier.fillMaxWidth(),
+        horizontalArrangement=Arrangement.End,
+        verticalAlignment=Alignment.CenterVertically
+       ){
+        TextButton(onClick={editingStaff=staff;dialog="staff"}){
+         Icon(Icons.Default.Edit,null,modifier=Modifier.size(15.dp),tint=Blue)
+         Spacer(Modifier.width(4.dp))
+         Text("Edit",fontSize=11.sp,color=Blue)
+        }
+        Spacer(Modifier.width(4.dp))
+        TextButton(onClick={
+         scope.launch{
+          runCatching{
+           dao.setStaffMemberActive(staff.id,!staff.active)
+           SyncScheduler.runNow(context)
+           message=if(staff.active)"Staff member deactivated" else "Staff member activated"
+          }.onFailure{message=it.message}
+         }
+        }){
+         Icon(if(staff.active)Icons.Default.Block else Icons.Default.CheckCircle,null,modifier=Modifier.size(15.dp),tint=if(staff.active)Color(0xFFD97706) else Color(0xFF16804A))
+         Spacer(Modifier.width(4.dp))
+         Text(if(staff.active)"Deactivate" else "Activate",fontSize=11.sp,color=if(staff.active)Color(0xFFD97706) else Color(0xFF16804A))
+        }
+        Spacer(Modifier.width(4.dp))
+        TextButton(onClick={
+         scope.launch{
+          runCatching{
+           dao.deleteStaffMember(staff.id)
+           SyncScheduler.runNow(context)
+           message="Staff member removed"
+          }.onFailure{message=it.message}
+         }
+        }){
+         Icon(Icons.Default.DeleteOutline,null,modifier=Modifier.size(15.dp),tint=Color(0xFFB42318))
+         Spacer(Modifier.width(4.dp))
+         Text("Remove",fontSize=11.sp,color=Color(0xFFB42318))
+        }
+       }
+      }
+     }
+    }
+   }
+
+   item{
+    Row(
+     modifier=Modifier.fillMaxWidth().clickable{showMatrix=!showMatrix}.padding(vertical=6.dp),
+     verticalAlignment=Alignment.CenterVertically
+    ){
+     Text("Role Capability Reference",modifier=Modifier.weight(1f),fontSize=14.sp,fontWeight=FontWeight.Bold,color=Navy)
+     Icon(if(showMatrix)Icons.Default.ExpandLess else Icons.Default.ExpandMore,null,tint=Muted)
+    }
+   }
+
+   if(showMatrix){
+    items(roles){role->
+     Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(role==currentRole)Blue else Border)){
+      Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+       Row(verticalAlignment=Alignment.CenterVertically){
+        Text(role.name.replace("_"," "),Modifier.weight(1f),fontWeight=FontWeight.Bold,color=Navy)
+        if(role==currentRole)Text("CURRENT ROLE",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Blue)
+       }
+       val permitted=actions.filter{FactoryPermissions.allows(role,it)}
+       Text("Allowed actions",fontSize=10.sp,color=Muted)
+       Text(permitted.joinToString(" · "){it.name.lowercase().replace("_"," ")},fontSize=11.sp,color=Navy)
+       Text("Restricted: "+actions.filter{!FactoryPermissions.allows(role,it)}.joinToString(" · "){it.name.lowercase().replace("_"," ")},fontSize=10.sp,color=Color(0xFF9B5B00))
+      }
+     }
+    }
+   }
   }
  }
  PageTab.AUDIT->{
@@ -539,6 +1375,72 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      }
     }
    }
+   item{
+    val lineRows=productionLines.map{line->
+     val lineBottles=production.filter{it.productionDate in reportFrom..reportTo&&it.lineId==line.id}.sumOf{it.producedBottles}
+     line to lineBottles
+    }
+    val totalLineBottles=lineRows.sumOf{it.second}.coerceAtLeast(1)
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("Production by line",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+        Text("Bottles produced per operational line · selected period",fontSize=11.sp,color=Muted)
+       }
+       Icon(Icons.Default.PrecisionManufacturing,null,tint=Blue)
+      }
+      if(lineRows.all{it.second==0}){
+       Text("No line-tagged production recorded in this period.",fontSize=12.sp,color=Muted)
+      } else {
+       lineRows.forEach{(line,bottles)->
+        Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Row(verticalAlignment=Alignment.CenterVertically){
+          Text(line.name+" ("+line.lineCode+")",Modifier.weight(1f),fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+          Text(String.format(Locale.US,"%,d bottles",bottles),fontSize=12.sp,fontWeight=FontWeight.Bold,color=Blue)
+         }
+         LinearProgressIndicator(progress={bottles.toFloat()/totalLineBottles.toFloat()},modifier=Modifier.fillMaxWidth().height(6.dp),color=Blue,trackColor=Page,strokeCap=androidx.compose.ui.graphics.StrokeCap.Round)
+        }
+       }
+      }
+     }
+    }
+   }
+   item{
+    val periodEvents=machineEvents.filter{
+     val eventDate=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date(it.startedAt))
+     eventDate in reportFrom..reportTo
+    }
+    val downtimeByMachine=machines.map{m->
+     val events=periodEvents.filter{it.machineId==m.id}
+     val totalMinutes=events.sumOf{((it.endedAt?:System.currentTimeMillis())-it.startedAt).coerceAtLeast(0L)/60000L}
+     Triple(m,events.size,totalMinutes)
+    }.filter{it.third>0}.sortedByDescending{it.third}
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("Machine downtime & stoppage",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+        Text("Total stoppage duration per machine · selected period",fontSize=11.sp,color=Muted)
+       }
+       Icon(Icons.Default.HourglassBottom,null,tint=Color(0xFFB45309))
+      }
+      if(downtimeByMachine.isEmpty()){
+       Text("No machine stoppage or maintenance events recorded in this period.",fontSize=12.sp,color=Muted)
+      } else {
+       downtimeByMachine.forEach{(m,count,minutes)->
+        Row(verticalAlignment=Alignment.CenterVertically){
+         Column(Modifier.weight(1f)){
+          Text(m.name,fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp)
+          Text(m.machineCode+" · "+count+" event(s)",fontSize=10.sp,color=Muted)
+         }
+         Text(String.format(Locale.US,"%.1f hours",minutes/60.0),fontWeight=FontWeight.Bold,color=Color(0xFFB45309),fontSize=13.sp)
+        }
+       }
+      }
+     }
+    }
+   }
    item{val prior=runCatching{val from=java.time.LocalDate.parse(reportFrom);val to=java.time.LocalDate.parse(reportTo);val days=java.time.temporal.ChronoUnit.DAYS.between(from,to)+1;val priorTo=from.minusDays(1);val priorFrom=priorTo.minusDays(days-1);ReportExport.totals(priorFrom,priorTo,production,packing,dispatches,meters,dispatchBatches,dispatchLines)}.getOrNull();if(prior!=null&&totals!=null)Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(18.dp)){Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){Text("Previous equal-length period",fontWeight=FontWeight.Bold,color=Navy);Text("Produced "+prior.produced+" · Packed "+prior.completePacks+" packs · Dispatched "+prior.dispatchedPacks+" packs",fontSize=11.sp,color=Blue);Text("Electricity "+String.format(Locale.US,"%.1f units",prior.electricity),fontSize=11.sp,color=Blue)}}}
   }
  }
@@ -546,31 +1448,414 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  message?.let{Text(it,Modifier.align(Alignment.BottomCenter).padding(12.dp).background(Color.White,RoundedCornerShape(12.dp)).padding(12.dp),color=Blue)}
  }
  }
+ }
+ FullSlideMenuScreen(
+  isOpen = showTools,
+  onClose = { showTools = false },
+  currentTab = tab,
+  onSelectTab = { tab = it },
+  session = session,
+  onOpenRoleSwitcher = { dialog = "role_switcher" },
+  onQuickAction = { action -> dialog = action },
+  onExportDb = { databaseBackupLauncher.launch("tck-factoryflow-backup-${System.currentTimeMillis()}.sqlite3") },
+  onRestoreDb = { databaseRestoreLauncher.launch(arrayOf("application/vnd.sqlite3", "application/octet-stream", "*/*")) },
+  onExportJson = { backupLauncher.launch("tck-factoryflow-backup-${System.currentTimeMillis()}.json") },
+  onExportCsv = { exportLauncher.launch("factory-report-${System.currentTimeMillis()}.csv") },
+  onSyncNow = { SyncScheduler.runNow(context); message = "Cloud sync triggered" },
+  firebaseConfigured = FirebaseApp.getApps(context).isNotEmpty(),
+  onSignOut = {
+   FactoryAuthRepository(context).signOut()
+   session = null
+   showTools = false
+   message = "Signed out"
+  }
+ )
  if(dialog=="reverse"&&reversalBatchId!=null)ReverseDispatchForm({dialog="";reversalBatchId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"};dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");"Dispatch reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalBatchId=null}
- if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};dao.reversePacking(reversalPackingId!!,reason,session?.uid?: "local",session?.organisationId?: "local-org");"Packing entry reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
+ if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");"Packing entry reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
 
- if(dialog=="machine")MachineForm({dialog=""}){code,name,type,location,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot manage machines"};val machineId=dao.insertMachine(MachineEntity(machineCode=code,name=name,machineType=type,location=location,notes=notes));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-register:"+machineId,organisationId=session?.organisationId?:"local-org",eventType="MACHINE_REGISTERED",payloadJson=JSONObject().put("machineId",machineId).put("code",code).put("name",name).put("type",type).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_REGISTERED",entityType="machine",entityId=code,afterJson=name,reason="Machine registered",actorId=session?.uid?:"local"));message="Machine registered"}.onFailure{message=it.message}};dialog=""}
- if((dialog=="machineEvent"||dialog=="maintenance")&&selectedMachineId!=null){val machine=machines.firstOrNull{it.id==selectedMachineId};if(machine!=null)MachineEventForm(machine,dialog=="maintenance",{dialog="";selectedMachineId=null}){kind,reason->scope.launch{runCatching{val isMaintenance=dialog=="maintenance";require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot log machine events"};val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=machine.id,machineNameSnapshot=machine.name,eventType=if(isMaintenance)"MAINTENANCE" else "DOWNTIME",startedAt=System.currentTimeMillis(),reason=reason,maintenanceType=if(isMaintenance)kind else "",status="OPEN",performedBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-event:"+eventId,organisationId=session?.organisationId?:"local-org",eventType=if(isMaintenance)"MAINTENANCE_LOGGED" else "DOWNTIME_LOGGED",payloadJson=JSONObject().put("machineId",machine.id).put("reason",reason).toString()));dao.updateMachineStatus(machine.id,if(isMaintenance)"MAINTENANCE" else "DOWN");dao.insertAudit(AuditEventEntity(eventType=if(isMaintenance)"MAINTENANCE_LOGGED" else "DOWNTIME_LOGGED",entityType="machine",entityId=machine.id.toString(),reason=reason,actorId=session?.uid?:"local"));message=if(isMaintenance)"Maintenance logged" else "Downtime logged"}.onFailure{message=it.message}};dialog="";selectedMachineId=null}}
+ if(dialog=="line")LineForm(editingLine,{dialog="";editingLine=null}){code,name,desc,cap,unit,status->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot manage production lines"};val existing=editingLine;if(existing==null){val id=dao.insertProductionLine(ProductionLineEntity(lineCode=code,name=name,description=desc,targetCapacity=cap,capacityUnit=unit,status=status));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-register:$id",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_REGISTERED",payloadJson=JSONObject().put("lineId",id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_REGISTERED",entityType="production_line",entityId=code,afterJson=name,reason="Production line created",actorId=session?.uid?:"local"));message="Production line $name registered"}else{dao.updateProductionLine(existing.id,name,desc,cap,unit,status);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-update:${existing.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_UPDATED",payloadJson=JSONObject().put("lineId",existing.id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_UPDATED",entityType="production_line",entityId=existing.id.toString(),beforeJson=existing.name,afterJson=name,reason="Line configuration updated",actorId=session?.uid?:"local"));message="Production line $name updated"}}.onFailure{message=it.message}};dialog="";editingLine=null}
+ if(dialog=="assignLine"&&assigningMachine!=null){val machine=assigningMachine!!;AssignMachineLineForm(machine,productionLines,{dialog="";assigningMachine=null}){selectedLineId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot reassign machines"};dao.assignMachineToLine(machine.id,selectedLineId);val lineName=productionLines.firstOrNull{it.id==selectedLineId}?.name?:"Unassigned";dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-assign:${machine.id}:$selectedLineId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_LINE_ASSIGNED",payloadJson=JSONObject().put("machineId",machine.id).put("lineId",selectedLineId).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_LINE_ASSIGNED",entityType="machine",entityId=machine.id.toString(),beforeJson=machine.lineId?.toString()?:"none",afterJson=selectedLineId?.toString()?:"none",reason="Reassigned to $lineName",actorId=session?.uid?:"local"));message="${machine.name} assigned to $lineName"}.onFailure{message=it.message}};dialog="";assigningMachine=null}}
+ if(dialog=="machine")MachineForm(editingMachine,productionLines,{dialog="";editingMachine=null}){code,name,type,location,notes,lineId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot manage machines"};val existing=editingMachine;if(existing==null){val machineId=dao.insertMachine(MachineEntity(machineCode=code,name=name,machineType=type,location=location,notes=notes,lineId=lineId));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-register:$machineId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_REGISTERED",payloadJson=JSONObject().put("machineId",machineId).put("code",code).put("name",name).put("type",type).put("lineId",lineId).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_REGISTERED",entityType="machine",entityId=code,afterJson=name,reason="Machine registered",actorId=session?.uid?:"local"));message="Machine $name registered"}else{dao.updateMachineWithLine(existing.id,name,type,location,notes,lineId);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-update:${existing.id}",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_UPDATED",payloadJson=JSONObject().put("machineId",existing.id).put("name",name).put("lineId",lineId).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_UPDATED",entityType="machine",entityId=existing.id.toString(),beforeJson=existing.name,afterJson=name,reason="Machine details updated",actorId=session?.uid?:"local"));message="Machine $name updated"}}.onFailure{message=it.message}};dialog="";editingMachine=null}
+ if(dialog=="scheduleMaintenance")ScheduleMaintenanceForm(machines,selectedMachineId,{dialog="";selectedMachineId=null}){machine,kind,reason,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot schedule maintenance"};val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=machine.id,machineNameSnapshot=machine.name,eventType="MAINTENANCE",startedAt=System.currentTimeMillis(),reason=reason,maintenanceType=kind,status="OPEN",performedBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="maintenance-scheduled:$eventId",organisationId=session?.organisationId?:"local-org",eventType="MAINTENANCE_SCHEDULED",payloadJson=JSONObject().put("machineId",machine.id).put("type",kind).put("reason",reason).toString()));dao.updateMachineStatus(machine.id,"MAINTENANCE");dao.insertAudit(AuditEventEntity(eventType="MAINTENANCE_SCHEDULED",entityType="machine",entityId=machine.id.toString(),afterJson="kind=$kind;reason=$reason",reason="Preventive/corrective maintenance scheduled",actorId=session?.uid?:"local"));message="Maintenance scheduled for ${machine.name}"}.onFailure{message=it.message}};dialog="";selectedMachineId=null}
+ if(dialog=="logDowntime")LogDowntimeForm(machines,selectedMachineId,{dialog="";selectedMachineId=null}){machine,reason,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot log downtime"};val eventId=dao.insertMachineEvent(MachineEventEntity(machineId=machine.id,machineNameSnapshot=machine.name,eventType="DOWNTIME",startedAt=System.currentTimeMillis(),reason=reason,maintenanceType="Breakdown",status="OPEN",performedBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="downtime-logged:$eventId",organisationId=session?.organisationId?:"local-org",eventType="DOWNTIME_LOGGED",payloadJson=JSONObject().put("machineId",machine.id).put("reason",reason).toString()));dao.updateMachineStatus(machine.id,"DOWN");dao.insertAudit(AuditEventEntity(eventType="DOWNTIME_LOGGED",entityType="machine",entityId=machine.id.toString(),afterJson="reason=$reason",reason="Downtime / stoppage recorded",actorId=session?.uid?:"local"));message="Downtime logged for ${machine.name}"}.onFailure{message=it.message}};dialog="";selectedMachineId=null}
  if(dialog=="closeMachineEvent"&&selectedMachineEventId!=null){val event=machineEvents.firstOrNull{it.id==selectedMachineEventId};if(event!=null)MachineEventCloseForm(event,{dialog="";selectedMachineEventId=null}){completion,parts->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot close machine events"};require(dao.closeMachineEvent(event.id,completionNotes=completion,partsUsed=parts,completedBy=session?.uid?:"local")==1){"Event already closed"};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-event-closed:"+event.id,organisationId=session?.organisationId?:"local-org",eventType="MACHINE_EVENT_CLOSED",payloadJson=JSONObject().put("eventId",event.id).put("machineId",event.machineId).put("completionNotes",completion).put("partsUsed",parts).toString()));val machine=machines.firstOrNull{it.id==event.machineId};if(machine!=null&&machine.status in setOf("DOWN","MAINTENANCE"))dao.updateMachineStatus(machine.id,"RUNNING");dao.insertAudit(AuditEventEntity(eventType="MACHINE_EVENT_CLOSED",entityType="machine_event",entityId=event.id.toString(),afterJson="completion=$completion;parts=$parts",reason="Machine event closed",actorId=session?.uid?:"local"));message="Machine event closed"}.onFailure{message=it.message}};dialog="";selectedMachineEventId=null}}
  if(dialog=="quality")QualityForm(active,production,{dialog=""}){product,productionEntry,d,i,p,failed,category,severity,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_QUALITY)){"Your role cannot create quality inspections"};require(i>0&&p in 0..i);val inspectionId=dao.insertQualityInspection(QualityInspectionEntity(productionEntryId=productionEntry?.id,productId=product.id,productNameSnapshot=product.name,inspectionDate=d,inspectedBottles=i,passedBottles=p,failedBottles=failed,defectCategory=category,severity=severity,notes=notes,inspectorId=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="quality-inspection:"+inspectionId,organisationId=session?.organisationId?:"local-org",eventType="QUALITY_INSPECTION_SAVED",payloadJson=JSONObject().put("inspectionId",inspectionId).put("productId",product.id).put("inspected",i).put("passed",p).put("failed",failed).put("defect",category).put("severity",severity).toString()));dao.insertAudit(AuditEventEntity(eventType="QUALITY_INSPECTION_SAVED",entityType="quality",entityId=product.id.toString(),afterJson="inspection saved",reason="Quality inspection recorded",actorId=session?.uid?:"local"));message="Quality inspection saved"}.onFailure{message=it.message}};dialog=""}
  if(dialog=="plan")ProductionPlanForm(active,machines,{dialog=""}){product,d,shift,target,machineId,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot create production plans"};val planId=dao.insertProductionPlan(ProductionPlanEntity(planDate=d,shift=shift,productId=product.id,productNameSnapshot=product.name,targetBottles=target,assignedMachineId=machineId,notes=notes,createdBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="production-plan:"+planId,organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_PLAN_CREATED",payloadJson=JSONObject().put("planId",planId).put("productId",product.id).put("date",d).put("shift",shift).put("target",target).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_CREATED",entityType="product",entityId=product.id.toString(),afterJson="plan saved",reason="Production plan created",actorId=session?.uid?:"local"));message="Production plan saved"}.onFailure{message=it.message}};dialog=""}
  if(dialog=="order")SalesOrderForm(customers,active,{dialog=""}){customer,product,number,d,due,packs,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ORDERS)){"Your role cannot create sales orders"};val id=dao.insertSalesOrder(SalesOrderEntity(orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"));dao.insertSalesOrderLines(listOf(SalesOrderLineEntity(orderId=id,productId=product.id,productNameSnapshot=product.name,packsOrdered=packs,packSizeSnapshot=product.bottlesPerPack)));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="sales-order:"+id,organisationId=session?.organisationId?:"local-org",eventType="SALES_ORDER_CREATED",payloadJson=JSONObject().put("orderId",id).put("orderNumber",number).put("customerId",customer.id).put("productId",product.id).put("packs",packs).toString()));dao.insertAudit(AuditEventEntity(eventType="SALES_ORDER_CREATED",entityType="sales_order",entityId=id.toString(),afterJson="order created",reason="Sales order created",actorId=session?.uid?:"local"));message="Sales order created"}.onFailure{message=it.message}};dialog=""}
  if(dialog=="fulfilOrder"&&selectedOrderId!=null){val order=orders.firstOrNull{it.id==selectedOrderId};val lines=orderLines.filter{it.orderId==selectedOrderId};if(order!=null)FulfilOrderForm(order,lines,{dialog="";selectedOrderId=null}){line,qty->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot update order fulfilment"};require(dao.setOrderLineFulfilled(line.id,qty)==1){"Fulfilment quantity is invalid"};val all=lines.map{if(it.id==line.id)it.copy(packsDispatched=qty) else it};val status=when{all.all{it.packsDispatched>=it.packsOrdered}->"FULFILLED";all.any{it.packsDispatched>0}->"PARTIAL";else->"OPEN"};dao.updateSalesOrderStatus(order.id,status);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="order-fulfilment:"+order.id+":"+line.id+":"+qty,organisationId=session?.organisationId?:"local-org",eventType="ORDER_FULFILMENT_UPDATED",payloadJson=JSONObject().put("orderId",order.id).put("lineId",line.id).put("packsFulfilled",qty).put("status",status).toString()));dao.insertAudit(AuditEventEntity(eventType="ORDER_FULFILMENT_UPDATED",entityType="sales_order",entityId=order.id.toString(),afterJson="fulfilment updated",reason="Order fulfilment progress updated; dispatch posting remains a separate operation",actorId=session?.uid?:"local"));message="Order fulfilment updated"}.onFailure{message=it.message}};dialog="";selectedOrderId=null}}
- if(dialog=="login")LoginForm(firebaseConfigured=FirebaseApp.getApps(context).isNotEmpty(),close={dialog=""}){email,password->if(FirebaseApp.getApps(context).isEmpty()){message="Firebase is not configured in this build. Add the Firebase project configuration and rebuild."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed. Check your connection and account."}}}
- if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p)) else dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org")}.onSuccess{message=if(p>0)"${n.trim()} saved · $p bottles per pack" else "${n.trim()} saved"}.onFailure{message=it.message}};dialog="";editingProduct=null}
- if(dialog=="production")ProductionForm(active,{dialog=""}){p,d,total,good,rejected,machine,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};dao.postProduction(ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machine,remarks=remarks),session?.organisationId?:"local-org",session?.uid?:"local")}.onSuccess{message="Production saved"}.onFailure{message=it.message}};dialog=""}
- if(dialog=="packing")PackingForm(active,dao,{dialog=""}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};val calc=PackCalculation.calculate(n,p.bottlesPerPack);dao.postPacking(PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles),session?.organisationId?:"local-org",session?.uid?:"local");"Saved "+calc.completePacks+" packs and "+calc.looseBottles+" loose bottles"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
- if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=reference.ifBlank{"DSP-"+System.currentTimeMillis()},dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=session?.uid?:"local",salesOrderId=orderId);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local") else dao.postMultiLineDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local");"Dispatch saved"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
- if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage customers"};dao.insertCustomer(CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst))}.onSuccess{message="Customer saved"}.onFailure{message=it.message}};dialog=""}
- if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage customers"};require(existing!=null);dao.updateCustomer(existing!!.id,name,phone,address,gst,existing.active)}.onSuccess{message="Customer details updated"}.onFailure{message=it.message}};dialog="";editingCustomer=null}
- if(dialog=="meter")MeterForm({dialog=""}){d,m,s,e,r->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"};val used=ElectricityRules.consumption(s,e);dao.insertMeterReading(MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r));"Reading saved: "+used+" units"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="login"||dialog=="role_switcher")RoleSwitcherDialog(currentRole=session?.role?:"admin",onSelectRole={newRole->val newSession=FactoryAuthRepository(context).setLocalRole(newRole);session=newSession;message="Active role: ${newRole.uppercase()}";dialog=""},onDismiss={dialog=""},firebaseConfigured=FirebaseApp.getApps(context).isNotEmpty(),onFirebaseSignIn={email,password->if(FirebaseApp.getApps(context).isEmpty()){message="Cloud server not reachable. Check your connection."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed."}}},onSyncNow={SyncScheduler.runNow(context);message="Cloud sync triggered"},onSignOut={FactoryAuthRepository(context).signOut();session=null;dialog="";message="Signed out"})
+ if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p,icon,img->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p,iconName=icon,imageUri=img)) else dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org",iconName=icon,imageUri=img);SyncScheduler.runNow(context)}.onSuccess{message=if(p>0)"${n.trim()} saved · $p bottles per pack" else "${n.trim()} saved"}.onFailure{message=it.message}};dialog="";editingProduct=null}
+ if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val id=dao.postProduction(ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId),session?.organisationId?:"local-org",session?.uid?:"local");SyncScheduler.runNow(context);message="Production run #$id saved · $total bottles"}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="packing")PackingForm(active,dao,{dialog=""}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};val calc=PackCalculation.calculate(n,p.bottlesPerPack);dao.postPacking(PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles),session?.organisationId?:"local-org",session?.uid?:"local");SyncScheduler.runNow(context);"Saved "+calc.completePacks+" packs and "+calc.looseBottles+" loose bottles"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=reference.ifBlank{"DSP-"+System.currentTimeMillis()},dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=session?.uid?:"local",salesOrderId=orderId);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local") else dao.postMultiLineDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local");SyncScheduler.runNow(context);"Dispatch saved"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
+ if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage customers"};dao.insertCustomer(CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst));SyncScheduler.runNow(context)}.onSuccess{message="Customer saved"}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage customers"};require(existing!=null);dao.updateCustomer(existing!!.id,name,phone,address,gst,existing.active);SyncScheduler.runNow(context)}.onSuccess{message="Customer details updated"}.onFailure{message=it.message}};dialog="";editingCustomer=null}
+ if(dialog=="meter")MeterForm({dialog=""}){d,m,s,e,r->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"};val used=ElectricityRules.consumption(s,e);dao.insertMeterReading(MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r));SyncScheduler.runNow(context);"Reading saved: "+used+" units"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="staff"){
+  StaffForm(
+   initial=editingStaff,
+   close={dialog="";editingStaff=null},
+   save={name,email,pass,role,modules->
+    val existing=editingStaff
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.MANAGE_STAFF)){"Only Administrators can manage staff accounts"}
+      if(existing==null){
+       FactoryAuthRepository(context).createStaffAccount(
+        name=name,
+        email=email,
+        password=pass,
+        role=role,
+        allowedModules=modules.joinToString(","),
+        creatorUid=session?.uid?:"admin"
+       )
+       "Staff account created for $email"
+      }else{
+       FactoryAuthRepository(context).updateStaffAccount(
+        id=existing.id,
+        uid=existing.uid,
+        name=name,
+        role=role,
+        allowedModules=modules.joinToString(","),
+        active=existing.active
+       )
+       "Staff member $name updated"
+      }
+     }.onSuccess{
+      SyncScheduler.runNow(context)
+      message=it
+     }.onFailure{
+      message=it.message?:"Failed to save staff member"
+     }
+    }
+    dialog=""
+    editingStaff=null
+   }
+  )
+ }
+ if(deletingProduct!=null){
+  val p = deletingProduct!!
+  AlertDialog(
+   onDismissRequest={deletingProduct=null},
+   title={Text("Delete Product",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Navy)},
+   text={
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+     Text("Are you sure you want to permanently remove this product from the factory catalog?",fontSize=13.sp,color=Navy)
+     Surface(color=Color(0xFFFFF0F0),shape=RoundedCornerShape(10.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFFFFD1D1))){
+      Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+       Text(p.name,fontWeight=FontWeight.Bold,fontSize=14.sp,color=Color(0xFFB42318))
+       Text("${p.sizeLabel} · ${p.colour} · ${if(p.bottlesPerPack>0)"${p.bottlesPerPack}/pack" else "No pack size"}",fontSize=11.sp,color=Muted)
+      }
+     }
+     Text("This will record an audit trail entry and sync to the server.",fontSize=11.sp,color=Muted)
+    }
+   },
+   confirmButton={
+    Button(
+     onClick={
+      scope.launch{
+       runCatching{
+        require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot delete products"}
+        dao.removeProduct(p.id,session?.uid?:"local","Product deleted by administrator",session?.organisationId?:"local-org")
+        SyncScheduler.runNow(context)
+        "Product ${p.name} deleted"
+       }.onSuccess{message=it}.onFailure{message=it.message}
+      }
+      deletingProduct=null
+     },
+     colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB42318)),
+     shape=RoundedCornerShape(10.dp)
+    ){
+     Text("Delete Product",fontWeight=FontWeight.Bold)
+    }
+   },
+   dismissButton={
+    TextButton(onClick={deletingProduct=null}){Text("Cancel")}
+   }
+  )
+ }
+ if(deletingMachine!=null){
+  val m = deletingMachine!!
+  AlertDialog(
+   onDismissRequest={deletingMachine=null},
+   title={Text("Delete Machine",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Navy)},
+   text={
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+     Text("Are you sure you want to permanently remove this machine from the factory?",fontSize=13.sp,color=Navy)
+     Surface(color=Color(0xFFFFF0F0),shape=RoundedCornerShape(10.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFFFFD1D1))){
+      Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+       Text(m.name,fontWeight=FontWeight.Bold,fontSize=14.sp,color=Color(0xFFB42318))
+       Text("Code: ${m.machineCode} · Type: ${m.machineType} · ${m.location}",fontSize=11.sp,color=Muted)
+      }
+     }
+     Text("This will remove the machine from schedules, lines and sync to the server.",fontSize=11.sp,color=Muted)
+    }
+   },
+   confirmButton={
+    Button(
+     onClick={
+      scope.launch{
+       runCatching{
+        require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot delete machines"}
+        dao.removeMachine(m.id,session?.uid?:"local","Machine deleted by administrator",session?.organisationId?:"local-org")
+        SyncScheduler.runNow(context)
+        "Machine ${m.name} deleted"
+       }.onSuccess{message=it}.onFailure{message=it.message}
+      }
+      deletingMachine=null
+     },
+     colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB42318)),
+     shape=RoundedCornerShape(10.dp)
+    ){
+     Text("Delete Machine",fontWeight=FontWeight.Bold)
+    }
+   },
+   dismissButton={
+    TextButton(onClick={deletingMachine=null}){Text("Cancel")}
+   }
+  )
+ }
+ if(deletingLine!=null){
+  val l = deletingLine!!
+  AlertDialog(
+   onDismissRequest={deletingLine=null},
+   title={Text("Delete Production Line",fontSize=20.sp,fontWeight=FontWeight.Bold,color=Navy)},
+   text={
+    Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+     Text("Are you sure you want to permanently remove this production line?",fontSize=13.sp,color=Navy)
+     Surface(color=Color(0xFFFFF0F0),shape=RoundedCornerShape(10.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFFFFD1D1))){
+      Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+       Text(l.name,fontWeight=FontWeight.Bold,fontSize=14.sp,color=Color(0xFFB42318))
+       Text("Code: ${l.lineCode} · ${l.description}",fontSize=11.sp,color=Muted)
+      }
+     }
+     Text("Any machines currently assigned to this line will become unassigned.",fontSize=11.sp,color=Muted)
+    }
+   },
+   confirmButton={
+    Button(
+     onClick={
+      scope.launch{
+       runCatching{
+        require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot delete production lines"}
+        dao.removeProductionLine(l.id,session?.uid?:"local","Line deleted by administrator",session?.organisationId?:"local-org")
+        SyncScheduler.runNow(context)
+        "Production line ${l.name} deleted"
+       }.onSuccess{message=it}.onFailure{message=it.message}
+      }
+      deletingLine=null
+     },
+     colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB42318)),
+     shape=RoundedCornerShape(10.dp)
+    ){
+     Text("Delete Line",fontWeight=FontWeight.Bold)
+    }
+   },
+   dismissButton={
+    TextButton(onClick={deletingLine=null}){Text("Cancel")}
+   }
+  )
+ }
+ message?.let{
+  Surface(
+   shape = RoundedCornerShape(12.dp),
+   color = Navy,
+   shadowElevation = 6.dp,
+   modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).padding(horizontal = 16.dp)
+  ) {
+   Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+  }
+ }
+}
 }
 
 }
+@Composable private fun LineForm(initial:ProductionLineEntity?,close:()->Unit,save:(String,String,String,Int,String,String)->Unit){
+ var code by remember(initial?.id){mutableStateOf(initial?.lineCode.orEmpty())}
+ var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
+ var desc by remember(initial?.id){mutableStateOf(initial?.description.orEmpty())}
+ var capacity by remember(initial?.id){mutableStateOf(initial?.targetCapacity?.takeIf{it>0}?.toString().orEmpty())}
+ var unit by remember(initial?.id){mutableStateOf(initial?.capacityUnit?:"BOTTLES_PER_HOUR")}
+ var status by remember(initial?.id){mutableStateOf(initial?.status?:"ACTIVE")}
+ val capInt=capacity.toIntOrNull()?:0
+ val validCode=code.isNotBlank()&&code.trim().length<=24
+ val validName=name.isNotBlank()&&name.trim().length<=80
 
-@Composable private fun MachineForm(close:()->Unit,save:(String,String,String,String,String)->Unit){
- var code by remember{mutableStateOf("")};var name by remember{mutableStateOf("")};var type by remember{mutableStateOf("Filling")};var location by remember{mutableStateOf("")};var notes by remember{mutableStateOf("")}
- AlertDialog(onDismissRequest=close,title={Text("Register machine",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Give every machine a unique code so downtime and maintenance can be traced.",fontSize=12.sp,color=Muted);Field("Machine code *",code){code=it.uppercase().filter{c->c.isLetterOrDigit()||c=='-'}.take(24)};Field("Machine name *",name){name=it};Text("Machine type",fontSize=12.sp,color=Muted);Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){listOf("Filling","Capping","Labelling","Packing","Compressor","Other").forEach{t->FilterChip(selected=type==t,onClick={type=t},label={Text(t,fontSize=10.sp)})}};Field("Location / line",location){location=it};OutlinedTextField(notes,{notes=it},label={Text("Notes")},modifier=Modifier.fillMaxWidth(),minLines=2)}},confirmButton={Button(enabled=code.isNotBlank()&&name.isNotBlank(),onClick={save(code.trim(),name.trim(),type,location.trim(),notes.trim())}){Text("Register machine")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+   Text(if(initial==null)"Add production line" else "Edit production line",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+   Text(if(initial==null)"Create a factory line to group machines and measure flow." else "Update line details and operating capacity.",fontSize=12.sp,color=Muted)
+  }},
+  text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+   Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(14.dp)){
+    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+     Icon(Icons.Default.PrecisionManufacturing,null,tint=Blue,modifier=Modifier.size(24.dp))
+     Column{
+      Text(name.trim().ifBlank{"New line preview"},fontWeight=FontWeight.Bold,color=Navy)
+      Text(code.trim().ifBlank{"LINE-XX"}+(if(capInt>0)" · $capInt ${unit.lowercase().replace('_',' ')}" else ""),fontSize=11.sp,color=Muted)
+     }
+    }
+   }
+   OutlinedTextField(value=code,onValueChange={code=it.uppercase().filter{c->c.isLetterOrDigit()||c=='-'}.take(24)},label={Text("Line code *")},singleLine=true,isError=!validCode&&code.isNotBlank(),enabled=initial==null,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.QrCode,null)},placeholder={Text("e.g. LINE-03")},supportingText={if(initial!=null)Text("Line codes are unique and fixed.") else Text("Alphanumeric code, e.g. LINE-01")})
+   OutlinedTextField(value=name,onValueChange={name=it},label={Text("Line name *")},singleLine=true,isError=!validName&&name.isNotBlank(),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Label,null)},placeholder={Text("e.g. 500ml Bottling Line 01")})
+   OutlinedTextField(value=desc,onValueChange={desc=it},label={Text("Description / process type")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3,placeholder={Text("e.g. High-speed blowing, filling, capping and labelling process")})
+   OutlinedTextField(value=capacity,onValueChange={capacity=it.filter(Char::isDigit).take(8)},label={Text("Target capacity (optional)")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Speed,null)},placeholder={Text("e.g. 2400")},supportingText={Text("Hourly or daily design output rate.")})
+   Text("Capacity unit",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+    listOf("BOTTLES_PER_HOUR" to "Bottles/hr","BOTTLES_PER_SHIFT" to "Bottles/shift","PACKS_PER_HOUR" to "Packs/hr").forEach{(opt,lbl)->
+     FilterChip(selected=unit==opt,onClick={unit=opt},label={Text(lbl,fontSize=10.sp)})
+    }
+   }
+   Text("Line status",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+    listOf("ACTIVE" to "Active","INACTIVE" to "Inactive").forEach{(opt,lbl)->
+     FilterChip(selected=status==opt,onClick={status=opt},label={Text(lbl,fontSize=10.sp)})
+    }
+   }
+  }},
+  confirmButton={Button(enabled=validCode&&validName,onClick={save(code.trim(),name.trim(),desc.trim(),capInt,unit,status)},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Create line" else "Save changes")}},
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
+
+@Composable private fun AssignMachineLineForm(machine:MachineEntity,lines:List<ProductionLineEntity>,close:()->Unit,save:(Long?)->Unit){
+ var selectedLineId by remember{mutableStateOf(machine.lineId)}
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+   Text("Assign production line",fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+   Text("Move equipment to an active production line or mark unassigned.",fontSize=12.sp,color=Muted)
+  }},
+  text={Column(Modifier.heightIn(max=400.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){
+   Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(14.dp)){
+    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+     Icon(Icons.Default.Settings,null,tint=Blue,modifier=Modifier.size(24.dp))
+     Column{
+      Text(machine.name,fontWeight=FontWeight.Bold,color=Navy)
+      Text(machine.machineCode+" · "+machine.machineType,fontSize=11.sp,color=Muted)
+     }
+    }
+   }
+   Text("SELECT PRODUCTION LINE",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.2.sp)
+   Surface(onClick={selectedLineId=null},color=if(selectedLineId==null)Color(0xFFEAF5FC) else Page,shape=RoundedCornerShape(12.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(selectedLineId==null)Blue else Border)){
+    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     RadioButton(selected=selectedLineId==null,onClick={selectedLineId=null})
+     Column{
+      Text("Unassigned (standby / shop floor asset)",fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp)
+      Text("Asset is not tied to any production line",fontSize=10.sp,color=Muted)
+     }
+    }
+   }
+   lines.forEach{line->
+    val isSelected=selectedLineId==line.id
+    Surface(onClick={selectedLineId=line.id},color=if(isSelected)Color(0xFFEAF5FC) else Page,shape=RoundedCornerShape(12.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(isSelected)Blue else Border)){
+     Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+      RadioButton(selected=isSelected,onClick={selectedLineId=line.id})
+      Column{
+       Text(line.name+" ("+line.lineCode+")",fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp)
+       Text(if(line.status=="ACTIVE")"Active line · ${line.targetCapacity} ${line.capacityUnit.lowercase().replace('_',' ')}" else "Inactive line",fontSize=10.sp,color=if(line.status=="ACTIVE")Color(0xFF16804A) else Color(0xFFB45309))
+      }
+     }
+    }
+   }
+  }},
+  confirmButton={Button(onClick={save(selectedLineId)},shape=RoundedCornerShape(12.dp)){Text("Confirm assignment")}},
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
+
+@Composable private fun MachineForm(initial:MachineEntity?,lines:List<ProductionLineEntity>,close:()->Unit,save:(String,String,String,String,String,Long?)->Unit){
+ var code by remember(initial?.id){mutableStateOf(initial?.machineCode.orEmpty())}
+ var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
+ var type by remember(initial?.id){mutableStateOf(initial?.machineType?:"Filling")}
+ var location by remember(initial?.id){mutableStateOf(initial?.location.orEmpty())}
+ var notes by remember(initial?.id){mutableStateOf(initial?.notes.orEmpty())}
+ var lineId by remember(initial?.id){mutableStateOf(initial?.lineId?:lines.firstOrNull()?.id)}
+ val validCode=code.isNotBlank()&&code.trim().length<=24
+ val validName=name.isNotBlank()&&name.trim().length<=80
+
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+   Text(if(initial==null)"Register machine" else "Edit machine details",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+   Text(if(initial==null)"Give every machine a unique asset code and assign its production line." else "Update asset attributes without altering service history.",fontSize=12.sp,color=Muted)
+  }},
+  text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+   OutlinedTextField(value=code,onValueChange={code=it.uppercase().filter{c->c.isLetterOrDigit()||c=='-'}.take(24)},label={Text("Asset code *")},singleLine=true,enabled=initial==null,isError=!validCode&&code.isNotBlank(),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.QrCode,null)},placeholder={Text("e.g. BLW-01")},supportingText={if(initial!=null)Text("Asset code is permanent.") else Text("Unique equipment ID")})
+   OutlinedTextField(value=name,onValueChange={name=it},label={Text("Machine name *")},singleLine=true,isError=!validName&&name.isNotBlank(),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Settings,null)},placeholder={Text("e.g. Blowing Machine 01")})
+   Text("Machine type",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   Column{
+    listOf("Blowing","Filling","Capping","Labelling","Packing","Compressor","Other").chunked(3).forEach{row->
+     Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){
+      row.forEach{t->FilterChip(selected=type==t,onClick={type=t},label={Text(t,fontSize=10.sp)})}
+     }
+    }
+   }
+   Text("Assigned production line",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
+    FilterChip(selected=lineId==null,onClick={lineId=null},label={Text("Unassigned",fontSize=10.sp)})
+    lines.forEach{l->
+     FilterChip(selected=lineId==l.id,onClick={lineId=l.id},label={Text(l.lineCode,fontSize=10.sp)})
+    }
+   }
+   Field("Physical location / Bay",location){location=it}
+   OutlinedTextField(notes,{notes=it},label={Text("Asset notes / specifications")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+  }},
+  confirmButton={Button(enabled=validCode&&validName,onClick={save(code.trim(),name.trim(),type,location.trim(),notes.trim(),lineId)},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Register machine" else "Save changes")}},
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
+
+@Composable private fun ScheduleMaintenanceForm(machines:List<MachineEntity>,initialMachineId:Long?,close:()->Unit,save:(MachineEntity,String,String,String)->Unit){
+ var selectedMachine by remember{mutableStateOf(machines.firstOrNull{it.id==initialMachineId}?:machines.firstOrNull())}
+ var kind by remember{mutableStateOf("Preventive maintenance")}
+ var reason by remember{mutableStateOf("")}
+ var notes by remember{mutableStateOf("")}
+
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+   Text("Schedule maintenance",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+   Text("Open a preventive or corrective service work order for machinery.",fontSize=12.sp,color=Muted)
+  }},
+  text={Column(Modifier.heightIn(max=460.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+   Text("Equipment to service *",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   DropdownMachinePicker(machines,selectedMachine){selectedMachine=it}
+   Text("Service category",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){
+    listOf("Preventive maintenance","Repair","Inspection","Lubrication").forEach{t->
+     FilterChip(selected=kind==t,onClick={kind=t},label={Text(t,fontSize=10.sp)})
+    }
+   }
+   Field("Work scope / reason *",reason){reason=it}
+   OutlinedTextField(notes,{notes=it},label={Text("Required parts / instructions (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+  }},
+  confirmButton={Button(enabled=selectedMachine!=null&&reason.isNotBlank(),onClick={selectedMachine?.let{save(it,kind,reason.trim(),notes.trim())}},shape=RoundedCornerShape(12.dp)){Text("Open service order")}},
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
+
+@Composable private fun LogDowntimeForm(machines:List<MachineEntity>,initialMachineId:Long?,close:()->Unit,save:(MachineEntity,String,String)->Unit){
+ var selectedMachine by remember{mutableStateOf(machines.firstOrNull{it.id==initialMachineId}?:machines.firstOrNull())}
+ var reason by remember{mutableStateOf("")}
+ var notes by remember{mutableStateOf("")}
+
+ AlertDialog(
+  onDismissRequest=close,
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+   Text("Log machine stoppage",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+   Text("Record an unplanned breakdown or shop-floor stoppage.",fontSize=12.sp,color=Muted)
+  }},
+  text={Column(Modifier.heightIn(max=460.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+   Text("Affected equipment *",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+   DropdownMachinePicker(machines,selectedMachine){selectedMachine=it}
+   Field("Stoppage / failure reason *",reason){reason=it}
+   OutlinedTextField(notes,{notes=it},label={Text("Immediate action / observations (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+  }},
+  confirmButton={Button(enabled=selectedMachine!=null&&reason.isNotBlank(),onClick={selectedMachine?.let{save(it,reason.trim(),notes.trim())}},shape=RoundedCornerShape(12.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB42318))){Text("Record stoppage")}},
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
 }
 @Composable private fun MachineEventForm(machine:MachineEntity,maintenance:Boolean,close:()->Unit,save:(String,String)->Unit){
  var reason by remember{mutableStateOf("")};var kind by remember{mutableStateOf(if(maintenance)"Preventive maintenance" else "Breakdown")};var notes by remember{mutableStateOf("")}
@@ -619,28 +1904,83 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 @Composable private fun Field(label:String,value:String,onChange:(String)->Unit){Field(label,value,onChange,false)}
 @Composable private fun Field(label:String,value:String,onChange:(String)->Unit,decimal:Boolean){OutlinedTextField(value,onChange,label={Text(label)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=if(decimal)KeyboardType.Decimal else KeyboardType.Number),modifier=Modifier.fillMaxWidth())}
 @Composable private fun DateField(value:String,onChange:(String)->Unit){OutlinedTextField(value,onChange,label={Text("Date (yyyy-MM-dd)")},singleLine=true,modifier=Modifier.fillMaxWidth())}
-@Composable private fun ProductPicker(products:List<ProductEntity>,selected:ProductEntity?,onSelect:(ProductEntity?)->Unit){var expanded by remember{mutableStateOf(false)};Box{OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(selected?.name?:"Select product")};DropdownMenu(expanded=expanded,onDismissRequest={expanded=false}){products.forEach{p->DropdownMenuItem(text={Text(p.name)},onClick={onSelect(p).let{expanded=false}})}}}}
+@Composable private fun ProductPicker(products:List<ProductEntity>,selected:ProductEntity?,onSelect:(ProductEntity?)->Unit){
+ var expanded by remember{mutableStateOf(false)}
+ Box{
+  OutlinedButton(
+   onClick={expanded=true},
+   modifier=Modifier.fillMaxWidth(),
+   shape=RoundedCornerShape(12.dp),
+   contentPadding=PaddingValues(horizontal=12.dp,vertical=9.dp)
+  ){
+   Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.fillMaxWidth()){
+    if(selected!=null){
+     ProductThumbnail(imageUri=selected.imageUri,iconName=selected.iconName,colour=selected.colour,bottleType="${selected.sizeLabel} ${selected.colour} ${selected.name}",size=30.dp)
+     Column(Modifier.weight(1f)){
+      Text(selected.name,fontWeight=FontWeight.SemiBold,color=Navy)
+      Text(selected.sizeLabel+" · "+selected.colour+(if(selected.bottlesPerPack>0)" · ${selected.bottlesPerPack}/pack" else ""),fontSize=10.sp,color=Muted)
+     }
+    }else{
+     Icon(Icons.Default.WaterDrop,null,tint=Blue,modifier=Modifier.size(20.dp))
+     Text("Select bottle product",Modifier.weight(1f),color=Muted)
+    }
+    Icon(Icons.Default.ArrowDropDown,null,tint=Navy)
+   }
+  }
+  DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},modifier=Modifier.fillMaxWidth(0.9f)){
+   if(products.isEmpty()){
+    DropdownMenuItem(text={Text("No products configured")},onClick={expanded=false})
+   }
+   products.forEach{p->
+    DropdownMenuItem(
+     leadingIcon={ProductThumbnail(imageUri=p.imageUri,iconName=p.iconName,colour=p.colour,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",size=32.dp)},
+     text={
+      Column{
+       Text(p.name,fontWeight=FontWeight.SemiBold,color=Navy)
+       Text(p.sizeLabel+" · "+p.colour+(if(p.bottlesPerPack>0)" · ${p.bottlesPerPack} bottles/pack" else ""),fontSize=10.sp,color=Muted)
+      }
+     },
+     onClick={onSelect(p);expanded=false}
+    )
+   }
+  }
+ }
+}
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun ProductForm(initial:ProductEntity?,close:()->Unit,save:(String,String,String,Int)->Unit){
+@Composable private fun ProductForm(initial:ProductEntity?,close:()->Unit,save:(String,String,String,Int,String,String)->Unit){
  var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
  var size by remember(initial?.id){mutableStateOf(initial?.sizeLabel.orEmpty())}
  var colour by remember(initial?.id){mutableStateOf(initial?.colour?:"Clear")}
  var pack by remember(initial?.id){mutableStateOf((initial?.bottlesPerPack?:0).let{if(it>0)it.toString() else ""})}
+ var iconName by remember(initial?.id){mutableStateOf(initial?.iconName?:"bottle_water")}
+ var imageUri by remember(initial?.id){mutableStateOf(initial?.imageUri.orEmpty())}
  var colourExpanded by remember{mutableStateOf(false)}
  val packCount=pack.toIntOrNull()
  val validName=name.isNotBlank()&&name.trim().length<=80
  val validSize=size.isNotBlank()&&size.trim().length<=40
  val validPack=pack.isBlank()||(packCount!=null&&packCount in 1..100000)
+ val context=LocalContext.current
+ val photoLauncher=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->
+  if(uri!=null){
+   runCatching{
+    val dir=File(context.filesDir,"product_images")
+    if(!dir.exists())dir.mkdirs()
+    val dest=File(dir,"bottle_${System.currentTimeMillis()}.jpg")
+    context.contentResolver.openInputStream(uri)?.use{input->dest.outputStream().use{output->input.copyTo(output)}}
+    imageUri=dest.absolutePath
+   }
+  }
+ }
  AlertDialog(
   onDismissRequest=close,
   title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
-   Text(if(initial==null)"Add product" else "Edit product",fontWeight=FontWeight.ExtraBold,color=Navy,fontSize=22.sp)
-   Text(if(initial==null)"Create a bottle type and its pack configuration." else "Update configuration without changing historical transactions.",fontSize=12.sp,color=Muted)
+   Text(if(initial==null)"Add bottle product" else "Edit bottle product",fontWeight=FontWeight.ExtraBold,color=Navy,fontSize=22.sp)
+   Text(if(initial==null)"Configure bottle shape, size, photo, and pack size." else "Update configuration without modifying existing transactions.",fontSize=12.sp,color=Muted)
   }},
-  text={Column(verticalArrangement=Arrangement.spacedBy(11.dp)){
+  text={Column(Modifier.heightIn(max=520.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(11.dp)){
    Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(16.dp)){
     Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
-     Surface(color=Color.White,shape=RoundedCornerShape(13.dp)){Icon(Icons.Default.WaterDrop,null,tint=Blue,modifier=Modifier.padding(12.dp).size(28.dp))}
+     ProductThumbnail(imageUri=imageUri,iconName=iconName,colour=colour,bottleType=size,size=54.dp)
      Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
       Text(name.trim().ifBlank{"New bottle product"},fontWeight=FontWeight.Bold,color=Navy)
       Text(size.trim().ifBlank{"Bottle size not set"}+" · "+colour, fontSize=11.sp,color=Muted)
@@ -648,6 +1988,34 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      }
     }
    }
+   Surface(color=Color.White,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+      Icon(Icons.Default.PhotoCamera,null,tint=Blue,modifier=Modifier.size(20.dp))
+      Text("Custom bottle photo",fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp,modifier=Modifier.weight(1f))
+      if(imageUri.isNotBlank()){
+       TextButton(onClick={imageUri=""}){Text("Remove",color=Color(0xFFB42318),fontSize=11.sp)}
+      }
+     }
+     if(imageUri.isNotBlank()){
+      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+       ProductThumbnail(imageUri=imageUri,size=46.dp)
+       Column(Modifier.weight(1f)){
+        Text("Custom photo attached",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+        Text("Saved in app internal storage",fontSize=10.sp,color=Muted)
+       }
+       OutlinedButton(onClick={photoLauncher.launch("image/*")},shape=RoundedCornerShape(10.dp)){Text("Change",fontSize=11.sp)}
+      }
+     }else{
+      Button(onClick={photoLauncher.launch("image/*")},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(10.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF0F3D6F))){
+       Icon(Icons.Default.AddPhotoAlternate,null,modifier=Modifier.size(18.dp))
+       Spacer(Modifier.width(6.dp))
+       Text("Upload bottle photo from device",fontSize=12.sp)
+      }
+     }
+    }
+   }
+   BottleIconPicker(selectedIcon=iconName,onSelect={iconName=it})
    OutlinedTextField(value=name,onValueChange={name=it},label={Text("Product name *")},singleLine=true,isError=!validName,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Label,null)},supportingText={if(!validName)Text("Enter a name up to 80 characters.")})
    OutlinedTextField(value=size,onValueChange={size=it},label={Text("Bottle size / type *")},singleLine=true,isError=!validSize,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Straighten,null)},placeholder={Text("e.g. 500 ml")},supportingText={if(!validSize)Text("Enter the bottle size or type.")})
    ExposedDropdownMenuBox(expanded=colourExpanded,onExpandedChange={colourExpanded=it}){
@@ -657,57 +2025,171 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    OutlinedTextField(value=pack,onValueChange={pack=it.filter(Char::isDigit).take(6)},label={Text("Bottles per pack")},singleLine=true,isError=!validPack,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Inventory2,null)},placeholder={Text("e.g. 24")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),supportingText={Text(if(pack.isBlank())"Optional during setup; packing stays blocked until configured." else if(!validPack)"Enter a quantity from 1 to 100000." else "Used to calculate complete packs and loose bottles.")})
    if(initial!=null)Text("Product ID: "+initial.id+" · Existing history is retained.",fontSize=10.sp,color=Muted)
   }},
-  confirmButton={Button(enabled=validName&&validSize&&validPack,onClick={save(name.trim(),size.trim(),colour.trim(),packCount?:0)},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Save product" else "Save changes")}},
+  confirmButton={Button(enabled=validName&&validSize&&validPack,onClick={save(name.trim(),size.trim(),colour.trim(),packCount?:0,iconName,imageUri)},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Save product" else "Save changes")}},
   dismissButton={TextButton(onClick=close){Text("Cancel")}}
- )}
-@Composable private fun ProductionForm(products:List<ProductEntity>,close:()->Unit,save:(ProductEntity?,String,Int,Int,Int,String,String)->Unit){
+ )
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun ProductionForm(
+ products: List<ProductEntity>,
+ lines: List<ProductionLineEntity>,
+ machines: List<MachineEntity>,
+ close: () -> Unit,
+ save: (ProductEntity?, String, Int, Int, Int, Long?, String, Long?, String, String) -> Unit
+){
  var p by remember{mutableStateOf(products.firstOrNull())}
  var d by remember{mutableStateOf(today())}
+ var shift by remember{mutableStateOf("Day")}
+ val activeLines = remember(lines){lines.filter{it.status.uppercase()=="ACTIVE"}.ifEmpty{lines}}
+ var selectedLine by remember(lines){mutableStateOf(activeLines.firstOrNull())}
+ var lineMenuExpanded by remember{mutableStateOf(false)}
+ val eligibleMachines = remember(selectedLine?.id,machines){machines.filter{selectedLine==null||it.lineId==selectedLine?.id}}
+ var selectedMachine by remember(selectedLine?.id,machines){mutableStateOf(eligibleMachines.firstOrNull{it.status.uppercase()=="RUNNING"}?:eligibleMachines.firstOrNull())}
+ var machineMenuExpanded by remember{mutableStateOf(false)}
+ var operatorName by remember{mutableStateOf("")}
  var total by remember{mutableStateOf("")}
  var good by remember{mutableStateOf("")}
  var rejected by remember{mutableStateOf("0")}
- var machine by remember{mutableStateOf("Machine 1")}
- var remarks by remember{mutableStateOf("")}
- var shift by remember{mutableStateOf("Day")}
  var rejectReason by remember{mutableStateOf("")}
+ var remarks by remember{mutableStateOf("")}
  val t=total.toIntOrNull();val g=good.toIntOrNull();val r=rejected.toIntOrNull()
  val quantitiesValid=t!=null&&g!=null&&r!=null&&t>0&&g>=0&&r>=0&&g+r==t
  val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(d)!=null}.getOrDefault(false)&&d.length==10
+ val machineIsRunning = selectedMachine==null || selectedMachine?.status?.uppercase()=="RUNNING"
+ val canSave = p!=null && dateValid && quantitiesValid && machineIsRunning
  AlertDialog(
   onDismissRequest=close,
-  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text("Add production entry",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Record output for one product and production run.",fontSize=12.sp,color=Muted)}},
-  text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text("Add production run",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Record output for line, machine, shift and product.",fontSize=12.sp,color=Muted)}},
+  text={Column(Modifier.heightIn(max=520.dp).verticalScroll(rememberScrollState()).imePadding(),verticalArrangement=Arrangement.spacedBy(10.dp)){
    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
     Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Build,null,tint=Blue,modifier=Modifier.padding(10.dp))}
-    Column{Text("Step 1 of 3 · Production details",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Product, date, shift and machine",fontSize=11.sp,color=Muted)}
+    Column{Text("Step 1 · Line & machine assignment",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Connect physical line and active asset",fontSize=11.sp,color=Muted)}
    }
-   ProductPicker(products,p){p=it}
-   p?.let{Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){Icon(Icons.Default.WaterDrop,null,tint=Blue);Column{Text(it.name,fontWeight=FontWeight.Bold,color=Navy);Text(it.sizeLabel+" · "+it.colour,fontSize=11.sp,color=Muted)}}}}
+   ExposedDropdownMenuBox(expanded=lineMenuExpanded,onExpandedChange={lineMenuExpanded=it}){
+    OutlinedTextField(
+     value=selectedLine?.let{"${it.lineCode} · ${it.name}"}?:"No line configured",
+     onValueChange={},
+     readOnly=true,
+     label={Text("Production line *")},
+     singleLine=true,
+     modifier=Modifier.menuAnchor().fillMaxWidth(),
+     leadingIcon={Icon(Icons.Default.PrecisionManufacturing,null,tint=Blue)},
+     trailingIcon={ExposedDropdownMenuDefaults.TrailingIcon(expanded=lineMenuExpanded)}
+    )
+    ExposedDropdownMenu(expanded=lineMenuExpanded,onDismissRequest={lineMenuExpanded=false}){
+     activeLines.forEach{line->
+      DropdownMenuItem(
+       text={Column{Text(line.name,fontWeight=FontWeight.SemiBold);Text("${line.lineCode} · Capacity: ${line.targetCapacity} ${line.capacityUnit}",fontSize=11.sp,color=Muted)}},
+       onClick={
+        selectedLine=line
+        val newEligible=machines.filter{it.lineId==line.id}
+        selectedMachine=newEligible.firstOrNull{it.status.uppercase()=="RUNNING"}?:newEligible.firstOrNull()
+        lineMenuExpanded=false
+       }
+      )
+     }
+    }
+   }
+   ExposedDropdownMenuBox(expanded=machineMenuExpanded,onExpandedChange={machineMenuExpanded=it}){
+    OutlinedTextField(
+     value=selectedMachine?.let{"${it.name} (${it.status})"}?:"General / Unassigned",
+     onValueChange={},
+     readOnly=true,
+     label={Text("Assigned machine")},
+     singleLine=true,
+     modifier=Modifier.menuAnchor().fillMaxWidth(),
+     leadingIcon={Icon(Icons.Default.Settings,null,tint=if(machineIsRunning) Blue else Color(0xFFB42318))},
+     trailingIcon={ExposedDropdownMenuDefaults.TrailingIcon(expanded=machineMenuExpanded)}
+    )
+    ExposedDropdownMenu(expanded=machineMenuExpanded,onDismissRequest={machineMenuExpanded=false}){
+     DropdownMenuItem(text={Text("General / Line-wide (no specific machine)")},onClick={selectedMachine=null;machineMenuExpanded=false})
+     eligibleMachines.forEach{m->
+      DropdownMenuItem(
+       text={Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Column{Text(m.name,fontWeight=FontWeight.SemiBold);Text(m.machineType,fontSize=11.sp,color=Muted)};Surface(color=when(m.status.uppercase()){"RUNNING"->Color(0xFFE8F7F0);"MAINTENANCE"->Color(0xFFFEF4E6);else->Color(0xFFFFF0F0)},shape=RoundedCornerShape(6.dp)){Text(m.status,fontSize=10.sp,fontWeight=FontWeight.Bold,color=when(m.status.uppercase()){"RUNNING"->Color(0xFF16804A);"MAINTENANCE"->Color(0xFF9B5B00);else->Color(0xFFB42318)},modifier=Modifier.padding(horizontal=6.dp,vertical=2.dp))}}},
+       onClick={selectedMachine=m;machineMenuExpanded=false}
+      )
+     }
+    }
+   }
+   if(!machineIsRunning&&selectedMachine!=null){
+    Surface(color=Color(0xFFFFF0F0),shape=RoundedCornerShape(10.dp)){
+     Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+      Icon(Icons.Default.WarningAmber,null,tint=Color(0xFFB42318),modifier=Modifier.size(20.dp))
+      Text("Machine '${selectedMachine?.name}' is ${selectedMachine?.status}. Only RUNNING equipment can record production. Select an operational machine or service this asset.",fontSize=11.sp,color=Color(0xFFB42318))
+     }
+    }
+   }
    DateField(d){d=it}
    if(!dateValid)Text("Use a valid date in YYYY-MM-DD format.",fontSize=11.sp,color=Color(0xFFB42318))
    Text("Shift",fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp)
    Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
     listOf("Day","Evening","Night").forEach{value->FilterChip(selected=shift==value,onClick={shift=value},label={Text(value)},leadingIcon=if(shift==value)({Icon(Icons.Default.Check,null,modifier=Modifier.size(16.dp))}) else null)}
    }
-   OutlinedTextField(machine,{machine=it},label={Text("Machine / line *")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Settings,null)})
+   OutlinedTextField(operatorName,{operatorName=it},label={Text("Operator / Shift lead (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Person,null)})
    HorizontalDivider(color=Border)
-   Text("Step 2 · Output quantities",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
-   OutlinedTextField(total,{total=it.filter(Char::isDigit).take(9)},label={Text("Produced bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Build,null)})
+   Text("Step 2 · Product selection",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+   ProductPicker(products,p){p=it}
+   p?.let{
+    Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){
+     Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+      Icon(Icons.Default.WaterDrop,null,tint=Blue)
+      Column(Modifier.weight(1f)){Text(it.name,fontWeight=FontWeight.Bold,color=Navy);Text("${it.sizeLabel} · ${it.colour} · Pack size: ${if(it.bottlesPerPack>0) "${it.bottlesPerPack} bottles" else "Unconfigured"}",fontSize=11.sp,color=Muted)}
+     }
+    }
+   }
+   HorizontalDivider(color=Border)
+   Text("Step 3 · Production reconciliation",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+   OutlinedTextField(total,{total=it.filter(Char::isDigit).take(9)},label={Text("Total produced bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Build,null)})
    OutlinedTextField(good,{good=it.filter(Char::isDigit).take(9)},label={Text("Good bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.CheckCircle,null)})
    OutlinedTextField(rejected,{rejected=it.filter(Char::isDigit).take(9)},label={Text("Rejected bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.WarningAmber,null)})
    if(t!=null&&g!=null&&r!=null){
     val valid=t>0&&g>=0&&r>=0&&g+r==t
     Surface(color=if(valid)Color(0xFFE8F7F0) else Color(0xFFFFF0F0),shape=RoundedCornerShape(12.dp)){
      Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp)){Icon(if(valid)Icons.Default.CheckCircle else Icons.Default.Error,null,tint=if(valid)Color(0xFF16804A) else Color(0xFFB42318));Text(if(valid)"Output totals verified" else "Output totals do not match",fontWeight=FontWeight.Bold,color=if(valid)Color(0xFF16804A) else Color(0xFFB42318),fontSize=12.sp)}
-      Text("Produced $t = Good $g + Rejected $r",fontSize=11.sp,color=Navy)
+      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp)){
+       Icon(if(valid)Icons.Default.CheckCircle else Icons.Default.Error,null,tint=if(valid)Color(0xFF16804A) else Color(0xFFB42318))
+       Text(if(valid)"Reconciliation balanced" else "Reconciliation mismatch",fontWeight=FontWeight.Bold,color=if(valid)Color(0xFF16804A) else Color(0xFFB42318),fontSize=12.sp)
+      }
+      Text("Produced $t = Good $g + Rejected $r ${if(!valid)"(Discrepancy: ${t - (g + r)})" else ""}",fontSize=11.sp,color=Navy)
      }
     }
    }
-   OutlinedTextField(rejectReason,{rejectReason=it},label={Text("Reject reason (if applicable)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-   OutlinedTextField(remarks,{remarks=it},label={Text("Remarks (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+   OutlinedTextField(rejectReason,{rejectReason=it},label={Text("Reject / Stoppage reason (if any)")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.WarningAmber,null)})
+   OutlinedTextField(remarks,{remarks=it},label={Text("Production notes (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+   if(canSave){
+    Surface(color=Color(0xFFF1F7FC),shape=RoundedCornerShape(10.dp)){
+     Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){
+      Text("Run summary:",fontWeight=FontWeight.SemiBold,fontSize=11.sp,color=Navy)
+      Text("${selectedLine?.name?:"General line"} · ${selectedMachine?.name?:"Unassigned machine"} · Shift $shift",fontSize=10.sp,color=Muted)
+      Text("Product: ${p?.name} · $t total ($g good, $r rejected)",fontSize=10.sp,color=Navy,fontWeight=FontWeight.Medium)
+     }
+    }
+   }
   }},
-  confirmButton={Button(enabled=p!=null&&quantitiesValid&&dateValid&&machine.isNotBlank(),onClick={save(p,d,t!!,g!!,r!!,machine.trim(),listOfNotNull(if(shift.isNotBlank())"Shift: $shift" else null,if(rejectReason.isNotBlank())"Reject reason: $rejectReason" else null,remarks.trim().ifBlank{null}).joinToString(" · "))},shape=RoundedCornerShape(12.dp)){Text("Review & save")}},
+  confirmButton={Button(
+   enabled=canSave,
+   onClick={
+    val combinedRemarks=listOfNotNull(
+     if(shift.isNotBlank())"Shift: $shift" else null,
+     if(operatorName.isNotBlank())"Operator: ${operatorName.trim()}" else null,
+     if(rejectReason.isNotBlank())"Reject reason: ${rejectReason.trim()}" else null,
+     remarks.trim().ifBlank{null}
+    ).joinToString(" · ")
+    save(
+     p,
+     d,
+     t!!,
+     g!!,
+     r!!,
+     selectedLine?.id,
+     selectedLine?.name?:"",
+     selectedMachine?.id,
+     selectedMachine?.name?:(selectedLine?.name?:"Machine 1"),
+     combinedRemarks
+    )
+   },
+   shape=RoundedCornerShape(12.dp)
+  ){Text("Review & save run")}},
   dismissButton={TextButton(onClick=close){Text("Cancel")}}
  )
 }
@@ -768,15 +2250,305 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   OutlinedTextField(gst,{gst=it.uppercase().filter{ch->ch.isLetterOrDigit()}.take(15)},label={Text("GSTIN (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.ReceiptLong,null)})
  }},confirmButton={Button(enabled=name.isNotBlank()&&name.trim().length<=120,onClick={save(name.trim(),phone.trim(),address.trim(),gst.trim())},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Save customer" else "Save changes")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
 }
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun CustomerPicker(customers:List<CustomerEntity>,selected:CustomerEntity?,onSelect:(CustomerEntity?)->Unit){
  var expanded by remember{mutableStateOf(false)}
- Box { OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(selected?.name?:"Select customer")}
-  DropdownMenu(expanded=expanded,onDismissRequest={expanded=false}){customers.forEach{customer->DropdownMenuItem(text={Text(customer.name)},onClick={onSelect(customer).let{expanded=false}})}}
+ ExposedDropdownMenuBox(
+  expanded=expanded,
+  onExpandedChange={expanded=it},
+  modifier=Modifier.fillMaxWidth()
+ ){
+  OutlinedTextField(
+   value=selected?.name.orEmpty(),
+   onValueChange={},
+   readOnly=true,
+   label={Text("Select Customer *")},
+   placeholder={Text("Choose customer from list")},
+   leadingIcon={
+    Icon(
+     Icons.Default.Person,
+     null,
+     tint=if(selected!=null)Blue else Muted,
+     modifier=Modifier.size(20.dp)
+    )
+   },
+   trailingIcon={
+    ExposedDropdownMenuDefaults.TrailingIcon(expanded=expanded)
+   },
+   colors=ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+    focusedBorderColor=Blue,
+    unfocusedBorderColor=Border
+   ),
+   shape=RoundedCornerShape(12.dp),
+   modifier=Modifier.menuAnchor().fillMaxWidth()
+  )
+  ExposedDropdownMenu(
+   expanded=expanded,
+   onDismissRequest={expanded=false},
+   modifier=Modifier.fillMaxWidth(0.92f).background(Color.White)
+  ){
+   if(customers.isEmpty()){
+    DropdownMenuItem(
+     text={Text("No customers found · Add customer first",fontSize=13.sp,color=Color(0xFFB42318))},
+     onClick={expanded=false}
+    )
+   }else{
+    customers.forEach{cust->
+     DropdownMenuItem(
+      text={
+       Column(verticalArrangement=Arrangement.spacedBy(2.dp)){
+        Row(verticalAlignment=Alignment.CenterVertically){
+         Text(cust.name,fontWeight=FontWeight.SemiBold,fontSize=14.sp,color=Navy,modifier=Modifier.weight(1f))
+         if(cust.id==selected?.id){
+          Icon(Icons.Default.Check,null,tint=Blue,modifier=Modifier.size(16.dp))
+         }
+        }
+        if(cust.phone.isNotBlank()||cust.gstNumber.isNotBlank()){
+         Text(
+          listOf(cust.phone.ifBlank{null},cust.gstNumber.takeIf{it.isNotBlank()}?.let{"GST: $it"}).filterNotNull().joinToString(" · "),
+          fontSize=11.sp,
+          color=Muted
+         )
+        }
+       }
+      },
+      onClick={
+       onSelect(cust)
+       expanded=false
+      },
+      contentPadding=PaddingValues(horizontal=16.dp,vertical=10.dp)
+     )
+    }
+   }
+  }
  }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun StaffForm(
+ initial: StaffMemberEntity?,
+ close: () -> Unit,
+ save: (name: String, email: String, password: String, role: String, modules: List<String>) -> Unit
+){
+ var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
+ var email by remember(initial?.id){mutableStateOf(initial?.email.orEmpty())}
+ var password by remember(initial?.id){mutableStateOf("")}
+ var passwordVisible by remember{mutableStateOf(false)}
+ var role by remember(initial?.id){mutableStateOf(initial?.role?:"PRODUCTION_OPERATOR")}
+ var roleExpanded by remember{mutableStateOf(false)}
+
+ val allModules = listOf(
+  "PRODUCTION" to "Production Entry",
+  "PACKING" to "Packing Entry",
+  "DISPATCH" to "Dispatch & Deliveries",
+  "QUALITY" to "Quality Inspections",
+  "PLANNING" to "Production Planning",
+  "MACHINES" to "Machines & Maintenance",
+  "PRODUCTS" to "Product Catalog & Customers",
+  "REPORTS" to "Factory Reports & Intelligence",
+  "STAFF" to "Staff Management & Security"
+ )
+
+ val initialSelected = remember(initial?.id){
+  if(initial!=null&&initial.allowedModules.isNotBlank()){
+   initial.allowedModules.split(",").map{it.trim().uppercase()}.filter{it.isNotEmpty()}.toSet()
+  }else if(initial==null){
+   setOf("PRODUCTION","PACKING")
+  }else{
+   allModules.map{it.first}.toSet()
+  }
+ }
+ var selectedModules by remember{mutableStateOf(initialSelected)}
+
+ val isNew = initial == null
+ val valid = name.trim().length >= 2 &&
+   android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() &&
+   (!isNew || password.length >= 6)
+
+ AlertDialog(
+  onDismissRequest=close,
+  title={
+   Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+    Text(if(isNew)"Create Staff Account" else "Edit Staff Permissions",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+    Text(if(isNew)"Admin generates Gmail/ID credentials and configures module access." else "Update staff access rights, role and cloud permissions.",fontSize=12.sp,color=Muted)
+   }
+  },
+  text={
+   Column(
+    Modifier.heightIn(max=500.dp).verticalScroll(rememberScrollState()).imePadding(),
+    verticalArrangement=Arrangement.spacedBy(10.dp)
+   ){
+    Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){
+     Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+      Surface(color=Color.White,shape=RoundedCornerShape(10.dp)){
+       Icon(Icons.Default.ManageAccounts,null,tint=Blue,modifier=Modifier.padding(8.dp))
+      }
+      Column{
+       Text(name.trim().ifBlank{if(isNew)"New Staff Account" else "Staff Account"},fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+       Text("Role: ${role.replace("_"," ")} · ${selectedModules.size} modules granted",fontSize=11.sp,color=Muted)
+      }
+     }
+    }
+
+    OutlinedTextField(
+     value=name,
+     onValueChange={name=it},
+     label={Text("Full Name *")},
+     singleLine=true,
+     leadingIcon={Icon(Icons.Default.Person,null)},
+     modifier=Modifier.fillMaxWidth(),
+     shape=RoundedCornerShape(12.dp)
+    )
+
+    OutlinedTextField(
+     value=email,
+     onValueChange={email=it},
+     label={Text("Staff Email / Gmail *")},
+     singleLine=true,
+     enabled=isNew,
+     keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Email),
+     leadingIcon={Icon(Icons.Default.Email,null)},
+     modifier=Modifier.fillMaxWidth(),
+     shape=RoundedCornerShape(12.dp)
+    )
+
+    if(isNew){
+     OutlinedTextField(
+      value=password,
+      onValueChange={password=it},
+      label={Text("Password (min 6 characters) *")},
+      singleLine=true,
+      visualTransformation=if(passwordVisible)androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+      leadingIcon={Icon(Icons.Default.Lock,null)},
+      trailingIcon={
+       IconButton(onClick={passwordVisible=!passwordVisible}){
+        Icon(if(passwordVisible)Icons.Default.VisibilityOff else Icons.Default.Visibility,null)
+       }
+      },
+      keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),
+      modifier=Modifier.fillMaxWidth(),
+      shape=RoundedCornerShape(12.dp)
+     )
+    }
+
+    Text("PRIMARY ROLE",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.sp)
+    ExposedDropdownMenuBox(
+     expanded=roleExpanded,
+     onExpandedChange={roleExpanded=it},
+     modifier=Modifier.fillMaxWidth()
+    ){
+     OutlinedTextField(
+      value=role.replace("_"," "),
+      onValueChange={},
+      readOnly=true,
+      label={Text("Staff Role")},
+      trailingIcon={ExposedDropdownMenuDefaults.TrailingIcon(expanded=roleExpanded)},
+      modifier=Modifier.menuAnchor().fillMaxWidth(),
+      shape=RoundedCornerShape(12.dp)
+     )
+     ExposedDropdownMenu(
+      expanded=roleExpanded,
+      onDismissRequest={roleExpanded=false}
+     ){
+      FactoryRole.values().forEach{r->
+       DropdownMenuItem(
+        text={Text(r.name.replace("_"," "))},
+        onClick={
+         role=r.name
+         roleExpanded=false
+         selectedModules=when(r){
+          FactoryRole.OWNER, FactoryRole.ADMIN->allModules.map{it.first}.toSet()
+          FactoryRole.MANAGER->allModules.filter{it.first!="STAFF"}.map{it.first}.toSet()
+          FactoryRole.PRODUCTION_STAFF->setOf("PRODUCTION","PLANNING","MACHINES")
+          FactoryRole.PACKING_STAFF->setOf("PACKING")
+          FactoryRole.STOREKEEPER->setOf("PRODUCTS","REPORTS")
+          FactoryRole.DISPATCH_STAFF->setOf("DISPATCH","PRODUCTS")
+          FactoryRole.VIEWER->setOf("REPORTS")
+         }
+        }
+       )
+      }
+     }
+    }
+
+    Row(
+     modifier=Modifier.fillMaxWidth().padding(top=4.dp),
+     verticalAlignment=Alignment.CenterVertically,
+     horizontalArrangement=Arrangement.SpaceBetween
+    ){
+     Text("CUSTOMIZE MODULE ACCESS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.sp)
+     Row{
+      TextButton(
+       onClick={selectedModules=allModules.map{it.first}.toSet()},
+       contentPadding=PaddingValues(horizontal=6.dp,vertical=0.dp)
+      ){
+       Text("All",fontSize=11.sp,color=Blue)
+      }
+      TextButton(
+       onClick={selectedModules=emptySet()},
+       contentPadding=PaddingValues(horizontal=6.dp,vertical=0.dp)
+      ){
+       Text("Clear",fontSize=11.sp,color=Color(0xFFB42318))
+      }
+     }
+    }
+
+    Surface(
+     color=Page,
+     shape=RoundedCornerShape(12.dp),
+     border=androidx.compose.foundation.BorderStroke(1.dp,Border)
+    ){
+     Column(Modifier.fillMaxWidth().padding(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      allModules.forEach{(modKey,modLabel)->
+       val checked = modKey in selectedModules || role == "ADMIN"
+       Row(
+        modifier=Modifier.fillMaxWidth().clickable(enabled=role!="ADMIN"){
+         selectedModules=if(modKey in selectedModules)selectedModules-modKey else selectedModules+modKey
+        }.padding(vertical=4.dp,horizontal=6.dp),
+        verticalAlignment=Alignment.CenterVertically
+       ){
+        Checkbox(
+         checked=checked,
+         onCheckedChange={
+          if(role!="ADMIN"){
+           selectedModules=if(it)selectedModules+modKey else selectedModules-modKey
+          }
+         },
+         enabled=role!="ADMIN"
+        )
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)){
+         Text(modLabel,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+         Text(modKey,fontSize=9.sp,color=Muted)
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  confirmButton={
+   Button(
+    enabled=valid,
+    onClick={
+     save(name.trim(),email.trim(),password,role,selectedModules.toList())
+    },
+    shape=RoundedCornerShape(12.dp)
+   ){
+    Text(if(isNew)"Create Staff" else "Update Access")
+   }
+  },
+  dismissButton={
+   TextButton(onClick=close){
+    Text("Cancel")
+   }
+  }
+ )
+}
+
 @Composable private fun DispatchBatchForm(products:List<ProductEntity>,customers:List<CustomerEntity>,orders:List<SalesOrderEntity>,orderLines:List<SalesOrderLineEntity>,initialOrderId:Long?,close:()->Unit,save:(CustomerEntity?,String,String,String,String,List<DispatchRequestLine>,String,Long?)->Unit){
  var order by remember{mutableStateOf(orders.firstOrNull{it.id==initialOrderId})}
- var customer by remember{mutableStateOf(customers.firstOrNull{it.id==orders.firstOrNull{o->o.id==initialOrderId}?.customerId}?:customers.firstOrNull())}
+ var customer by remember{mutableStateOf(customers.firstOrNull{it.id==orders.firstOrNull{o->o.id==initialOrderId}?.customerId})}
  var date by remember{mutableStateOf(today())}
  var reference by remember{mutableStateOf("")}
  var remarks by remember{mutableStateOf("")}
@@ -856,8 +2628,8 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(8.dp)){
     Icon(if(firebaseConfigured)Icons.Default.CloudDone else Icons.Default.CloudOff,null,tint=if(firebaseConfigured)Color(0xFF16804A) else Color(0xFF9B5B00))
     Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
-     Text(if(firebaseConfigured)"Firebase configuration detected" else "Cloud sign-in is not configured",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
-     Text(if(firebaseConfigured)"Use a staff account created for this Firebase project. Organisation and role are read from trusted custom claims." else "This build has no initialized Firebase app. Add app/google-services.json for application ID com.tck.factoryflow, enable Email/Password sign-in, then rebuild. Local records remain on this device.",fontSize=11.sp,color=Muted)
+     Text(if(firebaseConfigured)"Server Connected" else "Offline Mode · Local Storage",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+     Text(if(firebaseConfigured)"Sign in with staff email/ID and password to synchronize with the cloud server." else "App is currently in offline mode. Local records remain safe on this device and upload once connection is restored.",fontSize=11.sp,color=Muted)
     }
    }
   }
@@ -872,3 +2644,427 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 }
 
 @Composable private fun ReversePackingForm(close:()->Unit,reverse:(String)->Unit){var reason by remember{mutableStateOf("")};AlertDialog(onDismissRequest=close,title={Text("Reverse packing entry")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Only reverse when the packed stock has not already been dispatched. This creates compensating ledger movements.",fontSize=12.sp,color=Blue);OutlinedTextField(reason,{reason=it},label={Text("Reason for reversal")},modifier=Modifier.fillMaxWidth())}},confirmButton={Button(enabled=reason.isNotBlank(),onClick={reverse(reason.trim())}){Text("Confirm reversal")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
+
+private data class RoleOption(val id: String, val title: String, val desc: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val color: Color)
+
+@Composable
+private fun MenuActionCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
+ Surface(
+  modifier = modifier,
+  shape = RoundedCornerShape(12.dp),
+  color = color.copy(alpha = 0.1f),
+  border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.2f)),
+  onClick = onClick
+ ) {
+  Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+   Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
+   Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Navy, maxLines = 1)
+  }
+ }
+}
+
+@Composable
+private fun MenuNavigationRow(
+ title: String,
+ subtitle: String,
+ icon: androidx.compose.ui.graphics.vector.ImageVector,
+ accent: Color,
+ isSelected: Boolean,
+ onClick: () -> Unit
+) {
+ Surface(
+  onClick = onClick,
+  color = if (isSelected) Color(0xFFEAF5FC) else Color.White
+ ) {
+  Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+   Surface(shape = RoundedCornerShape(10.dp), color = accent.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
+    Box(contentAlignment = Alignment.Center) {
+     Icon(icon, null, tint = accent, modifier = Modifier.size(19.dp))
+    }
+   }
+   Column(Modifier.weight(1f)) {
+    Text(title, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold, color = if (isSelected) Blue else Navy, fontSize = 13.sp)
+    Text(subtitle, fontSize = 10.sp, color = Muted, maxLines = 1)
+   }
+   if (isSelected) {
+    Surface(shape = RoundedCornerShape(6.dp), color = Blue) {
+     Text("ACTIVE", fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+    }
+   } else {
+    Icon(Icons.Default.ChevronRight, null, tint = Color(0xFFBAC7D5), modifier = Modifier.size(18.dp))
+   }
+  }
+ }
+}
+
+@Composable
+private fun FullSlideMenuScreen(
+ isOpen: Boolean,
+ onClose: () -> Unit,
+ currentTab: PageTab,
+ onSelectTab: (PageTab) -> Unit,
+ session: FactorySession?,
+ onOpenRoleSwitcher: () -> Unit,
+ onQuickAction: (String) -> Unit,
+ onExportDb: () -> Unit,
+ onRestoreDb: () -> Unit,
+ onExportJson: () -> Unit,
+ onExportCsv: () -> Unit,
+ onSyncNow: () -> Unit,
+ firebaseConfigured: Boolean,
+ onSignOut: () -> Unit
+) {
+ AnimatedVisibility(
+  visible = isOpen,
+  enter = slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+  exit = slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(260)) + fadeOut(animationSpec = tween(180))
+ ) {
+  Surface(
+   modifier = Modifier.fillMaxSize(),
+   color = Color(0xFFF3F7FC)
+  ) {
+   Column(Modifier.fillMaxSize()) {
+    Surface(
+     color = Color(0xFF0B1B31),
+     shadowElevation = 6.dp
+    ) {
+     Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+       Surface(shape = RoundedCornerShape(10.dp), color = Color.White, modifier = Modifier.size(38.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(2.dp)) {
+         androidx.compose.foundation.Image(painter = androidx.compose.ui.res.painterResource(R.drawable.tck_brand), contentDescription = "TCK Logo", modifier = Modifier.fillMaxSize())
+        }
+       }
+       Spacer(Modifier.width(10.dp))
+       Column(Modifier.weight(1f)) {
+        Text("TCK FACTORYFLOW", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 16.sp)
+        Text("ALL OPERATIONS & CONTROLS", fontSize = 9.sp, color = Color(0xFF62C9FF), letterSpacing = 1.2.sp)
+       }
+       IconButton(onClick = onClose, modifier = Modifier.size(36.dp).background(Color(0xFF1E3858), RoundedCornerShape(10.dp))) {
+        Icon(Icons.Default.Close, contentDescription = "Close Menu", tint = Color.White, modifier = Modifier.size(20.dp))
+       }
+      }
+      Surface(
+       onClick = onOpenRoleSwitcher,
+       shape = RoundedCornerShape(12.dp),
+       color = Color(0xFF162D4A)
+      ) {
+       Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.size(10.dp).background(if (firebaseConfigured) Color(0xFF36D399) else Color(0xFFFFC857), RoundedCornerShape(5.dp)))
+        Column(Modifier.weight(1f)) {
+         Text("ACTIVE ROLE: " + (session?.role?.uppercase() ?: "ADMIN"), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+         Text(if (session != null) ((session.email ?: "Local User") + " · Tap to switch") else "Tap to change role or sign in", fontSize = 10.sp, color = Color(0xFFB5CCE5))
+        }
+        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF294F7C)) {
+         Text("SWITCH", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF62C9FF), modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp))
+        }
+       }
+      }
+     }
+    }
+
+    LazyColumn(
+     modifier = Modifier.weight(1f).fillMaxWidth(),
+     contentPadding = PaddingValues(16.dp),
+     verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+     item {
+      Text("QUICK FACTORY ACTIONS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.4.sp)
+      Spacer(Modifier.height(8.dp))
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+       MenuActionCard("Add Bottle", Icons.Default.AddCircle, Color(0xFF0F766E), { onClose(); onQuickAction("product") }, Modifier.weight(1f))
+       MenuActionCard("Production", Icons.Default.Build, Color(0xFF1D4ED8), { onClose(); onQuickAction("production") }, Modifier.weight(1f))
+       MenuActionCard("Packing", Icons.Default.Inventory2, Color(0xFF7E22CE), { onClose(); onQuickAction("packing") }, Modifier.weight(1f))
+       MenuActionCard("Dispatch", Icons.Default.LocalShipping, Color(0xFFC2410C), { onClose(); onQuickAction("dispatch") }, Modifier.weight(1f))
+      }
+     }
+
+     item {
+      Text("MANUFACTURING & OPERATIONS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.4.sp)
+      Spacer(Modifier.height(8.dp))
+      Surface(color = Color.White, shape = RoundedCornerShape(16.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+       Column {
+        MenuNavigationRow("Factory Overview", "Live production KPIs, shift tracker & summary", Icons.Default.Home, Color(0xFF0284C7), currentTab == PageTab.HOME) { onClose(); onSelectTab(PageTab.HOME) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Bottle Products Catalog", "Manage bottle shapes, photos, icons, and packs", Icons.Default.WaterDrop, Color(0xFF0D9488), currentTab == PageTab.PRODUCTS) { onClose(); onSelectTab(PageTab.PRODUCTS) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Shop Floor Production", "Machine runs, good bottles & rejection tracking", Icons.Default.Build, Color(0xFF2563EB), currentTab == PageTab.PRODUCTION) { onClose(); onSelectTab(PageTab.PRODUCTION) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Packing Line & Bundles", "Finished pack packaging & inventory generation", Icons.Default.Inventory2, Color(0xFF9333EA), currentTab == PageTab.PACKING) { onClose(); onSelectTab(PageTab.PACKING) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Finished Goods Stock", "Physical warehouse stock & finished packs", Icons.Default.Warehouse, Color(0xFF059669), currentTab == PageTab.STOCK) { onClose(); onSelectTab(PageTab.STOCK) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Customer Dispatch", "Deliveries, gate passes & customer orders", Icons.Default.LocalShipping, Color(0xFFD97706), currentTab == PageTab.DISPATCH) { onClose(); onSelectTab(PageTab.DISPATCH) }
+       }
+      }
+     }
+
+     item {
+      Text("PLANT & QUALITY MANAGEMENT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.4.sp)
+      Spacer(Modifier.height(8.dp))
+      Surface(color = Color.White, shape = RoundedCornerShape(16.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+       Column {
+        MenuNavigationRow("Machines & Maintenance", "Machine health, downtime tracking & work orders", Icons.Default.Settings, Color(0xFF3B82F6), currentTab == PageTab.MACHINES) { onClose(); onSelectTab(PageTab.MACHINES) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Daily Production Planning", "Shift targets, line allocation & quota tracking", Icons.Default.DateRange, Color(0xFF6366F1), currentTab == PageTab.PLANNING) { onClose(); onSelectTab(PageTab.PLANNING) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Quality Control & Defect Log", "Bottle inspection records, defect severity & checks", Icons.Default.FactCheck, Color(0xFFE11D48), currentTab == PageTab.QUALITY) { onClose(); onSelectTab(PageTab.QUALITY) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Customer Directory", "Customer addresses, GSTIN & contact details", Icons.Default.People, Color(0xFF0891B2), currentTab == PageTab.CUSTOMERS) { onClose(); onSelectTab(PageTab.CUSTOMERS) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Sales Orders", "Order book, due dates & dispatch progress", Icons.Default.ReceiptLong, Color(0xFFEA580C), currentTab == PageTab.ORDERS) { onClose(); onSelectTab(PageTab.ORDERS) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Electricity & Energy", "Meter readings, daily units & power consumption", Icons.Default.Bolt, Color(0xFFCA8A04), currentTab == PageTab.ELECTRICITY) { onClose(); onSelectTab(PageTab.ELECTRICITY) }
+       }
+      }
+     }
+
+     item {
+      Text("DATA, CLOUD & GOVERNANCE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.4.sp)
+      Spacer(Modifier.height(8.dp))
+      Surface(color = Color.White, shape = RoundedCornerShape(16.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+       Column {
+        MenuNavigationRow("Factory Reports & CSV", "Performance statistics & CSV export", Icons.Default.BarChart, Color(0xFF16A34A), currentTab == PageTab.REPORTS) { onClose(); onSelectTab(PageTab.REPORTS) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Inventory Movements Audit", "Immutable ledger of all stock additions and reductions", Icons.Default.History, Color(0xFF475569), currentTab == PageTab.MOVEMENTS) { onClose(); onSelectTab(PageTab.MOVEMENTS) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Security Audit Trail", "Log of admin actions, reversals and updates", Icons.Default.Security, Color(0xFF4338CA), currentTab == PageTab.AUDIT) { onClose(); onSelectTab(PageTab.AUDIT) }
+        HorizontalDivider(color = Border)
+        MenuNavigationRow("Cloud Sync Outbox", "Cloud sync queue & pending server uploads", Icons.Default.Sync, Color(0xFF0284C7), currentTab == PageTab.SYNC) { onClose(); onSelectTab(PageTab.SYNC) }
+       }
+      }
+     }
+
+     item {
+      Surface(
+       color = Color(0xFF0F2644),
+       shape = RoundedCornerShape(18.dp)
+      ) {
+       Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+         Icon(Icons.Default.CloudQueue, null, tint = Color(0xFF62C9FF), modifier = Modifier.size(22.dp))
+         Column {
+          Text("CLOUD & BACKUP TOOLS", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 12.sp)
+          Text(if (firebaseConfigured) "Server Connected" else "Offline Mode · Local Storage", fontSize = 10.sp, color = Color(0xFFB9CBE0))
+         }
+        }
+        HorizontalDivider(color = Color(0xFF26456E))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+         Button(
+          onClick = { onSyncNow() },
+          modifier = Modifier.weight(1f),
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF147DEB))
+         ) {
+          Icon(Icons.Default.Sync, null, modifier = Modifier.size(16.dp))
+          Spacer(Modifier.width(4.dp))
+          Text("Sync Now", fontSize = 11.sp)
+         }
+         Button(
+          onClick = { onClose(); onOpenRoleSwitcher() },
+          modifier = Modifier.weight(1f),
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
+         ) {
+          Icon(Icons.Default.Badge, null, modifier = Modifier.size(16.dp))
+          Spacer(Modifier.width(4.dp))
+          Text("Staff Roles", fontSize = 11.sp)
+         }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+         OutlinedButton(
+          onClick = { onClose(); onExportDb() },
+          modifier = Modifier.weight(1f),
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+          border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B6291))
+         ) {
+          Text("Backup DB", fontSize = 10.sp)
+         }
+         OutlinedButton(
+          onClick = { onClose(); onRestoreDb() },
+          modifier = Modifier.weight(1f),
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+          border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B6291))
+         ) {
+          Text("Restore DB", fontSize = 10.sp)
+         }
+         OutlinedButton(
+          onClick = { onClose(); onExportCsv() },
+          modifier = Modifier.weight(1f),
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+          border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B6291))
+         ) {
+          Text("CSV Export", fontSize = 10.sp)
+         }
+        }
+        Button(
+         onClick = { onClose(); onSignOut() },
+         modifier = Modifier.fillMaxWidth(),
+         shape = RoundedCornerShape(10.dp),
+         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+        ) {
+         Icon(Icons.Default.Logout, null, modifier = Modifier.size(16.dp))
+         Spacer(Modifier.width(6.dp))
+         Text("Sign Out / Lock App", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
+
+@Composable
+private fun RoleSwitcherDialog(
+ currentRole: String,
+ onSelectRole: (String) -> Unit,
+ onDismiss: () -> Unit,
+ firebaseConfigured: Boolean,
+ onFirebaseSignIn: (String, String) -> Unit,
+ onSyncNow: () -> Unit,
+ onSignOut: () -> Unit
+) {
+ var selectedTab by remember { mutableIntStateOf(0) }
+ var email by remember { mutableStateOf("") }
+ var password by remember { mutableStateOf("") }
+
+ val roles = listOf(
+  RoleOption("admin", "Admin / Owner", "Unrestricted factory control, backups, product & staff management, reversals", Icons.Default.Shield, Color(0xFF7C3AED)),
+  RoleOption("manager", "Factory Manager", "Shop floor management, planning, machine maintenance, reversals, reports", Icons.Default.SupervisorAccount, Color(0xFF0284C7)),
+  RoleOption("production_staff", "Production Staff", "Record machine output, good bottles, rejected counts and downtime", Icons.Default.Build, Color(0xFF16804A)),
+  RoleOption("packing_staff", "Packing Staff", "Convert produced bottles into complete packs & loose bottles", Icons.Default.Inventory2, Color(0xFF9333EA)),
+  RoleOption("storekeeper", "Storekeeper / Inventory", "Track inventory levels, receive goods, inspect movement logs", Icons.Default.Warehouse, Color(0xFFD97706)),
+  RoleOption("dispatch_staff", "Dispatch Staff", "Manage sales order dispatches, packing lists and deliveries", Icons.Default.LocalShipping, Color(0xFFEA580C)),
+  RoleOption("viewer", "Auditor / Viewer", "Read-only access to records, dashboards and production reports", Icons.Default.Visibility, Color(0xFF475569))
+ )
+
+ AlertDialog(
+  onDismissRequest = onDismiss,
+  title = {
+   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text("Staff & Role Management", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+    Text("Select active staff role or sign in with cloud credentials.", fontSize = 12.sp, color = Muted)
+   }
+  },
+  text = {
+   Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    TabRow(selectedTabIndex = selectedTab, containerColor = Color.Transparent, contentColor = Blue) {
+     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Switch Role", fontWeight = FontWeight.Bold) })
+     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Cloud Account", fontWeight = FontWeight.Bold) })
+    }
+
+    if (selectedTab == 0) {
+     Text("SELECT ACTIVE ROLE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.3.sp)
+     roles.forEach { role ->
+      val isSelected = currentRole.equals(role.id, ignoreCase = true) || (role.id == "admin" && (currentRole.equals("owner", ignoreCase = true) || currentRole.isBlank()))
+      Surface(
+       onClick = { onSelectRole(role.id) },
+       shape = RoundedCornerShape(14.dp),
+       color = if (isSelected) role.color.copy(alpha = 0.12f) else Color.White,
+       border = androidx.compose.foundation.BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) role.color else Border)
+      ) {
+       Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(shape = RoundedCornerShape(10.dp), color = role.color.copy(alpha = 0.15f), modifier = Modifier.size(38.dp)) {
+         Box(contentAlignment = Alignment.Center) {
+          Icon(role.icon, null, tint = role.color, modifier = Modifier.size(20.dp))
+         }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+          Text(role.title, fontWeight = FontWeight.Bold, color = Navy, fontSize = 13.sp)
+          if (isSelected) {
+           Surface(shape = RoundedCornerShape(6.dp), color = role.color) {
+            Text("ACTIVE", fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
+           }
+          }
+         }
+         Text(role.desc, fontSize = 10.sp, color = Muted, lineHeight = 14.sp)
+        }
+        if (isSelected) {
+         Icon(Icons.Default.CheckCircle, null, tint = role.color, modifier = Modifier.size(20.dp))
+        }
+       }
+      }
+     }
+    } else {
+     Surface(
+      color = if (firebaseConfigured) Color(0xFFE8F7F0) else Color(0xFFFFF2E5),
+      shape = RoundedCornerShape(14.dp)
+     ) {
+      Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+       Icon(if (firebaseConfigured) Icons.Default.CloudDone else Icons.Default.CloudOff, null, tint = if (firebaseConfigured) Color(0xFF16804A) else Color(0xFF9B5B00))
+       Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(if (firebaseConfigured) "Server Connected" else "Offline-First Mode", fontWeight = FontWeight.Bold, color = Navy, fontSize = 13.sp)
+        Text(if (firebaseConfigured) "Staff credentials are verified securely through the cloud server. Roles and permissions are retrieved automatically." else "App is operating in local offline-first mode. All role permissions are active and enforced locally. Records synchronize immediately when server is online.", fontSize = 11.sp, color = Muted)
+       }
+      }
+     }
+
+     OutlinedTextField(
+      value = email,
+      onValueChange = { email = it },
+      label = { Text("Staff Email") },
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth(),
+      leadingIcon = { Icon(Icons.Default.Email, null) },
+      keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next)
+     )
+
+     OutlinedTextField(
+      value = password,
+      onValueChange = { password = it },
+      label = { Text("Password") },
+      singleLine = true,
+      visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+      modifier = Modifier.fillMaxWidth(),
+      leadingIcon = { Icon(Icons.Default.Lock, null) },
+      keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done)
+     )
+
+     Button(
+      onClick = { onFirebaseSignIn(email.trim(), password) },
+      modifier = Modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(12.dp),
+      colors = ButtonDefaults.buttonColors(containerColor = Blue)
+     ) {
+      Icon(Icons.Default.Login, null, modifier = Modifier.size(18.dp))
+      Spacer(Modifier.width(8.dp))
+      Text("Sign In with Cloud Account")
+     }
+
+     HorizontalDivider(color = Border)
+
+     Button(
+      onClick = onSyncNow,
+      modifier = Modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(12.dp),
+      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
+     ) {
+      Icon(Icons.Default.Sync, null, modifier = Modifier.size(18.dp))
+      Spacer(Modifier.width(8.dp))
+      Text("Trigger Cloud Sync Outbox")
+     }
+    }
+   }
+  },
+  confirmButton = {
+   Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    OutlinedButton(
+     onClick = onSignOut,
+     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
+     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5))
+    ) {
+     Icon(Icons.Default.Logout, null, modifier = Modifier.size(16.dp))
+     Spacer(Modifier.width(4.dp))
+     Text("Sign Out", fontSize = 12.sp)
+    }
+    TextButton(onClick = onDismiss) { Text("Close") }
+   }
+  }
+ )
+}

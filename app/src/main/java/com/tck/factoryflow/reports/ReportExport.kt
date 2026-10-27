@@ -21,7 +21,7 @@ object ReportExport {
  }
  fun csv(production:List<ProductionEntryEntity>,packing:List<PackingEntryEntity>,dispatches:List<DispatchEntryEntity>,meters:List<MeterReadingEntity>,dispatchBatches:List<DispatchBatchEntity> = emptyList(),dispatchLines:List<DispatchLineEntity> = emptyList()):String {
   val out=StringBuilder("section,date,reference_or_product,quantity,unit,details\r\n")
-  production.forEach{out.append(listOf("production",it.productionDate,it.productNameSnapshot,it.producedBottles.toString(),"bottles","good="+it.goodBottles+"; rejected="+it.rejectedBottles+"; machine="+it.machineName).joinToString(","){v->escape(v)}).append("\r\n")}
+  production.forEach{out.append(listOf("production",it.productionDate,it.productNameSnapshot,it.producedBottles.toString(),"bottles","good="+it.goodBottles+"; rejected="+it.rejectedBottles+"; machine="+it.machineName+"; line="+(it.lineNameSnapshot?: "Unassigned")).joinToString(","){v->escape(v)}).append("\r\n")}
   packing.forEach{out.append(listOf("packing",it.packingDate,it.productNameSnapshot,it.completePacks.toString(),"packs","bottles="+it.bottlesConsumed+"; loose="+it.looseBottles).joinToString(","){v->escape(v)}).append("\r\n")}
   dispatches.forEach{out.append(listOf("dispatch",it.dispatchDate,it.productNameSnapshot,it.packsDispatched.toString(),"packs","customer="+it.customerName+"; reference="+it.dispatchReference).joinToString(","){v->escape(v)}).append("\r\n")}
   val batchesById=dispatchBatches.associateBy{it.id}

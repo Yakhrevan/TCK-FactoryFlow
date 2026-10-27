@@ -9,11 +9,21 @@ import org.json.JSONArray
 import com.tck.factoryflow.domain.ProductionQuantities
 
 @Entity(tableName="products", indices=[Index(value=["name"], unique=true)])
-data class ProductEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val name:String,val sizeLabel:String,val colour:String="Clear",val bottlesPerPack:Int,val active:Boolean=true,val createdAt:Long=System.currentTimeMillis())
+data class ProductEntity(
+    @PrimaryKey(autoGenerate=true) val id:Long=0,
+    val name:String,
+    val sizeLabel:String,
+    val colour:String="Clear",
+    val bottlesPerPack:Int,
+    val active:Boolean=true,
+    val createdAt:Long=System.currentTimeMillis(),
+    val iconName:String="bottle_default",
+    val imageUri:String=""
+)
 @Entity(tableName="product_config_history",indices=[Index("productId"),Index("changedAt")])
 data class ProductConfigHistoryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productName:String,val sizeLabel:String,val colour:String,val bottlesPerPack:Int,val active:Boolean,val changedAt:Long=System.currentTimeMillis(),val changedBy:String="local",val reason:String="Configuration updated")
-@Entity(tableName="production_entries",indices=[Index("productId"),Index("productionDate")])
-data class ProductionEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val productionDate:String,val producedBottles:Int,val goodBottles:Int,val rejectedBottles:Int,val machineName:String="Machine 1",val remarks:String="",val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="production_entries",indices=[Index("productId"),Index("productionDate"),Index("lineId"),Index("machineId")])
+data class ProductionEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val productionDate:String,val producedBottles:Int,val goodBottles:Int,val rejectedBottles:Int,val machineName:String="Machine 1",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val lineId:Long?=null,val lineNameSnapshot:String="",val machineId:Long?=null)
 @Entity(tableName="packing_entries",indices=[Index("productId"),Index("packingDate")])
 data class PackingEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val packingDate:String,val bottlesConsumed:Int,val completePacks:Int,val looseBottles:Int,val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="dispatch_entries",indices=[Index("dispatchDate"),Index("customerName")])
@@ -37,38 +47,74 @@ data class DispatchRequestLine(val productId:Long,val packs:Int)
 data class DispatchPostResult(val batchId:Long,val reference:String,val lineCount:Int)
 
 @Entity(tableName="production_lines",indices=[Index(value=["lineCode"],unique=true)])
-data class ProductionLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val lineCode:String,val name:String,val description:String="",val status:String="ACTIVE",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+data class ProductionLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val lineCode:String,val name:String,val description:String="",val status:String="ACTIVE",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis(),val targetCapacity:Int=0,val capacityUnit:String="BOTTLES_PER_HOUR")
 @Entity(tableName="machines",indices=[Index(value=["machineCode"],unique=true),Index("lineId")],foreignKeys=[ForeignKey(entity=ProductionLineEntity::class,parentColumns=["id"],childColumns=["lineId"],onDelete=ForeignKey.SET_NULL)])
 data class MachineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineCode:String,val name:String,val machineType:String,val location:String="",val status:String="RUNNING",val notes:String="",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis(),val lineId:Long?=null)
 @Entity(tableName="machine_events",indices=[Index("machineId"),Index("startedAt"),Index("status")])
 data class MachineEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineId:Long,val machineNameSnapshot:String,val eventType:String,val startedAt:Long,val endedAt:Long?=null,val reason:String="",val maintenanceType:String="",val status:String="OPEN",val performedBy:String="local",val createdAt:Long=System.currentTimeMillis(),val completionNotes:String="",val partsUsed:String="",val completedBy:String="")
 @Entity(tableName="quality_inspections",indices=[Index("productId"),Index("productionEntryId"),Index("inspectionDate")])
 data class QualityInspectionEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productionEntryId:Long?,val productId:Long,val productNameSnapshot:String,val inspectionDate:String,val inspectedBottles:Int,val passedBottles:Int,val failedBottles:Int,val defectCategory:String,val severity:String="MINOR",val notes:String="",val inspectorId:String="local",val createdAt:Long=System.currentTimeMillis())
-@Entity(tableName="production_plans",indices=[Index("planDate"),Index("productId"),Index("status")])
-data class ProductionPlanEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val planDate:String,val shift:String,val productId:Long,val productNameSnapshot:String,val targetBottles:Int,val assignedMachineId:Long?=null,val status:String="PLANNED",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="production_plans",indices=[Index("planDate"),Index("productId"),Index("status"),Index("lineId")])
+data class ProductionPlanEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val planDate:String,val shift:String,val productId:Long,val productNameSnapshot:String,val targetBottles:Int,val assignedMachineId:Long?=null,val status:String="PLANNED",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis(),val lineId:Long?=null)
 @Entity(tableName="sales_orders",indices=[Index(value=["orderNumber"],unique=true),Index("customerId"),Index("orderDate"),Index("status")])
 data class SalesOrderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderNumber:String,val customerId:Long?,val customerNameSnapshot:String,val orderDate:String,val dueDate:String,val status:String="OPEN",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="sales_order_lines",indices=[Index("orderId"),Index("productId")],foreignKeys=[ForeignKey(entity=SalesOrderEntity::class,parentColumns=["id"],childColumns=["orderId"],onDelete=ForeignKey.CASCADE)])
 data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderId:Long,val productId:Long,val productNameSnapshot:String,val packsOrdered:Int,val packsDispatched:Int=0,val packSizeSnapshot:Int,val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="staff_members",indices=[Index(value=["email"],unique=true),Index("role")])
+data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val uid:String,val name:String,val email:String,val role:String,val allowedModules:String="ALL",val active:Boolean=true,val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
 @Dao abstract class FactoryDao {
+ @Query("SELECT * FROM staff_members ORDER BY name COLLATE NOCASE") abstract fun observeStaffMembers():Flow<List<StaffMemberEntity>>
+ @Query("SELECT * FROM staff_members WHERE email=:email LIMIT 1") abstract suspend fun staffByEmail(email:String):StaffMemberEntity?
+ @Insert(onConflict=OnConflictStrategy.REPLACE) abstract suspend fun insertStaffMember(staff:StaffMemberEntity):Long
+ @Query("UPDATE staff_members SET name=:name,role=:role,allowedModules=:allowedModules,active=:active,updatedAt=:updatedAt WHERE id=:id") abstract suspend fun updateStaffMember(id:Long,name:String,role:String,allowedModules:String,active:Boolean,updatedAt:Long=System.currentTimeMillis()):Int
+ @Query("UPDATE staff_members SET active=:active,updatedAt=:updatedAt WHERE id=:id") abstract suspend fun setStaffMemberActive(id:Long,active:Boolean,updatedAt:Long=System.currentTimeMillis()):Int
+ @Query("DELETE FROM staff_members WHERE id=:id") abstract suspend fun deleteStaffMember(id:Long):Int
+ @Query("DELETE FROM products WHERE id=:id") abstract suspend fun deleteProduct(id:Long):Int
+ @Transaction open suspend fun removeProduct(id:Long,actor:String,reason:String,organisationId:String) {
+  val old=productById(id)?:return
+  deleteProduct(id)
+  insertAudit(AuditEventEntity(eventType="PRODUCT_DELETED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),reason=reason,actorId=actor))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="product-delete:"+organisationId+":"+id+":"+System.currentTimeMillis(),organisationId=organisationId,eventType="PRODUCT_DELETED",payloadJson=JSONObject().put("productId",id).put("name",old.name).toString()))
+ }
  @Query("SELECT * FROM production_lines ORDER BY status DESC, name COLLATE NOCASE") abstract fun observeProductionLines():Flow<List<ProductionLineEntity>>
  @Query("SELECT * FROM production_lines WHERE status='ACTIVE' ORDER BY name COLLATE NOCASE") abstract suspend fun activeProductionLines():List<ProductionLineEntity>
+ @Query("SELECT * FROM production_lines WHERE id=:id LIMIT 1") abstract suspend fun lineById(id:Long):ProductionLineEntity?
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertProductionLine(line:ProductionLineEntity):Long
+ @Query("UPDATE production_lines SET name=:name,description=:description,targetCapacity=:capacity,capacityUnit=:unit,status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateProductionLine(id:Long,name:String,description:String,capacity:Int,unit:String,status:String,at:Long=System.currentTimeMillis())
+ @Query("DELETE FROM production_lines WHERE id=:id") abstract suspend fun deleteProductionLine(id:Long)
+ @Query("DELETE FROM machines WHERE id=:id") abstract suspend fun deleteMachine(id:Long)
+ @Transaction open suspend fun removeProductionLine(id:Long,actor:String,reason:String,organisationId:String) {
+  val line=lineById(id)?:return
+  deleteProductionLine(id)
+  insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_DELETED",entityType="production_line",entityId=id.toString(),beforeJson=line.name,afterJson="DELETED",reason=reason,actorId=actor))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="line-delete:$organisationId:$id",organisationId=organisationId,eventType="PRODUCTION_LINE_DELETED",payloadJson=org.json.JSONObject().put("lineId",id).put("lineCode",line.lineCode).toString()))
+ }
+ @Transaction open suspend fun removeMachine(id:Long,actor:String,reason:String,organisationId:String) {
+  val m=machineById(id)?:return
+  deleteMachine(id)
+  insertAudit(AuditEventEntity(eventType="MACHINE_DELETED",entityType="machine",entityId=id.toString(),beforeJson=m.name,afterJson="DELETED",reason=reason,actorId=actor))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-delete:$organisationId:$id",organisationId=organisationId,eventType="MACHINE_DELETED",payloadJson=org.json.JSONObject().put("machineId",id).put("machineCode",m.machineCode).toString()))
+ }
  @Query("UPDATE machines SET lineId=:lineId,updatedAt=:updatedAt WHERE id=:machineId") abstract suspend fun assignMachineToLine(machineId:Long,lineId:Long?,updatedAt:Long=System.currentTimeMillis())
  @Query("SELECT * FROM machines WHERE lineId=:lineId ORDER BY name COLLATE NOCASE") abstract fun observeMachinesForLine(lineId:Long):Flow<List<MachineEntity>>
+ @Query("SELECT * FROM machines WHERE lineId=:lineId ORDER BY name COLLATE NOCASE") abstract suspend fun machinesForLine(lineId:Long):List<MachineEntity>
+ @Query("SELECT * FROM machines WHERE lineId=:lineId AND status='RUNNING' ORDER BY name COLLATE NOCASE") abstract suspend fun activeMachinesForLine(lineId:Long):List<MachineEntity>
+ @Query("SELECT * FROM machines WHERE status='RUNNING' ORDER BY name COLLATE NOCASE") abstract suspend fun activeMachines():List<MachineEntity>
+ @Query("SELECT * FROM machines WHERE id=:id LIMIT 1") abstract suspend fun machineById(id:Long):MachineEntity?
  @Query("SELECT * FROM products ORDER BY active DESC, name COLLATE NOCASE") abstract fun observeProducts():Flow<List<ProductEntity>>
  @Query("SELECT * FROM products WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeProducts():List<ProductEntity>
  @Query("SELECT * FROM products WHERE id=:id LIMIT 1") abstract suspend fun productById(id:Long):ProductEntity?
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertProduct(p:ProductEntity):Long
  @Query("UPDATE products SET name=:name,sizeLabel=:size,colour=:colour,bottlesPerPack=:pack,active=:active WHERE id=:id") abstract suspend fun updateProduct(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean)
+ @Query("UPDATE products SET name=:name,sizeLabel=:size,colour=:colour,bottlesPerPack=:pack,active=:active,iconName=:iconName,imageUri=:imageUri WHERE id=:id") abstract suspend fun updateProductDetails(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,iconName:String,imageUri:String)
  @Insert abstract suspend fun insertProductHistory(e:ProductConfigHistoryEntity):Long
  @Query("SELECT * FROM product_config_history WHERE productId=:id ORDER BY changedAt DESC") abstract fun observeProductHistory(id:Long):Flow<List<ProductConfigHistoryEntity>>
  @Insert abstract suspend fun insertAudit(a:AuditEventEntity):Long
- @Transaction open suspend fun updateProductWithHistory(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,actor:String,reason:String,organisationId:String) {
+ @Transaction open suspend fun updateProductWithHistory(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,actor:String,reason:String,organisationId:String,iconName:String="bottle_default",imageUri:String="") {
   require(name.isNotBlank()&&size.isNotBlank());require(pack>=0)
   val old=productById(id)?:error("Product not found")
   insertProductHistory(ProductConfigHistoryEntity(productId=old.id,productName=old.name,sizeLabel=old.sizeLabel,colour=old.colour,bottlesPerPack=old.bottlesPerPack,active=old.active,changedBy=actor,reason=reason))
-  updateProduct(id,name.trim(),size.trim(),colour.trim(),pack,active)
+  updateProductDetails(id,name.trim(),size.trim(),colour.trim(),pack,active,iconName,imageUri)
   val after=productJson(name,size,colour,pack,active)
   insertAudit(AuditEventEntity(eventType="PRODUCT_UPDATED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),afterJson=after,reason=reason,actorId=actor))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="product-update:"+organisationId+":"+id+":"+System.currentTimeMillis(),organisationId=organisationId,eventType="PRODUCT_UPDATED",payloadJson=after))
@@ -91,9 +137,13 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
   val product=productById(entry.productId)?:error("Product not found")
   require(product.active){"Product is inactive"}
   val id=insertProduction(entry)
+  if(entry.machineId!=null){
+   val machine=machineById(entry.machineId)?:error("Selected machine not found")
+   require(machine.status=="RUNNING"){"Machine ${machine.name} is ${machine.status}; only running machines can record new production runs."}
+  }
   if(entry.goodBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PRODUCTION_GOOD_IN",quantity=entry.goodBottles,unit="BOTTLE",sourceType="production",sourceId=id.toString(),actorId=actorId))
   if(entry.rejectedBottles>0) insertInventoryMovement(InventoryMovementEntity(productId=entry.productId,productNameSnapshot=entry.productNameSnapshot,movementType="PRODUCTION_REJECTED",quantity=-entry.rejectedBottles,unit="BOTTLE",sourceType="production",sourceId=id.toString(),actorId=actorId))
-  val payload=JSONObject().put("productionId",id).put("productId",entry.productId).put("date",entry.productionDate).put("produced",entry.producedBottles).put("good",entry.goodBottles).put("rejected",entry.rejectedBottles).put("machine",entry.machineName).toString()
+  val payload=JSONObject().put("productionId",id).put("productId",entry.productId).put("date",entry.productionDate).put("produced",entry.producedBottles).put("good",entry.goodBottles).put("rejected",entry.rejectedBottles).put("machine",entry.machineName).put("lineId",entry.lineId).put("machineId",entry.machineId).toString()
   insertAudit(AuditEventEntity(eventType="PRODUCTION_POSTED",entityType="production",entityId=id.toString(),afterJson=payload,reason="Production posted",actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="production:"+organisationId+":"+id,organisationId=organisationId,eventType="PRODUCTION_POSTED",payloadJson=payload))
   return id
@@ -212,6 +262,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
  @Query("SELECT * FROM machines ORDER BY name COLLATE NOCASE") abstract fun observeMachines():Flow<List<MachineEntity>>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertMachine(e:MachineEntity):Long
  @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineDetails(id:Long,name:String,type:String,location:String,notes:String,at:Long=System.currentTimeMillis())
+ @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,lineId=:lineId,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineWithLine(id:Long,name:String,type:String,location:String,notes:String,lineId:Long?,at:Long=System.currentTimeMillis())
  @Query("UPDATE machines SET status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineStatus(id:Long,status:String,at:Long=System.currentTimeMillis())
  @Query("SELECT * FROM machine_events ORDER BY startedAt DESC") abstract fun observeMachineEvents():Flow<List<MachineEventEntity>>
  @Insert abstract suspend fun insertMachineEvent(e:MachineEventEntity):Long
@@ -296,7 +347,7 @@ data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class],version=6,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=9,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -354,7 +405,33 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_machines_lineId ON machines(lineId)")
    }
   }
+  internal val MIGRATION_6_7=object:Migration(6,7){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE production_lines ADD COLUMN targetCapacity INTEGER NOT NULL DEFAULT 0")
+    db.execSQL("ALTER TABLE production_lines ADD COLUMN capacityUnit TEXT NOT NULL DEFAULT 'BOTTLES_PER_HOUR'")
+    db.execSQL("ALTER TABLE production_entries ADD COLUMN lineId INTEGER")
+    db.execSQL("ALTER TABLE production_entries ADD COLUMN lineNameSnapshot TEXT NOT NULL DEFAULT ''")
+    db.execSQL("ALTER TABLE production_entries ADD COLUMN machineId INTEGER")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_production_entries_lineId ON production_entries(lineId)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_production_entries_machineId ON production_entries(machineId)")
+    db.execSQL("ALTER TABLE production_plans ADD COLUMN lineId INTEGER")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_production_plans_lineId ON production_plans(lineId)")
+   }
+  }
+  internal val MIGRATION_7_8=object:Migration(7,8){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE products ADD COLUMN iconName TEXT NOT NULL DEFAULT 'bottle_default'")
+    db.execSQL("ALTER TABLE products ADD COLUMN imageUri TEXT NOT NULL DEFAULT ''")
+   }
+  }
+  internal val MIGRATION_8_9=object:Migration(8,9){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("CREATE TABLE IF NOT EXISTS staff_members (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,uid TEXT NOT NULL,name TEXT NOT NULL,email TEXT NOT NULL,role TEXT NOT NULL,allowedModules TEXT NOT NULL DEFAULT 'ALL',active INTEGER NOT NULL DEFAULT 1,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL)")
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_staff_members_email ON staff_members(email)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_staff_members_role ON staff_members(role)")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9).build().also{instance=it}}
  }
 }
