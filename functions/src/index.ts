@@ -198,7 +198,7 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
 export const upsertProduct = onCall({ enforceAppCheck:true }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), productId=requiredString(request.data?.productId,"productId");
- const name=requiredString(request.data?.name,"name"), sizeLabel=requiredString(request.data?.sizeLabel,"sizeLabel"), colour=requiredString(request.data?.colour,"colour"), packSize=positiveInteger(request.data?.bottlesPerPack,"bottlesPerPack");
+ const name=requiredString(request.data?.name,"name"), sizeLabel=requiredString(request.data?.sizeLabel,"sizeLabel"), colour=requiredString(request.data?.colour,"colour"), packSize=nonNegativeInteger(request.data?.bottlesPerPack,"bottlesPerPack");
  const active=request.data?.active===true, {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager"]);
  const root="organisations/"+orgId+"/factories/"+factoryId, productRef=db.doc(root+"/products/"+productId);
  return db.runTransaction(async(tx)=>{
