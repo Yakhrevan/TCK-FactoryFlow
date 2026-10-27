@@ -24,6 +24,8 @@ data class CloudStockItem(
     val looseBottles: Int
 )
 
+data class CloudPackingPostResult(val idempotencyKey: String, val completePacks: Int, val looseBottles: Int, val bottlesPerPack: Int)
+
 data class CloudStockSnapshot(
     val organisationId: String,
     val factoryId: String,
@@ -103,7 +105,7 @@ class CloudInventoryRepository(context: Context) {
         return key
     }
 
-    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): String {
+    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): CloudPackingPostResult {
         val scope = scope(session)
         val canonical = JSONObject()
             .put("organisationId", scope.getValue("organisationId"))
@@ -114,8 +116,13 @@ class CloudInventoryRepository(context: Context) {
             .toString()
         val key = idempotencyKey("packing", canonical)
         val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
-        functions().getHttpsCallable("postPacking").call(payload).await()
-        return key
+        val response = functions().getHttpsCallable("postPacking").call(payload).await()
+        val result = response.data as? Map<*, *> ?: error("Server returned an invalid packing confirmation.")
+        val packs = (result["completePacks"] as? Number)?.toInt() ?: error("Server did not return complete-pack quantity.")
+        val loose = (result["looseBottles"] as? Number)?.toInt() ?: error("Server did not return loose-bottle quantity.")
+        val packSize = (result["bottlesPerPack"] as? Number)?.toInt() ?: error("Server did not return the authoritative pack size.")
+        require(packs >= 0 && loose >= 0 && packSize > 0) { "Server returned invalid packing quantities." }
+        return CloudPackingPostResult(key, packs, loose, packSize)
     }
 
     fun acknowledgeProduction(entry: ProductionEntryEntity, product: ProductEntity, session: FactorySession) {
