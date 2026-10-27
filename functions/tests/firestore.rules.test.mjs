@@ -48,6 +48,19 @@ test("Firestore rules enforce organisation membership and server-owned stock", a
     }));
   });
 
+  await t.test("clients cannot directly create production, packing, or inventory ledger records", async () => {
+    const db = env.authenticatedContext("alice", { organisationId: "org-a" }).firestore();
+    await assertFails(setDoc(doc(db, "organisations/org-a/factories/factory-1/productions/run-1"), {
+      productId: "product-1", goodBottles: 100, status: "POSTED",
+    }));
+    await assertFails(setDoc(doc(db, "organisations/org-a/factories/factory-1/packings/pack-1"), {
+      productId: "product-1", bottlesConsumed: 100, status: "POSTED",
+    }));
+    await assertFails(setDoc(doc(db, "organisations/org-a/factories/factory-1/inventoryTransactions/txn-1"), {
+      productId: "product-1", quantity: 100, unit: "BOTTLE",
+    }));
+  });
+
   await t.test("inactive membership denies reads even when token claim remains", async () => {
     await env.withSecurityRulesDisabled(async (context) => {
       await setDoc(doc(context.firestore(), "organisations/org-a/members/alice"), {
