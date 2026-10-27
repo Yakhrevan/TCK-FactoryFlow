@@ -186,6 +186,11 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
        runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,active=item.active,productCode=item.productId))}
       }
      }
+     val knownCodes=snapshot.items.map{it.productId}.toSet()
+     val knownNames=snapshot.items.map{it.name.trim().lowercase()}.toSet()
+     val catalogRepo=CloudInventoryRepository(context)
+     products.filter{it.productCode !in knownCodes && it.name.trim().lowercase() !in knownNames}.forEach{catalogRepo.upsertProduct(session!!,it)}
+     if(products.any{it.productCode !in knownCodes && it.name.trim().lowercase() !in knownNames}) cloudStockSnapshot=catalogRepo.fetchStock(session!!)
     }.onFailure{cloudStockError=it.message?:"Unable to load authoritative cloud stock"}
     cloudStockLoading=false
    }else if(session?.isCloud!=true){cloudStockSnapshot=null;cloudStockError=null}
@@ -711,8 +716,8 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     }
     item{Text("Local device history · not authoritative",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color(0xFF9B5B00))}
    }
-   item{Surface(color=Navy,shape=RoundedCornerShape(22.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(if(session?.isCloud==true)"SERVER AVAILABLE PACKS" else "TOTAL AVAILABLE PACKS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(if(session?.isCloud==true&&cloudStockSnapshot!=null)cloudStockSnapshot!!.items.sumOf{it.completePacks}.toString() else totalAvailable.toString(),fontSize=36.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text(if(session?.isCloud==true&&cloudStockSnapshot!=null)cloudStockSnapshot!!.items.count{it.active}.toString()+" active server product types" else active.size.toString()+" active product types",fontSize=12.sp,color=Color(0xFFD4E2F0))}}}
-   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric(if(session?.isCloud==true)"Server loose bottles" else "Available loose bottles",if(session?.isCloud==true&&cloudStockSnapshot!=null)cloudStockSnapshot!!.items.sumOf{it.looseBottles}.toString() else totalLooseAvailable.toString(),Modifier.weight(1f));Metric(if(session?.isCloud==true)"Unpacked good bottles" else "Dispatched packs",if(session?.isCloud==true&&cloudStockSnapshot!=null)cloudStockSnapshot!!.items.sumOf{it.unpackedGoodBottles}.toString() else (legacyDispatched.values.sum()+batchedDispatched.values.sum()).toString(),Modifier.weight(1f))}}
+   item{Surface(color=Navy,shape=RoundedCornerShape(22.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(if(session?.isCloud==true)"SERVER AVAILABLE PACKS" else "TOTAL AVAILABLE PACKS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(if(session?.isCloud==true)cloudStockSnapshot?.items?.sumOf{it.completePacks}?.toString()?: "—" else totalAvailable.toString(),fontSize=36.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text(if(session?.isCloud==true)cloudStockSnapshot?.items?.count{it.active}?.toString()?.plus(" active server product types")?:"Server snapshot unavailable" else active.size.toString()+" active product types",fontSize=12.sp,color=Color(0xFFD4E2F0))}}}
+   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric(if(session?.isCloud==true)"Server loose bottles" else "Available loose bottles",if(session?.isCloud==true)cloudStockSnapshot?.items?.sumOf{it.looseBottles}?.toString()?: "—" else totalLooseAvailable.toString(),Modifier.weight(1f));Metric(if(session?.isCloud==true)"Unpacked good bottles" else "Dispatched packs",if(session?.isCloud==true)cloudStockSnapshot?.items?.sumOf{it.unpackedGoodBottles}?.toString()?: "—" else (legacyDispatched.values.sum()+batchedDispatched.values.sum()).toString(),Modifier.weight(1f))}}
    item{
     val configuredCount=active.count{it.bottlesPerPack>0}
     val lowCount=active.count{p->((totalPacked[p.id]?:0)-(legacyDispatched[p.id]?:0)-(batchedDispatched[p.id]?:0)).coerceAtLeast(0)<=5}
