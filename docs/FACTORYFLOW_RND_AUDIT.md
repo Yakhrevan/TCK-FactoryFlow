@@ -13,6 +13,16 @@ Scope: bottle manufacturing, production, packing, finished stock, customer dispa
 - **Local inventory accounting:** dispatch lines retain total bottle quantity and pack-size snapshot; loose dispatch is derived from that immutable snapshot. Stock cards show net loose bottles after posted dispatches, and reversal records a compensating loose-bottle movement.
 - **Access control hardening:** cloud sign-in requires a provisioned, active membership document with an explicit supported role. Offline sign-in no longer creates a new administrator/manager/production session for an unknown email; it requires an existing active local staff record and checks the selected portal against that record's role.
 
+## Authoritative production and packing backend (in progress)
+
+- Added callable `postProduction` to validate production quantities, require active factory membership and product configuration, enforce an idempotency fingerprint, and atomically update the factory's unpacked-good-bottle balance with an append-only inventory ledger entry.
+- Added callable `postPacking` to atomically consume unpacked good bottles, calculate complete packs and remainder bottles from the server-owned product pack size, and update pack/loose stock and ledger records.
+- Added callable `reversePacking` for manager-authorised, reason-required packing reversal. It refuses reversal if the relevant finished stock has already been consumed and is idempotent.
+- Rejected-bottle ledger movements are recorded as negative bottle quantities; production dates are checked against real calendar dates.
+- Added Firestore rules regression coverage confirming clients cannot write production, packing, or inventory transaction documents directly.
+
+**Integration limitation:** these trusted callable functions are backend foundations, not yet an end-to-end Android rollout. Android currently posts production and packing locally and writes generic outbox events. Before enabling cloud posting in the UI, implement stable cloud product IDs/catalog provisioning, factory ID and membership provisioning, Firebase Functions client dependency, callable invocation, pending/confirmed/error UI states, and a migration/backfill plan. Do not send local Room auto-increment IDs as cloud product IDs, and do not treat a generic outbox event as a committed inventory transaction. During rollout, avoid dual-posting the same operation locally and in cloud; use the server result as the authority and reconcile local views from confirmed server records.
+
 ## Important operational rules
 
 1. Pack size must be configured for each product; never assume a pack size based on bottle volume.
