@@ -22,10 +22,10 @@ fun stableProductCode(name:String,sizeLabel:String,colour:String):String {\n    
 )
 @Entity(tableName="product_config_history",indices=[Index("productId"),Index("changedAt")])
 data class ProductConfigHistoryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productName:String,val sizeLabel:String,val colour:String,val bottlesPerPack:Int,val active:Boolean,val changedAt:Long=System.currentTimeMillis(),val changedBy:String="local",val reason:String="Configuration updated")
-@Entity(tableName="production_entries",indices=[Index("productId"),Index("productionDate"),Index("lineId"),Index("machineId")])
-data class ProductionEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val productionDate:String,val producedBottles:Int,val goodBottles:Int,val rejectedBottles:Int,val machineName:String="Machine 1",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val lineId:Long?=null,val lineNameSnapshot:String="",val machineId:Long?=null)
-@Entity(tableName="packing_entries",indices=[Index("productId"),Index("packingDate")])
-data class PackingEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val packingDate:String,val bottlesConsumed:Int,val completePacks:Int,val looseBottles:Int,val createdAt:Long=System.currentTimeMillis())
+@Entity(tableName="production_entries",indices=[Index("productId"),Index("productionDate"),Index("lineId"),Index("machineId"),Index("cloudOperationKey")])
+data class ProductionEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val productionDate:String,val producedBottles:Int,val goodBottles:Int,val rejectedBottles:Int,val machineName:String="Machine 1",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val lineId:Long?=null,val lineNameSnapshot:String="",val machineId:Long?=null,@ColumnInfo(defaultValue="''") val cloudOperationKey:String="")
+@Entity(tableName="packing_entries",indices=[Index("productId"),Index("packingDate"),Index("cloudOperationKey")])
+data class PackingEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val packingDate:String,val bottlesConsumed:Int,val completePacks:Int,val looseBottles:Int,val createdAt:Long=System.currentTimeMillis(),@ColumnInfo(defaultValue="''") val cloudOperationKey:String="")
 @Entity(tableName="dispatch_entries",indices=[Index("dispatchDate"),Index("customerName")])
 data class DispatchEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val dispatchReference:String,val dispatchDate:String,val customerName:String,val productId:Long,val productNameSnapshot:String,val packsDispatched:Int,val remarks:String="",val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="customers",indices=[Index(value=["name"],unique=true)])
@@ -137,6 +137,29 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
   enqueueSyncEvent(SyncOutboxEntity(eventKey="production-reversal:"+organisationId+":"+id,organisationId=organisationId,eventType="PRODUCTION_REVERSED",payloadJson=JSONObject().put("productionId",id).put("reason",reason).toString()))
   return true
  }
+ @Transaction open suspend fun recordCloudProduction(entry:ProductionEntryEntity,actorId:String):Long {
+  require(entry.cloudOperationKey.isNotBlank()){"Cloud operation key is required for a server-confirmed production record"}
+  productionByCloudKey(entry.cloudOperationKey)?.let{return it.id}
+  ProductionQuantities(entry.producedBottles,entry.goodBottles,entry.rejectedBottles).validate()
+  val product=productById(entry.productId)?:error("Product not found")
+  require(product.active){"Product is inactive"}
+  if(entry.machineId!=null){val machine=machineById(entry.machineId)?:error("Selected machine not found");require(machine.status=="RUNNING"){"Machine "+machine.name+" is not running"}}
+  val id=insertProduction(entry)
+  insertAudit(AuditEventEntity(eventType="CLOUD_PRODUCTION_CONFIRMED",entityType="production",entityId=id.toString(),afterJson=JSONObject().put("cloudOperationKey",entry.cloudOperationKey).put("goodBottles",entry.goodBottles).toString(),reason="Confirmed by authoritative inventory server",actorId=actorId))
+  return id
+ }
+ @Transaction open suspend fun recordCloudPacking(entry:PackingEntryEntity,actorId:String):Long {
+  require(entry.cloudOperationKey.isNotBlank()){"Cloud operation key is required for a server-confirmed packing record"}
+  packingByCloudKey(entry.cloudOperationKey)?.let{return it.id}
+  require(entry.bottlesConsumed>0){"Packing quantity must be positive"}
+  val product=productById(entry.productId)?:error("Product not found")
+  require(product.active){"Product is inactive"}
+  require(product.bottlesPerPack>0){"Pack size is not configured for "+product.name}
+  require(entry.completePacks==entry.bottlesConsumed/product.bottlesPerPack&&entry.looseBottles==entry.bottlesConsumed%product.bottlesPerPack){"Packing totals do not match configured pack size"}
+  val id=insertPacking(entry)
+  insertAudit(AuditEventEntity(eventType="CLOUD_PACKING_CONFIRMED",entityType="packing",entityId=id.toString(),afterJson=JSONObject().put("cloudOperationKey",entry.cloudOperationKey).put("bottlesConsumed",entry.bottlesConsumed).toString(),reason="Confirmed by authoritative inventory server",actorId=actorId))
+  return id
+ }
  @Transaction open suspend fun postProduction(entry:ProductionEntryEntity,organisationId:String,actorId:String):Long {
   ProductionQuantities(entry.producedBottles,entry.goodBottles,entry.rejectedBottles).validate()
   val product=productById(entry.productId)?:error("Product not found")
@@ -156,6 +179,8 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM production_entries ORDER BY productionDate DESC,createdAt DESC") abstract fun observeProduction():Flow<List<ProductionEntryEntity>>
  @Query("SELECT COALESCE(SUM(goodBottles),0) FROM production_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PRODUCTION_REVERSED' AND entityType='production')") abstract suspend fun totalGoodBottles(id:Long):Int
  @Insert abstract suspend fun insertProduction(e:ProductionEntryEntity):Long
+ @Query("SELECT * FROM production_entries WHERE cloudOperationKey=:key LIMIT 1") abstract suspend fun productionByCloudKey(key:String):ProductionEntryEntity?
+ @Query("SELECT * FROM packing_entries WHERE cloudOperationKey=:key LIMIT 1") abstract suspend fun packingByCloudKey(key:String):PackingEntryEntity?
  @Query("SELECT * FROM packing_entries ORDER BY packingDate DESC,createdAt DESC") abstract fun observePacking():Flow<List<PackingEntryEntity>>
  @Query("SELECT COALESCE(SUM(bottlesConsumed),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalPackedBottles(id:Long):Int
  @Query("SELECT COALESCE(SUM(completePacks),0) FROM packing_entries WHERE productId=:id AND id NOT IN (SELECT CAST(entityId AS INTEGER) FROM audit_events WHERE eventType='PACKING_REVERSED' AND entityType='packing')") abstract suspend fun totalCompletePacks(id:Long):Int
@@ -359,7 +384,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=10,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=11,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -460,7 +485,15 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_products_productCode ON products(productCode)")
    }
   }
+  internal val MIGRATION_10_11=object:Migration(10,11){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE production_entries ADD COLUMN cloudOperationKey TEXT NOT NULL DEFAULT ''")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_production_entries_cloudOperationKey ON production_entries(cloudOperationKey)")
+    db.execSQL("ALTER TABLE packing_entries ADD COLUMN cloudOperationKey TEXT NOT NULL DEFAULT ''")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_packing_entries_cloudOperationKey ON packing_entries(cloudOperationKey)")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11).build().also{instance=it}}
  }
 }
