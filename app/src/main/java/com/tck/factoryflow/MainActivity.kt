@@ -178,7 +178,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     cloudStockError=null
     runCatching{CloudInventoryRepository(context).fetchStock(session!!)}.onSuccess{snapshot->
      cloudStockSnapshot=snapshot
-     snapshot.items.filter{it.active}.forEach{item->
+     snapshot.items.forEach{item->
       val byCode=dao.productByCode(item.productId)
       if(byCode!=null){
        if(byCode.name!=item.name||byCode.sizeLabel!=item.sizeLabel||byCode.colour!=item.colour||byCode.bottlesPerPack!=item.bottlesPerPack||!byCode.active) runCatching{dao.updateProductDetails(byCode.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byCode.iconName,byCode.imageUri)}
