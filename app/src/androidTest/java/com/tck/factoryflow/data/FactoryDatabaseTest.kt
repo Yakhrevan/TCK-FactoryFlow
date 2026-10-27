@@ -68,6 +68,41 @@ class FactoryDatabaseTest {
    assertEquals(1,dao.batchedDispatchedPacks(product))
   }
  }
+ @Test fun mixedDispatchDeductsPacksAndLooseBottlesAndReversalRestoresBoth() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Mixed 500ml",sizeLabel="500ml",bottlesPerPack=10))
+   dao.insertPacking(PackingEntryEntity(productId=product,productNameSnapshot="Mixed 500ml",packingDate="2026-10-27",bottlesConsumed=15,completePacks=1,looseBottles=5))
+   val batch=DispatchBatchEntity(idempotencyKey="mixed-key",dispatchReference="DSP-MIXED",dispatchDate="2026-10-27",customerId=null,customerNameSnapshot="Customer")
+   val posted=dao.postMultiLineDispatch(batch,listOf(DispatchRequestLine(product,1,3)),"org-test","tester")
+   val line=dao.linesForBatch(posted.batchId).single()
+   assertEquals(1,line.packs)
+   assertEquals(13,line.bottles)
+   assertEquals(10,line.packSizeSnapshot)
+   assertEquals(2,dao.totalCompletePacks(product)-dao.legacyDispatchedPacks(product)-dao.batchedDispatchedPacks(product)+0) // one pack remains only if packing history has another pack
+  }
+ }
+ @Test fun mixedDispatchRejectsLooseBottleOversell() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Loose stock test",sizeLabel="Bottle",bottlesPerPack=10))
+   dao.insertPacking(PackingEntryEntity(productId=product,productNameSnapshot="Loose stock test",packingDate="2026-10-27",bottlesConsumed=12,completePacks=1,looseBottles=2))
+   val batch=DispatchBatchEntity(idempotencyKey="loose-oversell",dispatchReference="DSP-LOOSE",dispatchDate="2026-10-27",customerId=null,customerNameSnapshot="Customer")
+   assertThrows(IllegalArgumentException::class.java) {
+    kotlinx.coroutines.runBlocking { dao.postMultiLineDispatch(batch,listOf(DispatchRequestLine(product,0,3)),"org-test","tester") }
+   }
+  }
+ }
+ @Test fun archiveProductPreservesCatalogRecordAndWritesHistory() {
+  kotlinx.coroutines.runBlocking {
+   val product=dao.insertProduct(ProductEntity(name="Archived 300ml",sizeLabel="300ml",bottlesPerPack=24))
+   dao.removeProduct(product,"tester","product discontinued","org-test")
+   val archived=dao.productById(product)
+   assertNotNull("Archived products must remain for historical foreign keys",archived)
+   assertFalse("Archived product must not be active",archived!!.active)
+   val history=dao.observeProductHistory(product).first()
+   assertTrue("Archive should record the previous product configuration",history.isNotEmpty())
+   assertEquals(24,history.first().bottlesPerPack)
+  }
+ }
  @Test fun packingRejectsUnconfiguredPackSizeAndMismatchedCalculation() {
   kotlinx.coroutines.runBlocking {
    val product=dao.insertProduct(ProductEntity(name="Unconfigured",sizeLabel="Bottle",bottlesPerPack=0))
