@@ -238,14 +238,13 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
   require(batch.status=="POSTED"){"Only posted dispatches can be reversed."}
   val lines=linesForBatch(batchId)
   require(lines.isNotEmpty()){"Dispatch has no lines to reverse."}
-  lines.forEach { line ->
-   val available=totalCompletePacks(line.productId)-legacyDispatchedPacks(line.productId)-batchedDispatchedPacks(line.productId)
-   require(line.packs<=available){"Cannot reverse: subsequent dispatches mean stock is no longer available for "+line.productNameSnapshot}
-  }
-  // Status change and compensating movements commit together.
+  // A reasoned reversal is a compensating transaction; original lines remain immutable.
+  // The batch status change excludes its quantities from net stock, while movements preserve the audit trail.
   setDispatchStatus(batchId,"REVERSED")
   lines.forEach { line ->
-   insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_REVERSAL_IN",quantity=line.packs,unit="PACK",sourceType="dispatch_reversal",sourceId=batchId.toString(),note=reason,actorId=actorId))
+   if(line.packs>0) insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_REVERSAL_IN",quantity=line.packs,unit="PACK",sourceType="dispatch_reversal",sourceId=batchId.toString(),note=reason,actorId=actorId))
+   val loose=(line.bottles-line.packs*line.packSizeSnapshot).coerceAtLeast(0)
+   if(loose>0) insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_LOOSE_REVERSAL_IN",quantity=loose,unit="BOTTLE",sourceType="dispatch_reversal",sourceId=batchId.toString(),note=reason,actorId=actorId))
   }
   insertAudit(AuditEventEntity(eventType="DISPATCH_REVERSED",entityType="dispatch",entityId=batchId.toString(),beforeJson=JSONObject().put("status","POSTED").toString(),afterJson=JSONObject().put("status","REVERSED").put("reason",reason).toString(),reason=reason,actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="dispatch-reversal:"+organisationId+":"+batchId,organisationId=organisationId,eventType="DISPATCH_REVERSED",payloadJson=JSONObject().put("batchId",batchId).put("reason",reason).toString()))
