@@ -2553,17 +2553,21 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  var date by remember{mutableStateOf(today())}
  var reference by remember{mutableStateOf("")}
  var remarks by remember{mutableStateOf("")}
- var lines by remember{mutableStateOf(listOf(products.firstOrNull() to ""))}
+ var lines by remember{mutableStateOf(listOf(Triple(products.firstOrNull(), "", "")))}
  var showReview by remember{mutableStateOf(false)}
  val key by remember{mutableStateOf(UUID.randomUUID().toString())}
- val parsed=lines.map{it.first to (it.second.toIntOrNull()?:0)}
- val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{(p,q)->p!=null&&p.bottlesPerPack>0&&q>0&&(order==null||q<=((orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsOrdered}-orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsDispatched}).coerceAtLeast(0)))}&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
+ val parsed=lines.map{Triple(it.first,it.second.toIntOrNull()?:0,it.third.toIntOrNull()?:0)}
+ val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{(p,packs,loose)->
+  p!=null&&p.bottlesPerPack>0&&packs>=0&&loose>=0&&(packs>0||loose>0)&&
+   (order==null||(loose==0&&packs<=((orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsOrdered}-orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsDispatched}).coerceAtLeast(0)))
+ }&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
  val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(date)!=null}.getOrDefault(false)&&date.length==10
  val totalPacks=parsed.sumOf{it.second}
- val totalBottles=parsed.sumOf{(line,qty)->qty.toLong()*(line?.bottlesPerPack?:0)}
+ val totalLoose=parsed.sumOf{it.third}
+ val totalBottles=parsed.sumOf{(p,packs,loose)->packs.toLong()*(p?.bottlesPerPack?:0)+loose}
  AlertDialog(
   onDismissRequest=close,
-  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(if(showReview)"Review dispatch" else "New dispatch",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(showReview)"Confirm customer and quantities before posting." else "Prepare a delivery with one or more products.",fontSize=12.sp,color=Muted)}},
+  title={Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Text(if(showReview)"Review dispatch" else "New dispatch",fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(showReview)"Confirm customer and quantities before posting." else "Dispatch complete packs, loose bottles, or both.",fontSize=12.sp,color=Muted)}},
   text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){
    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
     Surface(color=Color(0xFFFFF0E0),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.LocalShipping,null,tint=Color(0xFFD98523),modifier=Modifier.padding(10.dp))}
@@ -2572,7 +2576,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    if(!showReview){
     if(orders.isNotEmpty()){
      Text("LINK TO SALES ORDER",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue)
-     orders.forEach{o->FilterChip(selected=order?.id==o.id,onClick={order=o;customer=customers.firstOrNull{it.id==o.customerId};lines=orderLines.filter{it.orderId==o.id}.mapNotNull{line->products.firstOrNull{it.id==line.productId}?.let{it to ""}}.ifEmpty{listOf(products.firstOrNull() to "")}},label={Text(o.orderNumber+" · "+o.customerNameSnapshot+" · due "+o.dueDate,fontSize=10.sp)})}
+     orders.forEach{o->FilterChip(selected=order?.id==o.id,onClick={order=o;customer=customers.firstOrNull{it.id==o.customerId};lines=orderLines.filter{it.orderId==o.id}.mapNotNull{line->products.firstOrNull{it.id==line.productId}?.let{Triple(it,"","")}}.ifEmpty{listOf(Triple(products.firstOrNull(),"",""))}},label={Text(o.orderNumber+" · "+o.customerNameSnapshot+" · due "+o.dueDate,fontSize=10.sp)})}
      TextButton(onClick={order=null}){Text("Dispatch without an order")}
     }
     CustomerPicker(customers,customer){selected->if(order!=null&&selected?.id!=order?.customerId)order=null;customer=selected}
@@ -2585,22 +2589,27 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      Surface(color=Page,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
       Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
        Row(verticalAlignment=Alignment.CenterVertically){Text("Item "+(index+1),Modifier.weight(1f),fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp);if(lines.size>1)TextButton(onClick={lines=lines.filterIndexed{idx,_->idx!=index}}){Text("Remove",color=Color(0xFFB42318))}}
-       ProductPicker(if(order!=null)products.filter{p->orderLines.any{it.orderId==order!!.id&&it.productId==p.id}} else products,line.first){p->lines=lines.toMutableList().also{it[index]=p to line.second}}
-       Field("Number of packs",line.second){qty->lines=lines.toMutableList().also{it[index]=line.first to qty.filter(Char::isDigit).take(9)}}
-       val qty=line.second.toIntOrNull()?:0
-       if(line.first!=null&&qty>0){
-        val packSize=line.first!!.bottlesPerPack
+       ProductPicker(if(order!=null)products.filter{p->orderLines.any{it.orderId==order!!.id&&it.productId==p.id}} else products,line.first){p->lines=lines.toMutableList().also{it[index]=Triple(p,line.second,line.third)}}
+       Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
+        Column(Modifier.weight(1f)){Field("Complete packs",line.second){qty->lines=lines.toMutableList().also{it[index]=Triple(line.first,qty.filter(Char::isDigit).take(9),line.third)}}}
+        Column(Modifier.weight(1f)){Field("Loose bottles",line.third){qty->lines=lines.toMutableList().also{it[index]=Triple(line.first,line.second,qty.filter(Char::isDigit).take(9))}}}
+       }
+       val packs=line.second.toIntOrNull()?:0
+       val loose=line.third.toIntOrNull()?:0
+       val packSize=line.first?.bottlesPerPack?:0
+       if(line.first!=null&&packSize>0){
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-         Text(if(packSize>0)"Estimated bottles" else "Pack size not configured",fontSize=10.sp,color=Muted)
-         if(packSize>0)Text((qty.toLong()*packSize).toString(),fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp)
+         Text("Bottle equivalent",fontSize=10.sp,color=Muted)
+         Text((packs.toLong()*packSize+loose).toString(),fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp)
         }
+        Text("Loose stock must already exist. This dispatch will not silently break a full pack.",fontSize=10.sp,color=Muted)
        }
        if(line.first?.bottlesPerPack?.let{it<=0}==true)Text("Set this product's pack size before dispatch.",fontSize=11.sp,color=Color(0xFF9B5B00))
-       if(order!=null&&line.first!=null){val orderProductLines=orderLines.filter{it.orderId==order!!.id&&it.productId==line.first!!.id};val remaining=(orderProductLines.sumOf{it.packsOrdered}-orderProductLines.sumOf{it.packsDispatched}).coerceAtLeast(0);Text("Order remaining: $remaining packs",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(qty>remaining)Color(0xFFB42318) else Blue);if(qty>remaining)Text("Reduce quantity to the remaining order balance.",fontSize=10.sp,color=Color(0xFFB42318))}
+       if(order!=null&&line.first!=null){val orderProductLines=orderLines.filter{it.orderId==order!!.id&&it.productId==line.first!!.id};val remaining=(orderProductLines.sumOf{it.packsOrdered}-orderProductLines.sumOf{it.packsDispatched}).coerceAtLeast(0);Text("Order remaining: $remaining packs (loose bottles must be zero)",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(packs>remaining||loose>0)Color(0xFFB42318) else Blue);if(packs>remaining||loose>0)Text("Sales-order dispatches currently require complete packs only.",fontSize=10.sp,color=Color(0xFFB42318))}
       }
      }
     }
-    TextButton(onClick={lines=lines+(products.firstOrNull() to "")},enabled=products.isNotEmpty()){Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("Add another product")}
+    TextButton(onClick={lines=lines+Triple(products.firstOrNull(),"","")},enabled=products.isNotEmpty()){Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("Add another product")}
     OutlinedTextField(remarks,{remarks=it},label={Text("Delivery notes (optional)")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
    }else{
     Surface(color=Color(0xFFFFF0E0),shape=RoundedCornerShape(14.dp)){
@@ -2610,15 +2619,15 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
       Text("Dispatch date  ·  "+date,fontSize=12.sp,color=Muted)
       HorizontalDivider(color=Border)
       Text("ORDER SUMMARY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Muted,letterSpacing=1.sp)
-      parsed.forEach{(product,qty)->if(product!=null)Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(product.name,fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp);Text(if(product.bottlesPerPack>0)product.bottlesPerPack.toString()+" bottles per pack" else "Pack size not configured",fontSize=10.sp,color=Muted)};Text(qty.toString()+" packs",fontWeight=FontWeight.Bold,color=Navy)}}
+      parsed.forEach{(product,packs,loose)->if(product!=null)Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(product.name,fontWeight=FontWeight.SemiBold,color=Navy,fontSize=12.sp);Text(if(product.bottlesPerPack>0)product.bottlesPerPack.toString()+" bottles per pack" else "Pack size not configured",fontSize=10.sp,color=Muted);Text("$packs packs + $loose loose bottles",fontSize=10.sp,color=Blue)};Text((packs.toLong()*product.bottlesPerPack+loose).toString()+" bottles",fontWeight=FontWeight.Bold,color=Navy)}}
       HorizontalDivider(color=Border)
-      Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Total packs",fontSize=11.sp,color=Muted);Text(totalPacks.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)};Column(horizontalAlignment=Alignment.End){Text("Estimated bottles",fontSize=11.sp,color=Muted);Text(totalBottles.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFFD98523))}}
-      Text("Posting checks current stock and permissions. The dispatch is not saved until you confirm.",fontSize=11.sp,color=Muted)
+      Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Complete packs",fontSize=11.sp,color=Muted);Text(totalPacks.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)};Column(horizontalAlignment=Alignment.End){Text("Loose · Total bottles",fontSize=11.sp,color=Muted);Text("$totalLoose · $totalBottles",fontSize=17.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFFD98523))}}
+      Text("Stock and permissions are checked before the dispatch is posted.",fontSize=11.sp,color=Muted)
      }
     }
    }
   }},
-  confirmButton={if(showReview)Button(enabled=valid&&dateValid,onClick={save(customer,customer?.name.orEmpty(),date,reference,remarks,parsed.map{DispatchRequestLine(it.first!!.id,it.second)},key,order?.id)},shape=RoundedCornerShape(12.dp)){Text("Confirm & post")}else Button(enabled=valid&&dateValid&&parsed.all{it.first!!.bottlesPerPack>0},onClick={showReview=true},shape=RoundedCornerShape(12.dp)){Text("Review dispatch")}},
+  confirmButton={if(showReview)Button(enabled=valid&&dateValid,onClick={save(customer,customer?.name.orEmpty(),date,reference,remarks,parsed.map{DispatchRequestLine(it.first!!.id,it.second,it.third)},key,order?.id)},shape=RoundedCornerShape(12.dp)){Text("Confirm & post")}else Button(enabled=valid&&dateValid&&parsed.all{it.first!!.bottlesPerPack>0},onClick={showReview=true},shape=RoundedCornerShape(12.dp)){Text("Review dispatch")}},
   dismissButton={TextButton(onClick={if(showReview)showReview=false else close()}){Text(if(showReview)"Back to edit" else "Cancel")}}
  )
 }
