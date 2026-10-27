@@ -221,7 +221,7 @@ export const postProduction = onCall({ enforceAppCheck:true }, async (request) =
   tx.set(stockRef,{organisationId:orgId,factoryId,productId,unpackedGoodBottles:unpacked+good,completePacks:stock.completePacks??0,looseBottles:stock.looseBottles??0,updatedAt:FieldValue.serverTimestamp()},{merge:true});
   const name=String(productSnap.data()?.name??productId);
   if(good>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:good,unit:"BOTTLE",transactionType:"PRODUCTION_GOOD_IN",sourceType:"production",sourceId:key,idempotencyKey:key+":"+productId+":good",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
-  if(rejected>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:rejected,unit:"BOTTLE",transactionType:"PRODUCTION_REJECTED",sourceType:"production",sourceId:key,idempotencyKey:key+":"+productId+":rejected",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
+  if(rejected>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:-rejected,unit:"BOTTLE",transactionType:"PRODUCTION_REJECTED",sourceType:"production",sourceId:key,idempotencyKey:key+":"+productId+":rejected",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
   return {productionId:runRef.id,status:"POSTED",duplicate:false,unpackedGoodBottles:unpacked+good};
  });
 });
