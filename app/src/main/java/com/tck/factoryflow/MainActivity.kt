@@ -182,8 +182,14 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
       val byCode=dao.productByCode(item.productId)
       if(byCode!=null){
        if(byCode.name!=item.name||byCode.sizeLabel!=item.sizeLabel||byCode.colour!=item.colour||byCode.bottlesPerPack!=item.bottlesPerPack||!byCode.active) runCatching{dao.updateProductDetails(byCode.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byCode.iconName,byCode.imageUri)}
-      }else if(dao.productByName(item.name)==null){
-       runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,active=item.active,productCode=item.productId))}
+      }else{
+       val byName=dao.productByName(item.name)
+       if(byName==null){
+        runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,active=item.active,productCode=item.productId))}
+       }else{
+        if(byName.productCode!=item.productId)dao.updateProductCode(byName.id,item.productId)
+        if(byName.name!=item.name||byName.sizeLabel!=item.sizeLabel||byName.colour!=item.colour||byName.bottlesPerPack!=item.bottlesPerPack||byName.active!=item.active)dao.updateProductDetails(byName.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byName.iconName,byName.imageUri)
+       }
       }
      }
      val knownCodes=snapshot.items.map{it.productId}.toSet()
