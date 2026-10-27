@@ -40,8 +40,9 @@ async function authorize(
   const snap = await memberRef.get();
   if (!snap.exists) throw new HttpsError("permission-denied", "Organisation membership is required.");
   const member = snap.data()!;
+  const factoryIds = member.factoryIds;
   if (member.active !== true || member.organisationId !== orgId ||
-      (member.factoryIds && !member.factoryIds.includes(factoryId))) {
+      !Array.isArray(factoryIds) || !factoryIds.includes(factoryId)) {
     throw new HttpsError("permission-denied", "Active membership for this factory is required.");
   }
   const role = typeof member.role === "string" ? member.role : "";
@@ -81,6 +82,13 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
     merged.set(productId, (merged.get(productId) ?? 0) + packs);
   }
   const lines = [...merged.entries()].map(([productId, packs]) => ({ productId, packs }));
+  const remarks = typeof data.remarks === "string" ? data.remarks.slice(0, 2000) : "";
+  // Bind a retry key to the exact intended operation, not merely to an existing dispatch ID.
+  const fingerprint = JSON.stringify({
+    organisationId: orgId, factoryId, actorUid: request.auth.uid,
+    dispatchReference: reference, dispatchDate: date, customerId,
+    customerName, lines, remarks,
+  });
   const { role } = await authorize(request.auth.uid, orgId, factoryId, ["owner", "admin", "manager", "dispatch"]);
   const root = `organisations/${orgId}/factories/${factoryId}`;
   const dispatchRef = db.doc(`${root}/dispatches/${key}`);
@@ -91,8 +99,11 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
     const existing = await tx.get(dispatchRef);
     if (existing.exists) {
       const prior = existing.data()!;
-      if (prior.actorUid !== request.auth!.uid && prior.organisationId !== orgId) {
-        throw new HttpsError("permission-denied", "Idempotency key belongs to another operation.");
+      if (prior.actorUid !== request.auth!.uid ||
+          prior.organisationId !== orgId ||
+          prior.factoryId !== factoryId ||
+          prior.requestFingerprint !== fingerprint) {
+        throw new HttpsError("already-exists", "This idempotency key was already used for a different dispatch.");
       }
       return { dispatchId: dispatchRef.id, status: prior.status as string, duplicate: true };
     }
@@ -132,10 +143,10 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
       };
     });
     tx.create(dispatchRef, {
-      organisationId: orgId, factoryId, idempotencyKey: key,
+      organisationId: orgId, factoryId, idempotencyKey: key, requestFingerprint: fingerprint,
       dispatchReference: reference, dispatchDate: date, customerId, customerName,
       lines: postedLines.map(({ availablePacks: _available, ...line }) => line),
-      remarks: typeof data.remarks === "string" ? data.remarks.slice(0, 2000) : "",
+      remarks,
       status: "POSTED", actorUid: request.auth!.uid, actorRole: role,
       createdAt: FieldValue.serverTimestamp(), reversalId: null,
     });
