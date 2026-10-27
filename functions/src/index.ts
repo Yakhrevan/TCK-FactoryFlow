@@ -5,7 +5,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 initializeApp();
 const db = getFirestore();
 
-type DispatchLineInput = { productId: string; packs: number };
+type DispatchLineInput = { productId: string; packs: number; looseBottles?: number };
 type DispatchInput = {
   organisationId: string;
   factoryId: string;
@@ -75,13 +75,20 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
   if (!Array.isArray(data.lines) || data.lines.length < 1 || data.lines.length > 50) {
     throw new HttpsError("invalid-argument", "Dispatch must contain 1 to 50 lines.");
   }
-  const merged = new Map<string, number>();
+  const merged = new Map<string, { packs: number; looseBottles: number }>();
   for (const raw of data.lines) {
     const productId = requiredString(raw?.productId, "productId");
-    const packs = positiveInteger(raw?.packs, "packs");
-    merged.set(productId, (merged.get(productId) ?? 0) + packs);
+    const packs = raw?.packs;
+    const looseBottles = raw?.looseBottles ?? 0;
+    if (typeof packs !== "number" || !Number.isSafeInteger(packs) || packs < 0 ||
+        typeof looseBottles !== "number" || !Number.isSafeInteger(looseBottles) || looseBottles < 0 ||
+        (packs === 0 && looseBottles === 0)) {
+      throw new HttpsError("invalid-argument", "Each line needs non-negative whole packs and/or loose bottles.");
+    }
+    const prior = merged.get(productId) ?? { packs: 0, looseBottles: 0 };
+    merged.set(productId, { packs: prior.packs + packs, looseBottles: prior.looseBottles + looseBottles });
   }
-  const lines = [...merged.entries()].map(([productId, packs]) => ({ productId, packs }));
+  const lines = [...merged.entries()].map(([productId, quantities]) => ({ productId, ...quantities }));
   const remarks = typeof data.remarks === "string" ? data.remarks.slice(0, 2000) : "";
   // Bind a retry key to the exact intended operation, not merely to an existing dispatch ID.
   const fingerprint = JSON.stringify({
@@ -126,26 +133,33 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
       }
       const stock: FirebaseFirestore.DocumentData = stockSnap.exists ? stockSnap.data()! : {};
       const availablePacks = stock.completePacks;
-      if (!Number.isSafeInteger(availablePacks) || availablePacks < 0) {
-        throw new HttpsError("failed-precondition", `Authoritative pack stock is missing for ${product.name ?? line.productId}.`);
+      const availableLooseBottles = stock.looseBottles ?? 0;
+      if (!Number.isSafeInteger(availablePacks) || availablePacks < 0 ||
+          !Number.isSafeInteger(availableLooseBottles) || availableLooseBottles < 0) {
+        throw new HttpsError("failed-precondition", `Authoritative stock balance is missing or invalid for ${product.name ?? line.productId}.`);
       }
       if (line.packs > availablePacks) {
         throw new HttpsError("failed-precondition", `Insufficient stock for ${product.name ?? line.productId}: ${availablePacks} packs available.`);
       }
-      if (!Number.isSafeInteger(line.packs * packSize)) throw new HttpsError("invalid-argument", "Bottle equivalent exceeds the supported integer range.");
+      if (line.looseBottles > availableLooseBottles) {
+        throw new HttpsError("failed-precondition", `Insufficient loose-bottle stock for ${product.name ?? line.productId}: ${availableLooseBottles} bottles available.`);
+      }
+      if (!Number.isSafeInteger(line.packs * packSize + line.looseBottles)) throw new HttpsError("invalid-argument", "Bottle equivalent exceeds the supported integer range.");
       return {
         productId: line.productId,
         productName: String(product.name ?? line.productId),
         packSizeSnapshot: packSize,
         packs: line.packs,
-        bottles: line.packs * packSize,
+        looseBottles: line.looseBottles,
+        bottles: line.packs * packSize + line.looseBottles,
         availablePacks,
+        availableLooseBottles,
       };
     });
     tx.create(dispatchRef, {
       organisationId: orgId, factoryId, idempotencyKey: key, requestFingerprint: fingerprint,
       dispatchReference: reference, dispatchDate: date, customerId, customerName,
-      lines: postedLines.map(({ availablePacks: _available, ...line }) => line),
+      lines: postedLines.map(({ availablePacks: _availablePacks, availableLooseBottles: _availableLoose, ...line }) => line),
       remarks,
       status: "POSTED", actorUid: request.auth!.uid, actorRole: role,
       createdAt: FieldValue.serverTimestamp(), reversalId: null,
@@ -153,16 +167,27 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
     postedLines.forEach((line, index) => {
       tx.update(stockRefs[index], {
         completePacks: line.availablePacks - line.packs,
+        looseBottles: line.availableLooseBottles - line.looseBottles,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      const movementRef = db.collection(`${root}/inventoryTransactions`).doc();
-      tx.create(movementRef, {
-        organisationId: orgId, factoryId, productId: line.productId,
-        productNameSnapshot: line.productName, quantity: -line.packs, unit: "PACK",
-        transactionType: "DISPATCH_OUT", sourceType: "dispatch", sourceId: key,
-        idempotencyKey: `${key}:${line.productId}`, actorUid: request.auth!.uid,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      if (line.packs > 0) {
+        tx.create(db.collection(`${root}/inventoryTransactions`).doc(), {
+          organisationId: orgId, factoryId, productId: line.productId,
+          productNameSnapshot: line.productName, quantity: -line.packs, unit: "PACK",
+          transactionType: "DISPATCH_OUT", sourceType: "dispatch", sourceId: key,
+          idempotencyKey: `${key}:${line.productId}:packs`, actorUid: request.auth!.uid,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      if (line.looseBottles > 0) {
+        tx.create(db.collection(`${root}/inventoryTransactions`).doc(), {
+          organisationId: orgId, factoryId, productId: line.productId,
+          productNameSnapshot: line.productName, quantity: -line.looseBottles, unit: "BOTTLE",
+          transactionType: "DISPATCH_LOOSE_OUT", sourceType: "dispatch", sourceId: key,
+          idempotencyKey: `${key}:${line.productId}:loose`, actorUid: request.auth!.uid,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
     });
     return { dispatchId: dispatchRef.id, status: "POSTED", duplicate: false };
   });
@@ -189,13 +214,16 @@ export const reverseDispatch = onCall({ enforceAppCheck: true }, async (request)
     if (dispatch.organisationId !== orgId || dispatch.factoryId !== factoryId) {
       throw new HttpsError("permission-denied", "Dispatch scope mismatch.");
     }
-    const lines = dispatch.lines as Array<{productId: string; productName: string; packs: number; bottles: number}>;
+    const lines = dispatch.lines as Array<{productId: string; productName: string; packs: number; looseBottles?: number; bottles: number}>;
     if (!Array.isArray(lines) || lines.length === 0) throw new HttpsError("failed-precondition", "Dispatch lines are missing.");
     const stockRefs = lines.map((line) => db.doc(`${root}/stock/${line.productId}`));
     const stockSnaps = await Promise.all(stockRefs.map((ref) => tx.get(ref)));
     lines.forEach((line, index) => {
-      if (!Number.isSafeInteger(line.packs) || line.packs <= 0 || !stockSnaps[index].exists) {
-        throw new HttpsError("failed-precondition", "Cannot safely restore inventory; stock record is missing.");
+      const loose = line.looseBottles ?? 0;
+      if (!Number.isSafeInteger(line.packs) || line.packs < 0 ||
+          !Number.isSafeInteger(loose) || loose < 0 || (line.packs === 0 && loose === 0) ||
+          !stockSnaps[index].exists) {
+        throw new HttpsError("failed-precondition", "Cannot safely restore inventory; stock record or quantities are invalid.");
       }
     });
     tx.create(reversalRef, {
@@ -204,14 +232,29 @@ export const reverseDispatch = onCall({ enforceAppCheck: true }, async (request)
     });
     tx.update(dispatchRef, { status: "REVERSED", reversalId: reversalRef.id, reversedAt: FieldValue.serverTimestamp() });
     lines.forEach((line, index) => {
-      const current = stockSnaps[index].data()!.completePacks;
-      if (!Number.isSafeInteger(current) || current < 0) throw new HttpsError("failed-precondition", "Stock balance is invalid.");
-      tx.update(stockRefs[index], { completePacks: current + line.packs, updatedAt: FieldValue.serverTimestamp() });
-      tx.create(db.collection(`${root}/inventoryTransactions`).doc(), {
+      const stock = stockSnaps[index].data()!;
+      const currentPacks = stock.completePacks;
+      const currentLoose = stock.looseBottles ?? 0;
+      const loose = line.looseBottles ?? 0;
+      if (!Number.isSafeInteger(currentPacks) || currentPacks < 0 ||
+          !Number.isSafeInteger(currentLoose) || currentLoose < 0) throw new HttpsError("failed-precondition", "Stock balance is invalid.");
+      tx.update(stockRefs[index], {
+        completePacks: currentPacks + line.packs,
+        looseBottles: currentLoose + loose,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      if (line.packs > 0) tx.create(db.collection(`${root}/inventoryTransactions`).doc(), {
         organisationId: orgId, factoryId, productId: line.productId,
         productNameSnapshot: line.productName, quantity: line.packs, unit: "PACK",
         transactionType: "DISPATCH_REVERSAL_IN", sourceType: "dispatchReversal",
-        sourceId: dispatchId, idempotencyKey: `reverse:${dispatchId}:${line.productId}`,
+        sourceId: dispatchId, idempotencyKey: `reverse:${dispatchId}:${line.productId}:packs`,
+        reason, actorUid: request.auth!.uid, createdAt: FieldValue.serverTimestamp(),
+      });
+      if (loose > 0) tx.create(db.collection(`${root}/inventoryTransactions`).doc(), {
+        organisationId: orgId, factoryId, productId: line.productId,
+        productNameSnapshot: line.productName, quantity: loose, unit: "BOTTLE",
+        transactionType: "DISPATCH_LOOSE_REVERSAL_IN", sourceType: "dispatchReversal",
+        sourceId: dispatchId, idempotencyKey: `reverse:${dispatchId}:${line.productId}:loose`,
         reason, actorUid: request.auth!.uid, createdAt: FieldValue.serverTimestamp(),
       });
     });
