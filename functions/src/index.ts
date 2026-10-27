@@ -271,7 +271,7 @@ export const postPacking = onCall({ enforceAppCheck:true }, async (request) => {
   tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:-consumed,unit:"BOTTLE",transactionType:"PACKING_BOTTLES_OUT",sourceType:"packing",sourceId:key,idempotencyKey:key+":"+productId+":bottles-out",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
   if(packs>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:packs,unit:"PACK",transactionType:"PACKING_PACKS_IN",sourceType:"packing",sourceId:key,idempotencyKey:key+":"+productId+":packs-in",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
   if(loose>0) tx.create(db.collection(root+"/inventoryTransactions").doc(),{organisationId:orgId,factoryId,productId,productNameSnapshot:name,quantity:loose,unit:"BOTTLE",transactionType:"PACKING_LOOSE_IN",sourceType:"packing",sourceId:key,idempotencyKey:key+":"+productId+":loose-in",actorUid:request.auth!.uid,createdAt:FieldValue.serverTimestamp()});
-  return {packingId:packingRef.id,status:"POSTED",duplicate:false,completePacks:packs,looseBottles:loose};
+  return {packingId:packingRef.id,status:"POSTED",duplicate:false,completePacks:packs,looseBottles:loose,bottlesPerPack:packSize};
  });
 });
 
