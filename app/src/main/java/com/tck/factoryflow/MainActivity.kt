@@ -2569,8 +2569,14 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  val key by remember{mutableStateOf(UUID.randomUUID().toString())}
  val parsed=lines.map{Triple(it.first,it.second.toIntOrNull()?:0,it.third.toIntOrNull()?:0)}
  val valid=customer!=null&&products.isNotEmpty()&&parsed.isNotEmpty()&&parsed.all{(p,packs,loose)->
-  p!=null&&p.bottlesPerPack>0&&packs>=0&&loose>=0&&(packs>0||loose>0)&&
-   (order==null||(loose==0&&packs<=((orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsOrdered}-orderLines.filter{it.orderId==order!!.id&&it.productId==p.id}.sumOf{it.packsDispatched}).coerceAtLeast(0)))
+  val orderValid = if(order==null) true else {
+   val productId=p?.id
+   val orderId=order!!.id
+   val orderProductLines=if(productId==null) emptyList() else orderLines.filter{it.orderId==orderId&&it.productId==productId}
+   val remaining=(orderProductLines.sumOf{it.packsOrdered}-orderProductLines.sumOf{it.packsDispatched}).coerceAtLeast(0)
+   loose==0&&packs<=remaining
+  }
+  p!=null&&p.bottlesPerPack>0&&packs>=0&&loose>=0&&(packs>0||loose>0)&&orderValid
  }&&parsed.mapNotNull{it.first?.id}.distinct().size==parsed.size
  val dateValid=runCatching{java.text.SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}.parse(date)!=null}.getOrDefault(false)&&date.length==10
  val totalPacks=parsed.sumOf{it.second}
