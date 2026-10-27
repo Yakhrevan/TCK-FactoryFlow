@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.tasks.await
 
 data class FactorySession(
@@ -105,16 +106,17 @@ class FactoryAuthRepository(private val context: Context) {
 
         var generatedUid = "staff_${System.currentTimeMillis()}"
 
-        // Register in Firebase Auth using a secondary FirebaseApp instance to prevent signing out active admin
+        // Register using a secondary Firebase app so the active administrator remains signed in.
         if (hasFirebase()) {
-            runCatching {
-                val primaryApp = FirebaseApp.getInstance()
-                val secondaryApp = runCatching { FirebaseApp.getInstance("StaffAuthCreator") }.getOrElse {
-                    FirebaseApp.initializeApp(context.applicationContext, primaryApp.options, "StaffAuthCreator")
-                }
-                val secAuth = FirebaseAuth.getInstance(secondaryApp)
+            val primaryApp = FirebaseApp.getInstance()
+            val secondaryApp = runCatching { FirebaseApp.getInstance("StaffAuthCreator") }.getOrElse {
+                FirebaseApp.initializeApp(context.applicationContext, primaryApp.options, "StaffAuthCreator")
+            }
+            val secAuth = FirebaseAuth.getInstance(secondaryApp)
+            try {
                 val authResult = secAuth.createUserWithEmailAndPassword(email.trim(), password).await()
-                authResult.user?.uid?.let { generatedUid = it }
+                generatedUid = authResult.user?.uid ?: error("Firebase did not return the new staff UID.")
+            } finally {
                 secAuth.signOut()
             }
         }
@@ -132,27 +134,19 @@ class FactoryAuthRepository(private val context: Context) {
         db.factoryDao().insertStaffMember(staff)
 
         if (hasFirebase()) {
-            runCatching {
-                val memberMap = mapOf(
+            FirebaseFunctions.getInstance().getHttpsCallable("provisionMember").call(
+                mapOf(
+                    "organisationId" to "tck-factory-01",
+                    "factoryId" to "factory-01",
                     "uid" to staff.uid,
                     "name" to staff.name,
                     "email" to staff.email,
                     "role" to staff.role,
                     "allowedModules" to staff.allowedModules,
                     "active" to true,
-                    "organisationId" to "tck-factory-01",
-                    "factoryIds" to listOf("factory-01"),
-                    "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                     "createdBy" to creatorUid
                 )
-                FirebaseFirestore.getInstance()
-                    .collection("organisations")
-                    .document("tck-factory-01")
-                    .collection("members")
-                    .document(staff.uid)
-                    .set(memberMap)
-                    .await()
-            }
+            ).await()
         }
 
         db.factoryDao().enqueueSyncEvent(
@@ -186,23 +180,20 @@ class FactoryAuthRepository(private val context: Context) {
         db.factoryDao().updateStaffMember(id, name.trim(), role.lowercase().trim(), allowedModules, active)
 
         if (hasFirebase() && uid.isNotBlank()) {
-            runCatching {
-                val memberMap = mapOf(
+            val staffEmail = db.factoryDao().staffById(id)?.email
+                ?: error("Staff record is missing its email address.")
+            FirebaseFunctions.getInstance().getHttpsCallable("provisionMember").call(
+                mapOf(
+                    "organisationId" to "tck-factory-01",
+                    "factoryId" to "factory-01",
+                    "uid" to uid,
                     "name" to name.trim(),
+                    "email" to staffEmail,
                     "role" to role.lowercase().trim(),
                     "allowedModules" to allowedModules,
-                    "active" to active,
-                    "factoryIds" to listOf("factory-01"),
-                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    "active" to active
                 )
-                FirebaseFirestore.getInstance()
-                    .collection("organisations")
-                    .document("tck-factory-01")
-                    .collection("members")
-                    .document(uid)
-                    .update(memberMap)
-                    .await()
-            }
+            ).await()
         }
 
         db.factoryDao().enqueueSyncEvent(
