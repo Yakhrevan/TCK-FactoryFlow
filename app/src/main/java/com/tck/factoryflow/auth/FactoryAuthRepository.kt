@@ -192,6 +192,7 @@ class FactoryAuthRepository(private val context: Context) {
                     "role" to role.lowercase().trim(),
                     "allowedModules" to allowedModules,
                     "active" to active,
+                    "factoryIds" to listOf("factory-01"),
                     "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                 )
                 FirebaseFirestore.getInstance()
