@@ -194,6 +194,31 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
   return result;
 });
 
+/** Product master provisioning. Product code is persistent identity, not a mutable display name. */
+export const upsertProduct = onCall({ enforceAppCheck:true }, async (request) => {
+ if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
+ const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), productId=requiredString(request.data?.productId,"productId");
+ const name=requiredString(request.data?.name,"name"), sizeLabel=requiredString(request.data?.sizeLabel,"sizeLabel"), colour=requiredString(request.data?.colour,"colour"), packSize=positiveInteger(request.data?.bottlesPerPack,"bottlesPerPack");
+ const active=request.data?.active===true, {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager"]);
+ const root="organisations/"+orgId+"/factories/"+factoryId, productRef=db.doc(root+"/products/"+productId);
+ return db.runTransaction(async(tx)=>{
+  const snap=await tx.get(productRef);
+  if(snap.exists&&snap.data()?.productId!==productId) throw new HttpsError("already-exists","Product identity collision.");
+  tx.set(productRef,{organisationId:orgId,factoryId,productId,name,sizeLabel,colour,bottlesPerPack:packSize,active,updatedBy:request.auth!.uid,updatedRole:role,updatedAt:FieldValue.serverTimestamp(),createdAt:snap.exists?(snap.data()!.createdAt??FieldValue.serverTimestamp()):FieldValue.serverTimestamp()},{merge:true});
+  return {productId,active,updated:true};
+ });
+});
+
+/** Read-only authoritative stock snapshot for the signed-in factory. */
+export const getInventorySnapshot = onCall({ enforceAppCheck:true }, async (request) => {
+ if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
+ const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId");
+ await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager","operator","production","production_staff","packing","packing_staff","storekeeper","dispatch","dispatch_staff","viewer"]);
+ const root="organisations/"+orgId+"/factories/"+factoryId;
+ const [products,stocks]=await Promise.all([db.collection(root+"/products").get(),db.collection(root+"/stock").get()]);
+ const stockById=new Map(stocks.docs.map((doc)=>[doc.id,doc.data()]));
+ return {organisationId:orgId,factoryId,serverTime:new Date().toISOString(),items:products.docs.map((doc)=>{const p=doc.data(),stock=stockById.get(doc.id)??{};return {productId:doc.id,name:String(p.name??doc.id),sizeLabel:String(p.sizeLabel??""),colour:String(p.colour??""),bottlesPerPack:Number(p.bottlesPerPack??0),active:p.active===true,unpackedGoodBottles:Number(stock.unpackedGoodBottles??0),completePacks:Number(stock.completePacks??0),looseBottles:Number(stock.looseBottles??0),updatedAt:stock.updatedAt??null};})};
+});
 type ProductionInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; productionDate:string; producedBottles:number; goodBottles:number; rejectedBottles:number; machineId?:string; lineId?:string; remarks?:string };
 type PackingInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; packingDate:string; bottlesConsumed:number; remarks?:string };
 function nonNegativeInteger(value:unknown,label:string):number { if(typeof value!=="number"||!Number.isSafeInteger(value)||value<0) throw new HttpsError("invalid-argument",label+" must be a non-negative whole number."); return value; }
