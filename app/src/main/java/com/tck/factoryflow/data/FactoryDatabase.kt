@@ -118,8 +118,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM products WHERE productCode=:code LIMIT 1") abstract suspend fun productByCode(code:String):ProductEntity?
  @Query("SELECT * FROM products WHERE name=:name COLLATE NOCASE LIMIT 1") abstract suspend fun productByName(name:String):ProductEntity?
  @Query("UPDATE products SET productCode=:code WHERE id=:id") abstract suspend fun updateProductCode(id:Long,code:String)
- @Query("SELECT * FROM products WHERE productCode=:code LIMIT 1") abstract suspend fun productByCode(code:String):ProductEntity?
- @Query("SELECT * FROM products WHERE name=:name COLLATE NOCASE LIMIT 1") abstract suspend fun productByName(name:String):ProductEntity?
+
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertProduct(p:ProductEntity):Long
  @Query("UPDATE products SET name=:name,sizeLabel=:size,colour=:colour,bottlesPerPack=:pack,active=:active WHERE id=:id") abstract suspend fun updateProduct(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean)
  @Query("UPDATE products SET name=:name,sizeLabel=:size,colour=:colour,bottlesPerPack=:pack,active=:active,iconName=:iconName,imageUri=:imageUri WHERE id=:id") abstract suspend fun updateProductDetails(id:Long,name:String,size:String,colour:String,pack:Int,active:Boolean,iconName:String,imageUri:String)
