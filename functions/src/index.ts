@@ -219,10 +219,10 @@ export const getInventorySnapshot = onCall({ enforceAppCheck:true }, async (requ
  const stockById=new Map(stocks.docs.map((doc)=>[doc.id,doc.data()]));
  return {organisationId:orgId,factoryId,serverTime:new Date().toISOString(),items:products.docs.map((doc)=>{const p=doc.data(),stock=stockById.get(doc.id)??{};return {productId:doc.id,name:String(p.name??doc.id),sizeLabel:String(p.sizeLabel??""),colour:String(p.colour??""),bottlesPerPack:Number(p.bottlesPerPack??0),active:p.active===true,unpackedGoodBottles:Number(stock.unpackedGoodBottles??0),completePacks:Number(stock.completePacks??0),looseBottles:Number(stock.looseBottles??0),updatedAt:stock.updatedAt??null};})};
 });
-type ProductionInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; productionDate:string; producedBottles:number; goodBottles:number; rejectedBottles:number; machineId?:string; lineId?:string; remarks?:string };
+type ProductionInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; productionDate:string; producedBottles:number; goodBottles:number; rejectedBottles:number; machineId?:string; lineId?:string; machineName?:string; lineName?:string; remarks?:string };
 type PackingInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; packingDate:string; bottlesConsumed:number; remarks?:string };
 function nonNegativeInteger(value:unknown,label:string):number { if(typeof value!=="number"||!Number.isSafeInteger(value)||value<0) throw new HttpsError("invalid-argument",label+" must be a non-negative whole number."); return value; }
-function validDate(value:unknown,label:string):string { const date=requiredString(value,label); if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||Number.isNaN(Date.parse(date+"T00:00:00Z"))) throw new HttpsError("invalid-argument",label+" must be a valid YYYY-MM-DD date."); return date; }
+function validDate(value:unknown,label:string):string { const date=requiredString(value,label); if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date+"T00:00:00Z"))||new Date(date+"T00:00:00Z").toISOString().slice(0,10)!==date) throw new HttpsError("invalid-argument",label+" must be a valid YYYY-MM-DD date."); return date; }
 
 /** Server-authoritative production posting. Stock updates and ledger entries commit atomically. */
 export const postProduction = onCall({ enforceAppCheck:true }, async (request) => {
