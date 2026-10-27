@@ -26,16 +26,21 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
   var failed=false
   for(event in runCatching{dao.pendingSyncEvents(50)}.getOrElse{return Result.retry()}) {
    val targetOrg=if(event.organisationId=="local-org"||event.organisationId.isBlank()) organisationId else event.organisationId
+   // Never silently relabel a queued event from another organisation as belonging to the signed-in user.
+   if(targetOrg.isBlank()||targetOrg!=organisationId) {
+    dao.markSyncNeedsReview(event.id,"Organisation scope mismatch: event belongs to '$targetOrg' but the signed-in account belongs to '$organisationId'. Sign in with the correct factory account or resolve this event with an administrator.")
+    continue
+   }
    try {
-    val ref=FirebaseFirestore.getInstance().collection("organisations").document(organisationId).collection("events").document(event.eventKey)
+    val ref=FirebaseFirestore.getInstance().collection("organisations").document(targetOrg).collection("events").document(event.eventKey)
     FirebaseFirestore.getInstance().runTransaction { transaction ->
      val existing=transaction.get(ref)
      if(!existing.exists()) {
-      transaction.set(ref,mapOf("eventKey" to event.eventKey,"eventType" to event.eventType,"payload" to event.payloadJson,"actorUid" to user.uid,"organisationId" to organisationId,"createdAt" to FieldValue.serverTimestamp()))
+      transaction.set(ref,mapOf("eventKey" to event.eventKey,"eventType" to event.eventType,"payload" to event.payloadJson,"actorUid" to user.uid,"organisationId" to targetOrg,"createdAt" to FieldValue.serverTimestamp()))
      } else {
       val existingType=existing.getString("eventType")
       val existingPayload=existing.getString("payload")
-      require(existingType==event.eventType&&existingPayload==event.payloadJson){"Idempotency conflict: a different event already uses this key."}
+      require(existingType==event.eventType&&existingPayload==event.payloadJson&&existing.getString("organisationId")==targetOrg){"Idempotency conflict: a different event already uses this key or organisation."}
      }
      null
     }.await()
