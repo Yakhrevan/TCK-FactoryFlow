@@ -180,8 +180,10 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      cloudStockSnapshot=snapshot
      snapshot.items.filter{it.active}.forEach{item->
       val byCode=dao.productByCode(item.productId)
-      if(byCode==null&&dao.productByName(item.name)==null){
-       runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,productCode=item.productId))}
+      if(byCode!=null){
+       if(byCode.name!=item.name||byCode.sizeLabel!=item.sizeLabel||byCode.colour!=item.colour||byCode.bottlesPerPack!=item.bottlesPerPack||!byCode.active) runCatching{dao.updateProductDetails(byCode.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byCode.iconName,byCode.imageUri)}
+      }else if(dao.productByName(item.name)==null){
+       runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,active=item.active,productCode=item.productId))}
       }
      }
     }.onFailure{cloudStockError=it.message?:"Unable to load authoritative cloud stock"}
