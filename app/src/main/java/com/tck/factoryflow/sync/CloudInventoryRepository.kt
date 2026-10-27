@@ -101,7 +101,6 @@ class CloudInventoryRepository(context: Context) {
         val key = idempotencyKey("production", canonical)
         val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
         functions().getHttpsCallable("postProduction").call(payload).await()
-        completeKey("production", canonical)
     }
 
     suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity) {
@@ -116,6 +115,34 @@ class CloudInventoryRepository(context: Context) {
         val key = idempotencyKey("packing", canonical)
         val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
         functions().getHttpsCallable("postPacking").call(payload).await()
+    }
+
+    fun acknowledgeProduction(entry: ProductionEntryEntity, product: ProductEntity, session: FactorySession) {
+        val scope = scope(session)
+        val canonical = JSONObject()
+            .put("organisationId", scope.getValue("organisationId"))
+            .put("factoryId", scope.getValue("factoryId"))
+            .put("productId", product.productCode)
+            .put("productionDate", entry.productionDate)
+            .put("producedBottles", entry.producedBottles)
+            .put("goodBottles", entry.goodBottles)
+            .put("rejectedBottles", entry.rejectedBottles)
+            .put("machineName", entry.machineName)
+            .put("lineName", entry.lineNameSnapshot)
+            .put("remarks", entry.remarks)
+            .toString()
+        completeKey("production", canonical)
+    }
+
+    fun acknowledgePacking(entry: PackingEntryEntity, product: ProductEntity, session: FactorySession) {
+        val scope = scope(session)
+        val canonical = JSONObject()
+            .put("organisationId", scope.getValue("organisationId"))
+            .put("factoryId", scope.getValue("factoryId"))
+            .put("productId", product.productCode)
+            .put("packingDate", entry.packingDate)
+            .put("bottlesConsumed", entry.bottlesConsumed)
+            .toString()
         completeKey("packing", canonical)
     }
 
