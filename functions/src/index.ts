@@ -201,10 +201,14 @@ export const upsertProduct = onCall({ enforceAppCheck:true }, async (request) =>
  const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), productId=requiredString(request.data?.productId,"productId");
  const name=requiredString(request.data?.name,"name"), sizeLabel=requiredString(request.data?.sizeLabel,"sizeLabel"), colour=requiredString(request.data?.colour,"colour"), packSize=nonNegativeInteger(request.data?.bottlesPerPack,"bottlesPerPack");
  const active=request.data?.active===true, {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager"]);
- const root="organisations/"+orgId+"/factories/"+factoryId, productRef=db.doc(root+"/products/"+productId);
+ const root="organisations/"+orgId+"/factories/"+factoryId, productRef=db.doc(root+"/products/"+productId), stockRef=db.doc(root+"/stock/"+productId);
  return db.runTransaction(async(tx)=>{
-  const snap=await tx.get(productRef);
+  const snap=await tx.get(productRef), stockSnap=await tx.get(stockRef);
   if(snap.exists&&snap.data()?.productId!==productId) throw new HttpsError("already-exists","Product identity collision.");
+  if(snap.exists&&Number(snap.data()?.bottlesPerPack??0)!==packSize&&stockSnap.exists){
+   const stock=stockSnap.data()!;
+   if(Number(stock.unpackedGoodBottles??0)>0||Number(stock.completePacks??0)>0||Number(stock.looseBottles??0)>0) throw new HttpsError("failed-precondition","Pack size cannot change while stock exists. Complete a controlled inventory adjustment first.");
+  }
   tx.set(productRef,{organisationId:orgId,factoryId,productId,name,sizeLabel,colour,bottlesPerPack:packSize,active,updatedBy:request.auth!.uid,updatedRole:role,updatedAt:FieldValue.serverTimestamp(),createdAt:snap.exists?(snap.data()!.createdAt??FieldValue.serverTimestamp()):FieldValue.serverTimestamp()},{merge:true});
   return {productId,active,updated:true};
  });
