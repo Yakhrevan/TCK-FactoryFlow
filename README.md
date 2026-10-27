@@ -11,7 +11,7 @@ Native Android app for bottle-manufacturing operations. Active branch: `feature/
 - Multi-product dispatch batches with per-line product/pack-size snapshots and an idempotency key.
 - Dispatch reversal with a mandatory reason, compensating inventory movements and audit record.
 - Customer creation and selection in dispatch.
-- Stock validation, complete-pack / loose-bottle calculations, and duplicate-dispatch protection.
+- Stock validation, complete-pack / loose-bottle calculations, mixed pack/loose dispatch, net loose-stock display, and payload-bound duplicate-dispatch protection.
 - Custom date-range reports, equal-length previous-period comparison, CSV export/backup.
 - Firebase email/password sign-in scaffold, organisation/role custom-claim reading, Firestore event rules, and WorkManager outbox retry scaffold.
 - JVM tests for manufacturing rules and report date/CSV formatting.
@@ -68,11 +68,11 @@ The `functions` directory contains callable Cloud Functions for transactional mu
 Before deploying:
 1. Create the Firebase project and configure Android's `google-services.json` locally; do not commit secrets.
 2. Create `organisations/{orgId}/members/{uid}` membership documents through a trusted provisioning process. Include `organisationId`, `role`, `active` and permitted `factoryIds`.
-3. Seed factory product and stock documents through a trusted backend process. Stock documents must contain a non-negative integer `completePacks`; the callable deliberately refuses to infer a missing balance.
+3. Seed factory product and stock documents through a trusted backend process. Stock documents must contain non-negative integer `completePacks` and `looseBottles` balances (legacy missing loose-bottle balances are treated as zero); the callable refuses missing/invalid pack balances. Membership documents must include `organisationId`, `role`, `active`, and a `factoryIds` array containing the permitted factory IDs.
 4. Configure App Check for the Android app and enable the Firestore and Functions APIs.
 5. Deploy rules and functions with the Firebase CLI, then test with non-production accounts and seeded test data.
 
-The Android UI currently uses Room for local operational records. It has not yet been wired to call these Cloud Functions for dispatch posting, and the full production/packing authoritative cloud transaction path, member invitation/provisioning, complete role-permission matrix, offline conflict resolution, and cloud backup/restore remain follow-up work. Do not treat local records as cloud-confirmed inventory.
+The Android UI currently uses Room for local operational records. It has not yet been wired to call these Cloud Functions for dispatch posting, and the full production/packing authoritative cloud transaction path, member invitation/provisioning, complete role-permission matrix, offline conflict resolution, and cloud backup/restore remain follow-up work. Direct local dispatch now supports complete packs and loose bottles separately; loose dispatch consumes only existing loose stock and never silently breaks a complete pack. Sales-order lines remain pack-based. Do not treat local records as cloud-confirmed inventory.
 
 ### CI checks
 
