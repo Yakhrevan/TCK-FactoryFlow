@@ -3,7 +3,6 @@ package com.tck.factoryflow.sync
 import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.functions.FirebaseFunctionsException
 import com.tck.factoryflow.auth.FactorySession
 import com.tck.factoryflow.data.ProductEntity
 import com.tck.factoryflow.data.ProductionEntryEntity
@@ -24,8 +23,6 @@ data class CloudStockItem(
     val completePacks: Int,
     val looseBottles: Int
 )
-
-data class CloudPackingPostResult(val idempotencyKey: String, val completePacks: Int, val looseBottles: Int)
 
 data class CloudStockSnapshot(
     val organisationId: String,
@@ -106,7 +103,7 @@ class CloudInventoryRepository(context: Context) {
         return key
     }
 
-    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): CloudPackingPostResult {
+    suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): String {
         val scope = scope(session)
         val canonical = JSONObject()
             .put("organisationId", scope.getValue("organisationId"))
