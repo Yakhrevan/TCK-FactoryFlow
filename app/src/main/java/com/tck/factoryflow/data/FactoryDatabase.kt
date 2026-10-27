@@ -72,9 +72,12 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("DELETE FROM products WHERE id=:id") abstract suspend fun deleteProduct(id:Long):Int
  @Transaction open suspend fun removeProduct(id:Long,actor:String,reason:String,organisationId:String) {
   val old=productById(id)?:return
-  deleteProduct(id)
-  insertAudit(AuditEventEntity(eventType="PRODUCT_DELETED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),reason=reason,actorId=actor))
-  enqueueSyncEvent(SyncOutboxEntity(eventKey="product-delete:"+organisationId+":"+id+":"+System.currentTimeMillis(),organisationId=organisationId,eventType="PRODUCT_DELETED",payloadJson=JSONObject().put("productId",id).put("name",old.name).toString()))
+  if(!old.active) return
+  // Product IDs are referenced by production, packing, stock movements, dispatches and reports.
+  // Archive instead of deleting so historical records and foreign-key relationships remain intact.
+  updateProductWithHistory(id,old.name,old.sizeLabel,old.colour,old.bottlesPerPack,false,actor,reason,organisationId,old.iconName,old.imageUri)
+  insertAudit(AuditEventEntity(eventType="PRODUCT_ARCHIVED",entityType="product",entityId=id.toString(),beforeJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,old.active),afterJson=productJson(old.name,old.sizeLabel,old.colour,old.bottlesPerPack,false),reason=reason,actorId=actor))
+  enqueueSyncEvent(SyncOutboxEntity(eventKey="product-archive:"+organisationId+":"+id+":"+System.currentTimeMillis(),organisationId=organisationId,eventType="PRODUCT_ARCHIVED",payloadJson=JSONObject().put("productId",id).put("name",old.name).put("active",false).toString()))
  }
  @Query("SELECT * FROM production_lines ORDER BY status DESC, name COLLATE NOCASE") abstract fun observeProductionLines():Flow<List<ProductionLineEntity>>
  @Query("SELECT * FROM production_lines WHERE status='ACTIVE' ORDER BY name COLLATE NOCASE") abstract suspend fun activeProductionLines():List<ProductionLineEntity>
