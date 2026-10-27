@@ -141,6 +141,7 @@ class FactoryAuthRepository(private val context: Context) {
                     "allowedModules" to staff.allowedModules,
                     "active" to true,
                     "organisationId" to "tck-factory-01",
+                    "factoryIds" to listOf("factory-01"),
                     "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                     "createdBy" to creatorUid
                 )
