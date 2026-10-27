@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase-admin/app";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 
@@ -219,6 +220,25 @@ export const getInventorySnapshot = onCall({ enforceAppCheck:true }, async (requ
  const stockById=new Map(stocks.docs.map((doc)=>[doc.id,doc.data()]));
  return {organisationId:orgId,factoryId,serverTime:new Date().toISOString(),items:products.docs.map((doc)=>{const p=doc.data(),stock=stockById.get(doc.id)??{};return {productId:doc.id,name:String(p.name??doc.id),sizeLabel:String(p.sizeLabel??""),colour:String(p.colour??""),bottlesPerPack:Number(p.bottlesPerPack??0),active:p.active===true,unpackedGoodBottles:Number(stock.unpackedGoodBottles??0),completePacks:Number(stock.completePacks??0),looseBottles:Number(stock.looseBottles??0),updatedAt:stock.updatedAt??null};})};
 });
+/** Provision or update a staff membership through the trusted Admin SDK. */
+export const provisionMember = onCall({ enforceAppCheck:true }, async (request) => {
+ if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
+ const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), targetUid=requiredString(request.data?.uid,"uid"), name=requiredString(request.data?.name,"name"), email=requiredString(request.data?.email,"email").toLowerCase(), role=requiredString(request.data?.role,"role").toLowerCase(), allowedModules=typeof request.data?.allowedModules==="string"?request.data.allowedModules:"ALL", active=request.data?.active!==false;
+ if(targetUid===request.auth.uid) throw new HttpsError("failed-precondition","Administrators cannot change their own membership through this operation.");
+ const {role:actorRole}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin"]);
+ const allowedRoles=["admin","manager","production_staff","packing_staff","storekeeper","dispatch_staff","viewer","operator","production","packing","dispatch"];
+ if(!allowedRoles.includes(role)||(actorRole!=="owner"&&role==="admin")) throw new HttpsError("permission-denied","Your role cannot assign the requested staff role.");
+ let user;
+ try { user=await getAdminAuth().getUser(targetUid); } catch { throw new HttpsError("not-found","The Firebase Authentication account does not exist."); }
+ if(!user.email||user.email.toLowerCase()!==email) throw new HttpsError("invalid-argument","Staff email does not match the Firebase Authentication account.");
+ const ref=db.doc("organisations/"+orgId+"/members/"+targetUid);
+ await db.runTransaction(async(tx)=>{
+  const existing=await tx.get(ref);
+  tx.set(ref,{uid:targetUid,name,email,role,allowedModules,active,organisationId:orgId,factoryIds:[factoryId],updatedAt:FieldValue.serverTimestamp(),createdAt:existing.exists?(existing.data()!.createdAt??FieldValue.serverTimestamp()):FieldValue.serverTimestamp(),createdBy:existing.exists?(existing.data()!.createdBy??request.auth!.uid):request.auth!.uid},{merge:true});
+ });
+ return {uid:targetUid,organisationId:orgId,factoryIds:[factoryId],role,active};
+});
+
 type ProductionInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; productionDate:string; producedBottles:number; goodBottles:number; rejectedBottles:number; machineId?:string; lineId?:string; machineName?:string; lineName?:string; remarks?:string };
 type PackingInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; packingDate:string; bottlesConsumed:number; remarks?:string };
 function nonNegativeInteger(value:unknown,label:string):number { if(typeof value!=="number"||!Number.isSafeInteger(value)||value<0) throw new HttpsError("invalid-argument",label+" must be a non-negative whole number."); return value; }
