@@ -131,8 +131,6 @@ class FactoryAuthRepository(private val context: Context) {
         )
 
         val db = com.tck.factoryflow.data.FactoryDatabase.get(context)
-        db.factoryDao().insertStaffMember(staff)
-
         if (hasFirebase()) {
             FirebaseFunctions.getInstance().getHttpsCallable("provisionMember").call(
                 mapOf(
@@ -149,6 +147,7 @@ class FactoryAuthRepository(private val context: Context) {
             ).await()
         }
 
+        db.factoryDao().insertStaffMember(staff)
         db.factoryDao().enqueueSyncEvent(
             com.tck.factoryflow.data.SyncOutboxEntity(
                 eventKey = "staff-create:${staff.uid}",
@@ -177,11 +176,10 @@ class FactoryAuthRepository(private val context: Context) {
         active: Boolean
     ) {
         val db = com.tck.factoryflow.data.FactoryDatabase.get(context)
-        db.factoryDao().updateStaffMember(id, name.trim(), role.lowercase().trim(), allowedModules, active)
+        val staffEmail = db.factoryDao().staffById(id)?.email
+            ?: error("Staff record is missing its email address.")
 
         if (hasFirebase() && uid.isNotBlank()) {
-            val staffEmail = db.factoryDao().staffById(id)?.email
-                ?: error("Staff record is missing its email address.")
             FirebaseFunctions.getInstance().getHttpsCallable("provisionMember").call(
                 mapOf(
                     "organisationId" to "tck-factory-01",
@@ -196,6 +194,7 @@ class FactoryAuthRepository(private val context: Context) {
             ).await()
         }
 
+        db.factoryDao().updateStaffMember(id, name.trim(), role.lowercase().trim(), allowedModules, active)
         db.factoryDao().enqueueSyncEvent(
             com.tck.factoryflow.data.SyncOutboxEntity(
                 eventKey = "staff-update:$uid:${System.currentTimeMillis()}",
