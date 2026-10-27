@@ -7,9 +7,9 @@ import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
 import org.json.JSONArray
 import com.tck.factoryflow.domain.ProductionQuantities
+import java.security.MessageDigest
 
-@Entity(tableName="products", indices=[Index(value=["name"], unique=true)])
-data class ProductEntity(
+fun stableProductCode(name:String,sizeLabel:String,colour:String):String {\n    val canonical=listOf(name.trim().lowercase(),sizeLabel.trim().lowercase(),colour.trim().lowercase()).joinToString("|")\n    val digest=MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }\n    return "p-"+digest.take(32)\n}\n\n@Entity(tableName="products", indices=[Index(value=["name"], unique=true),Index(value=["productCode"], unique=true)])\ndata class ProductEntity(
     @PrimaryKey(autoGenerate=true) val id:Long=0,
     val name:String,
     val sizeLabel:String,
@@ -357,7 +357,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=9,exportSchema=false)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=10,exportSchema=false)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -441,7 +441,24 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_staff_members_role ON staff_members(role)")
    }
   }
+  internal val MIGRATION_9_10=object:Migration(9,10){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE products ADD COLUMN productCode TEXT NOT NULL DEFAULT ''")
+    db.query("SELECT id,name,sizeLabel,colour FROM products").use { cursor ->
+     val update=db.compileStatement("UPDATE products SET productCode=? WHERE id=?")
+     while(cursor.moveToNext()){
+      val name=cursor.getString(1) ?: ""
+      val size=cursor.getString(2) ?: ""
+      val colour=cursor.getString(3) ?: "Clear"
+      val canonical=listOf(name.trim().lowercase(),size.trim().lowercase(),colour.trim().lowercase()).joinToString("|")
+      val digest=java.security.MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+      update.clearBindings(); update.bindString(1,"p-"+digest.take(32)); update.bindLong(2,cursor.getLong(0)); update.executeUpdateDelete()
+     }
+    }
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_products_productCode ON products(productCode)")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10).build().also{instance=it}}
  }
 }
