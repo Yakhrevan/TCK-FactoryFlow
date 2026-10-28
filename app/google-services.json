@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "551087593138",
+    "project_id": "tck-factoryflow",
+    "storage_bucket": "tck-factoryflow.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:551087593138:android:8ee2b5afb0de9e7f6d9bab",
+        "android_client_info": {
+          "package_name": "com.tck.factoryflow"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAlXGwzILDWyN4oZdZnG221NRkPT3QQ_1s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

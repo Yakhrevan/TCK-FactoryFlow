@@ -57,7 +57,8 @@ class FactoryAuthRepository(private val context: Context) {
         val docOrg = memberDoc.getString("organisationId")
         val role = memberDoc.getString("role")?.lowercase()?.trim()
         val active = memberDoc.getBoolean("active") == true
-        val factoryIds = (memberDoc.get("factoryIds") as? List<*>)?.filterIsInstance<String>()?.filter { it.isNotBlank() }?.distinct().orEmpty()
+        val docFactoryIds = (memberDoc.get("factoryIds") as? List<*>)?.filterIsInstance<String>()?.filter { it.isNotBlank() }?.distinct().orEmpty()
+        val factoryIds = if (docFactoryIds.isEmpty() && (role == "admin" || role == "owner")) listOf("factory-01") else docFactoryIds
         if (factoryIds.isEmpty()) error("Factory membership has no assigned factory IDs. Ask the administrator to configure factoryIds.")
         if (docOrg != org || role.isNullOrBlank()) {
             error("Factory membership is incomplete or belongs to another organisation.")
@@ -235,6 +236,7 @@ class FactoryAuthRepository(private val context: Context) {
             .putString("name", session.name)
             .putString("allowedModules", session.allowedModules)
             .putBoolean("isCloud", session.isCloud)
+            .putString("factoryIds", session.factoryIds.joinToString(","))
             .apply()
     }
 
@@ -242,13 +244,31 @@ class FactoryAuthRepository(private val context: Context) {
         val auth = getAuth()
         if (auth?.currentUser != null) {
             val user = auth.currentUser!!
-            val token = runCatching { user.getIdToken(false).await() }.getOrNull()
-            val profile = resolveRoleAndOrg(user.uid, token?.claims, user.email)
-            if (!profile.active) {
-                signOut()
-                return null
+            val onlineProfile = runCatching {
+                val token = user.getIdToken(false).await()
+                resolveRoleAndOrg(user.uid, token?.claims, user.email)
+            }.getOrNull()
+
+            if (onlineProfile != null) {
+                if (!onlineProfile.active) {
+                    signOut()
+                    return null
+                }
+                val session = FactorySession(
+                    uid = user.uid,
+                    email = user.email,
+                    organisationId = onlineProfile.org,
+                    role = onlineProfile.role,
+                    name = onlineProfile.name,
+                    allowedModules = onlineProfile.allowedModules,
+                    isCloud = true,
+                    factoryIds = onlineProfile.factoryIds
+                )
+                saveLocalSession(session)
+                return session
             }
-            return FactorySession(user.uid, user.email, profile.org, profile.role, profile.name, profile.allowedModules, isCloud = true)
+            // If offline, device has no network, or token refresh failed,
+            // fall back to the cached local session below so the user stays signed in.
         }
         val savedRole = prefs.getString("role", null) ?: return null
         val uid = prefs.getString("uid", "local_$savedRole") ?: "local_$savedRole"
@@ -257,7 +277,8 @@ class FactoryAuthRepository(private val context: Context) {
         val name = prefs.getString("name", "") ?: ""
         val allowedModules = prefs.getString("allowedModules", "ALL") ?: "ALL"
         val isCloud = prefs.getBoolean("isCloud", false)
-        return FactorySession(uid, email, org, savedRole, name, allowedModules, isCloud)
+        val factoryIds = prefs.getString("factoryIds", "factory-01")?.split(",")?.filter { it.isNotBlank() } ?: listOf("factory-01")
+        return FactorySession(uid, email, org, savedRole, name, allowedModules, isCloud, factoryIds)
     }
 
     fun signOut() {

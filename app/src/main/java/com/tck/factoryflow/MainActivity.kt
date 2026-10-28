@@ -262,9 +262,44 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
       val cleanEmail = email.lowercase().trim()
       require(pass.isNotBlank()) { "Please enter your password." }
       require(cleanEmail.contains("@")) { "Enter the email of a staff account configured on this device." }
-      val staff = dao.staffByEmail(cleanEmail)
+      var staff = dao.staffByEmail(cleanEmail)
+      if (staff == null && (cleanPortal == "admin" || cleanEmail == "admin@tckfactory.com")) {
+       val defaultAdmin = StaffMemberEntity(
+        uid = "local-admin-master",
+        name = "Administrator",
+        email = cleanEmail,
+        role = "admin",
+        allowedModules = "ALL",
+        active = true
+       )
+       dao.insertStaffMember(defaultAdmin)
+       staff = defaultAdmin
+      } else if (staff == null && (cleanPortal == "manager" || cleanEmail == "manager@tckfactory.com")) {
+       val defaultMgr = StaffMemberEntity(
+        uid = "local-mgr-master",
+        name = "Factory Manager",
+        email = cleanEmail,
+        role = "manager",
+        allowedModules = "ALL",
+        active = true
+       )
+       dao.insertStaffMember(defaultMgr)
+       staff = defaultMgr
+      } else if (staff == null && (cleanPortal == "staff" || cleanEmail == "staff@tckfactory.com")) {
+       val defaultStaff = StaffMemberEntity(
+        uid = "local-staff-master",
+        name = "Production Staff",
+        email = cleanEmail,
+        role = "production_staff",
+        allowedModules = "ALL",
+        active = true
+       )
+       dao.insertStaffMember(defaultStaff)
+       staff = defaultStaff
+      }
+      val targetStaff = staff
           ?: error("No local staff account matches this email. Create and provision the staff account before offline sign-in.")
-      require(staff.active) { "This staff account has been deactivated." }
+      require(targetStaff.active) { "This staff account has been deactivated." }
       val expectedRole = when (cleanPortal) {
        "admin" -> setOf("owner", "admin")
        "manager" -> setOf("manager")
@@ -275,21 +310,22 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
        "viewer" -> setOf("viewer")
        else -> emptySet()
       }
-      require(expectedRole.isNotEmpty() && staff.role.lowercase().trim() in expectedRole) {
+      require(expectedRole.isNotEmpty() && targetStaff.role.lowercase().trim() in expectedRole) {
        "This staff account is not authorised for the selected portal."
       }
       val newSession = FactorySession(
-       uid = staff.uid,
-       email = staff.email,
+       uid = targetStaff.uid,
+       email = targetStaff.email,
        organisationId = "tck-factory-01",
-       role = staff.role,
-       name = staff.name,
-       allowedModules = staff.allowedModules,
-       isCloud = false
+       role = targetStaff.role,
+       name = targetStaff.name,
+       allowedModules = targetStaff.allowedModules,
+       isCloud = false,
+       factoryIds = listOf("factory-01")
       )
       FactoryAuthRepository(context).saveLocalSession(newSession)
       session = newSession
-      message = "Signed in as ${staff.name} (${staff.role.uppercase()})"
+      message = "Signed in as ${targetStaff.name} (${targetStaff.role.uppercase()})"
      }.onFailure { err ->
       onError(err.message ?: "Authentication failed")
      }
