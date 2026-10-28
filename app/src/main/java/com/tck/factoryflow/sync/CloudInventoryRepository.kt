@@ -46,7 +46,7 @@ class CloudInventoryRepository(context: Context) {
         return FirebaseFunctions.getInstance()
     }
 
-    private fun scope(session: FactorySession): Map<String, Any> {
+    private fun scope(session: FactorySession): Map<String, String> {
         check(session.isCloud) { "Sign in with a provisioned cloud account before posting shared inventory." }
         val factoryId = session.factoryIds.firstOrNull()?.takeIf { it.isNotBlank() }
             ?: error("No factory is assigned to this account. Ask the administrator to configure factoryIds.")
