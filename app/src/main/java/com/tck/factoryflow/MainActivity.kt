@@ -35,6 +35,7 @@ import com.tck.factoryflow.auth.FactorySession
 import com.tck.factoryflow.auth.FactoryPermissions
 import com.tck.factoryflow.auth.FactoryRole
 import com.tck.factoryflow.auth.FactoryAction
+import com.tck.factoryflow.auth.PasswordSecurity
 import com.tck.factoryflow.sync.SyncScheduler
 import com.tck.factoryflow.sync.CloudInventoryRepository
 import com.tck.factoryflow.sync.CloudStockSnapshot
@@ -168,6 +169,14 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   var tab by remember{mutableStateOf(PageTab.HOME)}; var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}
   val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val staffMembers by dao.observeStaffMembers().collectAsStateWithLifecycle(emptyList()); val productionLines by dao.observeProductionLines().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
   val context=LocalContext.current
+  val canGoBack = dialog.isNotBlank() || showTools || tab != PageTab.HOME
+  androidx.activity.compose.BackHandler(enabled = canGoBack) {
+   when {
+    dialog.isNotBlank() -> dialog = ""
+    showTools -> showTools = false
+    tab != PageTab.HOME -> tab = PageTab.HOME
+   }
+  }
   LaunchedEffect(context){
    session=runCatching{FactoryAuthRepository(context).currentSession()}.getOrNull()
    isCheckingSession=false
@@ -255,15 +264,19 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      }
     }
    },
-   onOfflineSignIn = { portalId, email, pass, onError ->
+   onOfflineSignIn = { email, pass, onError ->
     scope.launch {
      runCatching {
-      val cleanPortal = portalId.lowercase().trim()
       val cleanEmail = email.lowercase().trim()
       require(pass.isNotBlank()) { "Please enter your password." }
-      require(cleanEmail.contains("@")) { "Enter the email of a staff account configured on this device." }
+      require(cleanEmail.contains("@")) { "Enter a valid email address." }
+
+      PasswordSecurity.initializeDefaultAdminIfNeeded(context)
+      val validPassword = PasswordSecurity.verifyPassword(context, cleanEmail, pass)
+      require(validPassword) { "Incorrect email or password." }
+
       var staff = dao.staffByEmail(cleanEmail)
-      if (staff == null && (cleanPortal == "admin" || cleanEmail == "admin@tckfactory.com")) {
+      if (staff == null && cleanEmail == PasswordSecurity.ADMIN_EMAIL) {
        val defaultAdmin = StaffMemberEntity(
         uid = "local-admin-master",
         name = "Administrator",
@@ -274,51 +287,16 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
        )
        dao.insertStaffMember(defaultAdmin)
        staff = defaultAdmin
-      } else if (staff == null && (cleanPortal == "manager" || cleanEmail == "manager@tckfactory.com")) {
-       val defaultMgr = StaffMemberEntity(
-        uid = "local-mgr-master",
-        name = "Factory Manager",
-        email = cleanEmail,
-        role = "manager",
-        allowedModules = "ALL",
-        active = true
-       )
-       dao.insertStaffMember(defaultMgr)
-       staff = defaultMgr
-      } else if (staff == null && (cleanPortal == "staff" || cleanEmail == "staff@tckfactory.com")) {
-       val defaultStaff = StaffMemberEntity(
-        uid = "local-staff-master",
-        name = "Production Staff",
-        email = cleanEmail,
-        role = "production_staff",
-        allowedModules = "ALL",
-        active = true
-       )
-       dao.insertStaffMember(defaultStaff)
-       staff = defaultStaff
       }
-      val targetStaff = staff
-          ?: error("No local staff account matches this email. Create and provision the staff account before offline sign-in.")
+      val targetStaff = staff ?: error("No local staff account found for $cleanEmail. Contact factory administrator.")
       require(targetStaff.active) { "This staff account has been deactivated." }
-      val expectedRole = when (cleanPortal) {
-       "admin" -> setOf("owner", "admin")
-       "manager" -> setOf("manager")
-       "production" -> setOf("production_staff", "production", "operator")
-       "packing" -> setOf("packing_staff", "packing")
-       "store" -> setOf("storekeeper")
-       "dispatch" -> setOf("dispatch_staff", "dispatch")
-       "viewer" -> setOf("viewer")
-       else -> emptySet()
-      }
-      require(expectedRole.isNotEmpty() && targetStaff.role.lowercase().trim() in expectedRole) {
-       "This staff account is not authorised for the selected portal."
-      }
+
       val newSession = FactorySession(
        uid = targetStaff.uid,
        email = targetStaff.email,
        organisationId = "tck-factory-01",
        role = targetStaff.role,
-       name = targetStaff.name,
+       name = targetStaff.name.ifBlank { "Administrator" },
        allowedModules = targetStaff.allowedModules,
        isCloud = false,
        factoryIds = listOf("factory-01")

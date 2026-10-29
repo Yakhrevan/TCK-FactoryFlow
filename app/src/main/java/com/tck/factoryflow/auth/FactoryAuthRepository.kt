@@ -149,6 +149,7 @@ class FactoryAuthRepository(private val context: Context) {
         }
 
         db.factoryDao().insertStaffMember(staff)
+        PasswordSecurity.saveCredential(context, staff.email, password)
         db.factoryDao().enqueueSyncEvent(
             com.tck.factoryflow.data.SyncOutboxEntity(
                 eventKey = "staff-create:${staff.uid}",

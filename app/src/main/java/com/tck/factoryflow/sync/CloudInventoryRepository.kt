@@ -180,6 +180,50 @@ class CloudInventoryRepository(context: Context) {
         )
     }
 
+    suspend fun postDispatch(
+        session: FactorySession,
+        idempotencyKey: String,
+        reference: String,
+        date: String,
+        customerId: String,
+        customerName: String,
+        lines: List<Map<String, Any>>,
+        remarks: String
+    ): String {
+        val scope = scope(session)
+        val payload = mapOf(
+            "organisationId" to scope.getValue("organisationId"),
+            "factoryId" to scope.getValue("factoryId"),
+            "idempotencyKey" to idempotencyKey,
+            "dispatchReference" to reference,
+            "dispatchDate" to date,
+            "customerId" to customerId,
+            "customerName" to customerName,
+            "lines" to lines,
+            "remarks" to remarks
+        )
+        val response = functions().getHttpsCallable("postDispatch").call(payload).await()
+        val data = response.data as? Map<*, *> ?: error("Server returned an invalid dispatch confirmation.")
+        return data["dispatchId"] as? String ?: idempotencyKey
+    }
+
+    suspend fun reverseDispatch(
+        session: FactorySession,
+        dispatchId: String,
+        reason: String
+    ): Boolean {
+        val scope = scope(session)
+        val payload = mapOf(
+            "organisationId" to scope.getValue("organisationId"),
+            "factoryId" to scope.getValue("factoryId"),
+            "dispatchId" to dispatchId,
+            "reason" to reason
+        )
+        val response = functions().getHttpsCallable("reverseDispatch").call(payload).await()
+        val data = response.data as? Map<*, *> ?: error("Server returned an invalid reversal response.")
+        return data["reversed"] as? Boolean ?: true
+    }
+
     private fun JSONObject.toMap(): Map<String, Any> {
         val out = linkedMapOf<String, Any>()
         val keys = keys()

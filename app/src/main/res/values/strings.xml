@@ -1,0 +1,68 @@
+<resources>
+    <string name="app_name">TCK FactoryFlow</string>
+    <string name="app_full_title">TCK Bottle Manufacturing</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_home">Dashboard</string>
+    <string name="tab_products">Products</string>
+    <string name="tab_production">Production</string>
+    <string name="tab_packing">Packing</string>
+    <string name="tab_stock">Stock</string>
+    <string name="tab_dispatch">Dispatch</string>
+    <string name="tab_electricity">Electricity</string>
+    <string name="tab_reports">Reports</string>
+    <string name="tab_customers">Customers</string>
+    <string name="tab_machines">Machines</string>
+    <string name="tab_quality">Quality</string>
+    <string name="tab_planning">Planning</string>
+    <string name="tab_orders">Orders</string>
+    <string name="tab_movements">Movements</string>
+    <string name="tab_audit">Audit Log</string>
+    <string name="tab_staff">Staff</string>
+    <string name="tab_sync">Cloud Sync</string>
+
+    <!-- Common Actions -->
+    <string name="action_add">Add</string>
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_reverse">Reverse</string>
+    <string name="action_search">Search</string>
+    <string name="action_export_csv">Export CSV</string>
+    <string name="action_backup_json">Backup JSON</string>
+    <string name="action_restore">Restore DB</string>
+    <string name="action_sign_in">Sign In</string>
+    <string name="action_sign_out">Sign Out</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_close">Close</string>
+
+    <!-- Login & Auth -->
+    <string name="login_title">TCK Factory Login</string>
+    <string name="login_admin_portal">ADMINISTRATOR LOGIN</string>
+    <string name="login_email_hint">admin@tckfactory.com</string>
+    <string name="login_password_hint">Password</string>
+    <string name="login_button">Sign In as Administrator</string>
+    <string name="login_offline_notice">Offline authentication enabled for factory floor</string>
+
+    <!-- Statuses -->
+    <string name="status_active">Active</string>
+    <string name="status_inactive">Inactive</string>
+    <string name="status_running">Running</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_maintenance">Maintenance</string>
+    <string name="status_posted">Posted</string>
+    <string name="status_reversed">Reversed</string>
+    <string name="status_pending">Pending</string>
+    <string name="status_synced">Synced</string>
+
+    <!-- Metrics & Labels -->
+    <string name="metric_today_produced">Today\'s Production</string>
+    <string name="metric_today_packed">Today\'s Packed</string>
+    <string name="metric_today_dispatched">Today\'s Dispatched</string>
+    <string name="metric_electricity_used">Electricity (kWh)</string>
+    <string name="metric_available_stock">Available Stock</string>
+    <string name="metric_complete_packs">Complete Packs</string>
+    <string name="metric_loose_bottles">Loose Bottles</string>
+</resources>

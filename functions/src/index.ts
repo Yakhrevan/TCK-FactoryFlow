@@ -5,6 +5,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 
 initializeApp();
 const db = getFirestore();
+const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === "true";
 
 type DispatchLineInput = { productId: string; packs: number; looseBottles?: number };
 type DispatchInput = {
@@ -62,7 +63,7 @@ async function authorize(
  * organisations/{orgId}/factories/{factoryId}/dispatches/{idempotencyKey}
  * organisations/{orgId}/factories/{factoryId}/inventoryTransactions/{transactionId}
  */
-export const postDispatch = onCall({ enforceAppCheck: true }, async (request) => {
+export const postDispatch = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required.");
   const data = request.data as Partial<DispatchInput>;
   const orgId = requiredString(data.organisationId, "organisationId");
@@ -196,7 +197,7 @@ export const postDispatch = onCall({ enforceAppCheck: true }, async (request) =>
 });
 
 /** Product master provisioning. Product code is persistent identity, not a mutable display name. */
-export const upsertProduct = onCall({ enforceAppCheck:true }, async (request) => {
+export const upsertProduct = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), productId=requiredString(request.data?.productId,"productId");
  const name=requiredString(request.data?.name,"name"), sizeLabel=requiredString(request.data?.sizeLabel,"sizeLabel"), colour=requiredString(request.data?.colour,"colour"), packSize=nonNegativeInteger(request.data?.bottlesPerPack,"bottlesPerPack");
@@ -215,7 +216,7 @@ export const upsertProduct = onCall({ enforceAppCheck:true }, async (request) =>
 });
 
 /** Read-only authoritative stock snapshot for the signed-in factory. */
-export const getInventorySnapshot = onCall({ enforceAppCheck:true }, async (request) => {
+export const getInventorySnapshot = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId");
  await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager","operator","production","production_staff","packing","packing_staff","storekeeper","dispatch","dispatch_staff","viewer"]);
@@ -225,7 +226,7 @@ export const getInventorySnapshot = onCall({ enforceAppCheck:true }, async (requ
  return {organisationId:orgId,factoryId,serverTime:new Date().toISOString(),items:products.docs.map((doc)=>{const p=doc.data(),stock=stockById.get(doc.id)??{};return {productId:doc.id,name:String(p.name??doc.id),sizeLabel:String(p.sizeLabel??""),colour:String(p.colour??""),bottlesPerPack:Number(p.bottlesPerPack??0),active:p.active===true,unpackedGoodBottles:Number(stock.unpackedGoodBottles??0),completePacks:Number(stock.completePacks??0),looseBottles:Number(stock.looseBottles??0),updatedAt:stock.updatedAt??null};})};
 });
 /** Provision or update a staff membership through the trusted Admin SDK. */
-export const provisionMember = onCall({ enforceAppCheck:true }, async (request) => {
+export const provisionMember = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), targetUid=requiredString(request.data?.uid,"uid"), name=requiredString(request.data?.name,"name"), email=requiredString(request.data?.email,"email").toLowerCase(), role=requiredString(request.data?.role,"role").toLowerCase(), allowedModules=typeof request.data?.allowedModules==="string"?request.data.allowedModules:"ALL", active=request.data?.active!==false;
  if(targetUid===request.auth.uid) throw new HttpsError("failed-precondition","Administrators cannot change their own membership through this operation.");
@@ -249,7 +250,7 @@ function nonNegativeInteger(value:unknown,label:string):number { if(typeof value
 function validDate(value:unknown,label:string):string { const date=requiredString(value,label); if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date+"T00:00:00Z"))||new Date(date+"T00:00:00Z").toISOString().slice(0,10)!==date) throw new HttpsError("invalid-argument",label+" must be a valid YYYY-MM-DD date."); return date; }
 
 /** Server-authoritative production posting. Stock updates and ledger entries commit atomically. */
-export const postProduction = onCall({ enforceAppCheck:true }, async (request) => {
+export const postProduction = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const data=request.data as Partial<ProductionInput>;
  const orgId=requiredString(data.organisationId,"organisationId"), factoryId=requiredString(data.factoryId,"factoryId"), key=requiredString(data.idempotencyKey,"idempotencyKey"), productId=requiredString(data.productId,"productId");
@@ -276,7 +277,7 @@ export const postProduction = onCall({ enforceAppCheck:true }, async (request) =
 });
 
 /** Server-authoritative packing: consume unpacked good bottles and create finished stock atomically. */
-export const postPacking = onCall({ enforceAppCheck:true }, async (request) => {
+export const postPacking = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const data=request.data as Partial<PackingInput>, orgId=requiredString(data.organisationId,"organisationId"), factoryId=requiredString(data.factoryId,"factoryId"), key=requiredString(data.idempotencyKey,"idempotencyKey"), productId=requiredString(data.productId,"productId"), date=validDate(data.packingDate,"packingDate"), consumed=positiveInteger(data.bottlesConsumed,"bottlesConsumed"), remarks=typeof data.remarks==="string"?data.remarks.slice(0,2000):"";
  const fingerprint=JSON.stringify({orgId,factoryId,actorUid:request.auth.uid,productId,date,consumed,remarks});
@@ -300,7 +301,7 @@ export const postPacking = onCall({ enforceAppCheck:true }, async (request) => {
 });
 
 /** Packing reversal is allowed only while its finished stock remains available. */
-export const reversePacking = onCall({ enforceAppCheck:true }, async (request) => {
+export const reversePacking = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
  if(!request.auth) throw new HttpsError("unauthenticated","Sign in required.");
  const orgId=requiredString(request.data?.organisationId,"organisationId"), factoryId=requiredString(request.data?.factoryId,"factoryId"), packingId=requiredString(request.data?.packingId,"packingId"), reason=requiredString(request.data?.reason,"reason");
  const {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager"]), root="organisations/"+orgId+"/factories/"+factoryId, packingRef=db.doc(root+"/packings/"+packingId), reversalRef=db.doc(root+"/packingReversals/"+packingId);
@@ -322,7 +323,7 @@ export const reversePacking = onCall({ enforceAppCheck:true }, async (request) =
   return {reversed:true,duplicate:false};
  });
 });
-export const reverseDispatch = onCall({ enforceAppCheck: true }, async (request) => {
+export const reverseDispatch = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required.");
   const orgId = requiredString(request.data?.organisationId, "organisationId");
   const factoryId = requiredString(request.data?.factoryId, "factoryId");
