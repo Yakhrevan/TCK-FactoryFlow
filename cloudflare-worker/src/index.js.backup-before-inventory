@@ -1,0 +1,190 @@
+import {
+  createRemoteJWKSet,
+  jwtVerify,
+  SignJWT,
+  importPKCS8
+} from "jose";
+
+const PROJECT_ID = "tck-admin-ac864";
+const FIREBASE_ISSUER =
+  `https://securetoken.google.com/${PROJECT_ID}`;
+
+const FIREBASE_JWKS = createRemoteJWKSet(
+  new URL(
+    "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
+  )
+);
+
+async function verifyFirebaseToken(request) {
+  const authorization = request.headers.get("Authorization");
+
+  if (!authorization || !authorization.startsWith("Bearer ")) {
+    throw new Error("AUTH_MISSING");
+  }
+
+  const token = authorization.slice(7);
+
+  const { payload } = await jwtVerify(token, FIREBASE_JWKS, {
+    audience: PROJECT_ID,
+    issuer: FIREBASE_ISSUER,
+  });
+
+  if (!payload.sub) {
+    throw new Error("AUTH_INVALID");
+  }
+
+  return payload;
+}
+
+async function getGoogleAccessToken(env) {
+  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+
+  const privateKey = await importPKCS8(
+    serviceAccount.private_key,
+    "RS256"
+  );
+
+  const now = Math.floor(Date.now() / 1000);
+
+  const assertion = await new SignJWT({
+    scope: "https://www.googleapis.com/auth/datastore",
+  })
+    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .setIssuer(serviceAccount.client_email)
+    .setAudience("https://oauth2.googleapis.com/token")
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(privateKey);
+
+  const response = await fetch(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type:
+          "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }),
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok || !result.access_token) {
+    throw new Error("GOOGLE_TOKEN_FAILED");
+  }
+
+  return result.access_token;
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Worker health check
+    if (request.method === "GET" && url.pathname === "/") {
+      return Response.json({
+        success: true,
+        service: "TCK FactoryFlow API",
+        message: "Cloudflare Worker is running.",
+      });
+    }
+
+    // Firebase token verification
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/auth/verify"
+    ) {
+      try {
+        const user = await verifyFirebaseToken(request);
+
+        return Response.json({
+          success: true,
+          authenticated: true,
+          user: {
+            uid: user.sub,
+            email: user.email || null,
+            emailVerified: user.email_verified === true,
+          },
+        });
+      } catch {
+        return Response.json(
+          {
+            success: false,
+            error: "Invalid or missing Firebase authentication token.",
+          },
+          { status: 401 }
+        );
+      }
+    }
+
+    // Protected, read-only Firestore connectivity test
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/firestore/test"
+    ) {
+      try {
+        await verifyFirebaseToken(request);
+
+        const accessToken = await getGoogleAccessToken(env);
+
+        const response = await fetch(
+          `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents:listCollectionIds`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              pageSize: 100,
+            }),
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          return Response.json(
+            {
+              success: false,
+              error: "Firestore API request failed.",
+              status: response.status,
+            },
+            { status: 502 }
+          );
+        }
+
+        return Response.json({
+          success: true,
+          firestoreConnected: true,
+          projectId: PROJECT_ID,
+          collections: result.collectionIds || [],
+        });
+      } catch (error) {
+        const missingAuth = error.message === "AUTH_MISSING";
+
+        return Response.json(
+          {
+            success: false,
+            error: missingAuth
+              ? "Firebase authentication token is required."
+              : "Firestore connection test failed.",
+          },
+          { status: missingAuth ? 401 : 500 }
+        );
+      }
+    }
+
+    return Response.json(
+      {
+        success: false,
+        error: "Endpoint not found",
+      },
+      { status: 404 }
+    );
+  },
+};

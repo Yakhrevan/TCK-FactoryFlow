@@ -3,6 +3,12 @@ package com.tck.factoryflow.sync
 import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.auth.FirebaseAuth
+import java.net.HttpURLConnection
+import java.net.URL
+import com.google.firebase.auth.FirebaseAuth
+import java.net.HttpURLConnection
+import java.net.URL
 import com.tck.factoryflow.auth.FactorySession
 import com.tck.factoryflow.data.ProductEntity
 import com.tck.factoryflow.data.ProductionEntryEntity
@@ -99,10 +105,47 @@ class CloudInventoryRepository(context: Context) {
             .put("lineName", entry.lineNameSnapshot)
             .put("remarks", entry.remarks)
             .toString()
+
         val key = idempotencyKey("production", canonical)
-        val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
-        functions().getHttpsCallable("postProduction").call(payload).await()
-        return key
+        val payload = JSONObject(canonical).put("idempotencyKey", key)
+
+        val user = FirebaseAuth.getInstance().currentUser
+            ?: error("No Firebase user is signed in.")
+        val token = user.getIdToken(false).await().token
+            ?: error("Firebase ID token unavailable.")
+
+        val connection = URL("https://tck-factoryflow-api.tckfactoryflow.workers.dev/api/production/post")
+            .openConnection() as HttpURLConnection
+
+        try {
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = 20000
+            connection.readTimeout = 20000
+
+            connection.outputStream.bufferedWriter().use {
+                it.write(payload.toString())
+            }
+
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val response = stream.bufferedReader().use { it.readText() }
+
+            if (status !in 200..299) {
+                error("Cloudflare Production failed (HTTP $status): $response")
+            }
+
+            val result = JSONObject(response)
+            check(result.optBoolean("success")) {
+                "Cloudflare rejected Production: $response"
+            }
+
+            return key
+        } finally {
+            connection.disconnect()
+        }
     }
 
     suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): CloudPackingPostResult {

@@ -1,0 +1,21 @@
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    if (request.method === "GET" && url.pathname === "/") {
+      return Response.json({
+        success: true,
+        service: "TCK FactoryFlow API",
+        message: "Cloudflare Worker is running."
+      });
+    }
+
+    return Response.json(
+      {
+        success: false,
+        error: "Endpoint not found"
+      },
+      { status: 404 }
+    );
+  }
+};

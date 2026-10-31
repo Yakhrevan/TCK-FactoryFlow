@@ -1,0 +1,94 @@
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const FIREBASE_PROJECT_ID = "tck-admin-ac864";
+
+const FIREBASE_ISSUER =
+  `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`;
+
+const FIREBASE_JWKS = createRemoteJWKSet(
+  new URL(
+    "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
+  )
+);
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // Health check
+    if (request.method === "GET" && url.pathname === "/") {
+      return Response.json({
+        success: true,
+        service: "TCK FactoryFlow API",
+        message: "Cloudflare Worker is running.",
+      });
+    }
+
+    // Verify Firebase Authentication token
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/auth/verify"
+    ) {
+      try {
+        const authorization = request.headers.get("Authorization");
+
+        if (!authorization || !authorization.startsWith("Bearer ")) {
+          return Response.json(
+            {
+              success: false,
+              error: "Authentication token is required.",
+            },
+            { status: 401 }
+          );
+        }
+
+        const token = authorization.substring(7);
+
+        const { payload } = await jwtVerify(
+          token,
+          FIREBASE_JWKS,
+          {
+            audience: FIREBASE_PROJECT_ID,
+            issuer: FIREBASE_ISSUER,
+          }
+        );
+
+        if (!payload.sub) {
+          return Response.json(
+            {
+              success: false,
+              error: "Invalid Firebase user identity.",
+            },
+            { status: 401 }
+          );
+        }
+
+        return Response.json({
+          success: true,
+          authenticated: true,
+          user: {
+            uid: payload.sub,
+            email: payload.email || null,
+            emailVerified: payload.email_verified === true,
+          },
+        });
+      } catch (error) {
+        return Response.json(
+          {
+            success: false,
+            error: "Invalid or expired Firebase authentication token.",
+          },
+          { status: 401 }
+        );
+      }
+    }
+
+    return Response.json(
+      {
+        success: false,
+        error: "Endpoint not found",
+      },
+      { status: 404 }
+    );
+  },
+};
