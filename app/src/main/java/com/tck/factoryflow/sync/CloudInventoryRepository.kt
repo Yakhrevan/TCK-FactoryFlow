@@ -224,6 +224,23 @@ class CloudInventoryRepository(context: Context) {
         return data["reversed"] as? Boolean ?: true
     }
 
+    suspend fun reversePacking(
+        session: FactorySession,
+        packingId: String,
+        reason: String
+    ): Boolean {
+        val scope = scope(session)
+        val payload = mapOf(
+            "organisationId" to scope.getValue("organisationId"),
+            "factoryId" to scope.getValue("factoryId"),
+            "packingId" to packingId,
+            "reason" to reason
+        )
+        val response = functions().getHttpsCallable("reversePacking").call(payload).await()
+        val data = response.data as? Map<*, *> ?: error("Server returned an invalid packing reversal response.")
+        return data["reversed"] as? Boolean ?: true
+    }
+
     private fun JSONObject.toMap(): Map<String, Any> {
         val out = linkedMapOf<String, Any>()
         val keys = keys()

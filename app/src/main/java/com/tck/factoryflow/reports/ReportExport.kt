@@ -15,7 +15,7 @@ object ReportExport {
   val p=production.filter{inRange(it.productionDate,from,to)}
   val pk=packing.filter{inRange(it.packingDate,from,to)}
   val d=dispatches.filter{inRange(it.dispatchDate,from,to)}
-  val m=meters.filter{inRange(it.readingDate,from,to)}
+  val m=meters.filter{it.status=="COMPLETED"&&inRange(it.readingDate,from,to)}
   val postedIds=dispatchBatches.filter{it.status=="POSTED"&&inRange(it.dispatchDate,from,to)}.map{it.id}.toSet()
   return ReportTotals(p.sumOf{it.producedBottles},p.sumOf{it.goodBottles},p.sumOf{it.rejectedBottles},pk.sumOf{it.bottlesConsumed},pk.sumOf{it.completePacks},d.sumOf{it.packsDispatched}+dispatchLines.filter{it.batchId in postedIds}.sumOf{it.packs},m.sumOf{it.consumption})
  }
@@ -26,7 +26,7 @@ object ReportExport {
   dispatches.forEach{out.append(listOf("dispatch",it.dispatchDate,it.productNameSnapshot,it.packsDispatched.toString(),"packs","customer="+it.customerName+"; reference="+it.dispatchReference).joinToString(","){v->escape(v)}).append("\r\n")}
   val batchesById=dispatchBatches.associateBy{it.id}
   dispatchLines.forEach{line->val batch=batchesById[line.batchId];if(batch!=null)out.append(listOf("dispatch",batch.dispatchDate,line.productNameSnapshot,line.packs.toString(),"packs","customer="+batch.customerNameSnapshot+"; reference="+batch.dispatchReference+"; status="+batch.status).joinToString(","){v->escape(v)}).append("\r\n")}
-  meters.forEach{out.append(listOf("electricity",it.readingDate,it.meterId,it.consumption.toString(),"kWh","start="+it.startReading+"; end="+it.endReading).joinToString(","){v->escape(v)}).append("\r\n")}
+  meters.forEach{out.append(listOf("electricity",it.readingDate,it.meterId,it.consumption.toString(),"kWh","status="+it.status+"; start="+it.startReading+"; end="+it.endReading).joinToString(","){v->escape(v)}).append("\r\n")}
   return out.toString()
  }
  private fun escape(value:String):String="\""+value.replace("\"","\"\"")+"\""

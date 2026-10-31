@@ -73,54 +73,17 @@ class FactoryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun signInOffline(email: String, pass: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
-        viewModelScope.launch {
-            runCatching {
-                val cleanEmail = email.lowercase().trim()
-                require(pass.isNotBlank()) { "Please enter your password." }
-                require(cleanEmail.contains("@")) { "Enter a valid email address." }
-
-                // Secure offline password verification using SHA-256 + salt
-                val valid = PasswordSecurity.verifyPassword(getApplication(), cleanEmail, pass)
-                if (!valid) {
-                    error("Incorrect email or password.")
-                }
-
-                var staff = dao.staffByEmail(cleanEmail)
-                if (staff == null && cleanEmail == "admin@tckfactory.com") {
-                    val defaultAdmin = StaffMemberEntity(
-                        uid = "local-admin-master",
-                        name = "Administrator",
-                        email = "admin@tckfactory.com",
-                        role = "admin",
-                        allowedModules = "ALL",
-                        active = true
-                    )
-                    dao.insertStaffMember(defaultAdmin)
-                    staff = defaultAdmin
-                }
-
-                val targetStaff = staff ?: error("No local staff account matches this email.")
-                require(targetStaff.active) { "This staff account has been deactivated." }
-
-                val newSession = FactorySession(
-                    uid = targetStaff.uid,
-                    email = targetStaff.email,
-                    organisationId = "tck-factory-01",
-                    role = targetStaff.role,
-                    name = targetStaff.name.ifBlank { "Administrator" },
-                    allowedModules = targetStaff.allowedModules,
-                    isCloud = false,
-                    factoryIds = listOf("factory-01")
-                )
-                authRepo.saveLocalSession(newSession)
-                _session.value = newSession
-            }.onSuccess {
-                onSuccess()
-            }.onFailure { err ->
-                onError(err.message ?: "Offline login failed.")
-            }
-        }
+    /**
+     * Offline authentication is disabled for Cloud-Only operation.
+     * Firebase Authentication is required.
+     */
+    fun signInOffline(
+        email: String,
+        pass: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        onError("Offline login is disabled. Connect to the internet and sign in using Firebase.")
     }
 
     fun signInFirebase(email: String, pass: String, onError: (String) -> Unit) {

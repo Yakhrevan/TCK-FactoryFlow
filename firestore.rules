@@ -3,7 +3,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function tokenOrg(orgId) {
-      return signedIn() && request.auth.token.organisationId == orgId;
+      return signedIn() && (
+        request.auth.token.organisationId == orgId ||
+        (exists(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid))
+         && get(/databases/$(database)/documents/organisations/$(orgId)/members/$(request.auth.uid)).data.organisationId == orgId)
+      );
     }
     function activeMember(orgId) {
       return tokenOrg(orgId)
@@ -17,8 +21,9 @@ service cloud.firestore {
     }
 
     // Membership documents are managed only by trusted Admin SDK functions.
+    // Signed-in staff can read their own profile to bootstrap session role.
     match /organisations/{orgId}/members/{uid} {
-      allow read: if activeMember(orgId) && request.auth.uid == uid;
+      allow read: if signedIn() && (request.auth.uid == uid || activeMember(orgId));
       allow write: if false;
     }
 
@@ -26,7 +31,7 @@ service cloud.firestore {
     // product configuration and posted transactions are server-owned.
     match /organisations/{orgId}/events/{eventId} {
       allow read: if activeMember(orgId);
-      allow create: if memberRoleIn(orgId, ['owner', 'admin', 'manager', 'operator', 'production', 'packing', 'dispatch'])
+      allow create: if memberRoleIn(orgId, ['owner', 'admin', 'manager', 'operator', 'production', 'packing', 'dispatch', 'production_staff', 'packing_staff', 'storekeeper', 'dispatch_staff', 'viewer', 'production_operator'])
         && request.resource.data.actorUid == request.auth.uid
         && request.resource.data.organisationId == orgId
         && request.resource.data.eventKey == eventId

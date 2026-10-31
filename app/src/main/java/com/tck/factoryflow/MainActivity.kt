@@ -103,13 +103,18 @@ class MainActivity:ComponentActivity(){
    runCatching {
     if (dao.activeProducts().isEmpty()) {
      listOf(
-      ProductEntity(name="300ml",sizeLabel="300ml",bottlesPerPack=0),
-      ProductEntity(name="500ml",sizeLabel="500ml",bottlesPerPack=0),
-      ProductEntity(name="1 Ltr",sizeLabel="1 litre",bottlesPerPack=0),
-      ProductEntity(name="200ml Green",sizeLabel="200ml",colour="Green",bottlesPerPack=0),
-      ProductEntity(name="200ml Milk White",sizeLabel="200ml",colour="Milk White",bottlesPerPack=0),
-      ProductEntity(name="200ml Clear",sizeLabel="200ml",bottlesPerPack=0)
+      ProductEntity(name="300ml",sizeLabel="300ml",bottlesPerPack=24),
+      ProductEntity(name="500ml",sizeLabel="500ml",bottlesPerPack=24),
+      ProductEntity(name="1 Ltr",sizeLabel="1 litre",bottlesPerPack=12),
+      ProductEntity(name="200ml Green",sizeLabel="200ml",colour="Green",bottlesPerPack=30),
+      ProductEntity(name="200ml Milk White",sizeLabel="200ml",colour="Milk White",bottlesPerPack=30),
+      ProductEntity(name="200ml Clear",sizeLabel="200ml",colour="Clear",bottlesPerPack=30)
      ).forEach { dao.insertProduct(it) }
+    } else {
+     dao.activeProducts().filter { it.bottlesPerPack <= 0 }.forEach {
+      val fallbackPack = if (it.sizeLabel.contains("1", true) || it.name.contains("1 Ltr", true)) 12 else 24
+      dao.updateProduct(it.id, it.name, it.sizeLabel, it.colour, fallbackPack, it.active)
+     }
     }
     if (dao.activeProductionLines().isEmpty()) {
      val line1Id = dao.insertProductionLine(
@@ -166,15 +171,32 @@ class MainActivity:ComponentActivity(){
 private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECTRICITY,REPORTS,CUSTOMERS,MACHINES,QUALITY,PLANNING,ORDERS,MOVEMENTS,AUDIT,STAFF,SYNC}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun FactoryApp(dao:FactoryDao){
-  var tab by remember{mutableStateOf(PageTab.HOME)}; var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}
+  val backStack = remember { androidx.compose.runtime.mutableStateListOf(PageTab.HOME) }
+  var tab by remember { mutableStateOf(PageTab.HOME) }
+  val setTab: (PageTab) -> Unit = { newTab ->
+   if (newTab != tab) {
+    if (newTab == PageTab.HOME) {
+     backStack.clear()
+     backStack.add(PageTab.HOME)
+    } else {
+     backStack.remove(newTab)
+     backStack.add(newTab)
+    }
+    tab = newTab
+   }
+  }
+  var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}; var meterDialogMode by remember{mutableStateOf("MORNING")}; var selectedMeterReading by remember{mutableStateOf<MeterReadingEntity?>(null)}
   val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val staffMembers by dao.observeStaffMembers().collectAsStateWithLifecycle(emptyList()); val productionLines by dao.observeProductionLines().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
   val context=LocalContext.current
-  val canGoBack = dialog.isNotBlank() || showTools || tab != PageTab.HOME
+  val canGoBack = dialog.isNotBlank() || showTools || backStack.size > 1
   androidx.activity.compose.BackHandler(enabled = canGoBack) {
    when {
     dialog.isNotBlank() -> dialog = ""
     showTools -> showTools = false
-    tab != PageTab.HOME -> tab = PageTab.HOME
+    backStack.size > 1 -> {
+     backStack.removeAt(backStack.lastIndex)
+     tab = backStack.lastOrNull() ?: PageTab.HOME
+    }
    }
   }
   LaunchedEffect(context){
@@ -250,63 +272,26 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   }
  } else if (session == null) {
   StartupLoginScreen(
-   firebaseConfigured = isServerOnline(context) && FirebaseApp.getApps(context).isNotEmpty(),
+   isOnline = isServerOnline(context) && FirebaseApp.getApps(context).isNotEmpty(),
    onFirebaseSignIn = { email, pass, onError ->
     scope.launch {
      runCatching {
+      require(isServerOnline(context)) { "No internet connection. Please connect to internet to sign in." }
       FactoryAuthRepository(context).signIn(email, pass)
      }.onSuccess {
       session = it
-      message = "Signed in as ${it.role.uppercase()}"
+      message = "Signed in as ${it.role.uppercase()} · Live Cloud Connected"
       SyncScheduler.runNow(context)
      }.onFailure { err ->
       onError(err.message ?: "Sign-in failed. Please check credentials or network.")
      }
     }
    },
-   onOfflineSignIn = { email, pass, onError ->
+   onRetryConnection = {
+    isCheckingSession = true
     scope.launch {
-     runCatching {
-      val cleanEmail = email.lowercase().trim()
-      require(pass.isNotBlank()) { "Please enter your password." }
-      require(cleanEmail.contains("@")) { "Enter a valid email address." }
-
-      PasswordSecurity.initializeDefaultAdminIfNeeded(context)
-      val validPassword = PasswordSecurity.verifyPassword(context, cleanEmail, pass)
-      require(validPassword) { "Incorrect email or password." }
-
-      var staff = dao.staffByEmail(cleanEmail)
-      if (staff == null && cleanEmail == PasswordSecurity.ADMIN_EMAIL) {
-       val defaultAdmin = StaffMemberEntity(
-        uid = "local-admin-master",
-        name = "Administrator",
-        email = cleanEmail,
-        role = "admin",
-        allowedModules = "ALL",
-        active = true
-       )
-       dao.insertStaffMember(defaultAdmin)
-       staff = defaultAdmin
-      }
-      val targetStaff = staff ?: error("No local staff account found for $cleanEmail. Contact factory administrator.")
-      require(targetStaff.active) { "This staff account has been deactivated." }
-
-      val newSession = FactorySession(
-       uid = targetStaff.uid,
-       email = targetStaff.email,
-       organisationId = "tck-factory-01",
-       role = targetStaff.role,
-       name = targetStaff.name.ifBlank { "Administrator" },
-       allowedModules = targetStaff.allowedModules,
-       isCloud = false,
-       factoryIds = listOf("factory-01")
-      )
-      FactoryAuthRepository(context).saveLocalSession(newSession)
-      session = newSession
-      message = "Signed in as ${targetStaff.name} (${targetStaff.role.uppercase()})"
-     }.onFailure { err ->
-      onError(err.message ?: "Authentication failed")
-     }
+     kotlinx.coroutines.delay(200)
+     isCheckingSession = false
     }
    }
   )
@@ -341,13 +326,13 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    Icon(Icons.Default.Logout,contentDescription="Sign Out",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
   }
  }
-},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.MACHINES,PageTab.DISPATCH,PageTab.STAFF).forEach{t->NavigationBarItem(selected=tab==t,onClick={tab=t},icon={Icon(when(t){PageTab.HOME->Icons.Default.Home;PageTab.PRODUCTION->Icons.Default.Build;PageTab.MACHINES->Icons.Default.PrecisionManufacturing;PageTab.DISPATCH->Icons.Default.LocalShipping;else->Icons.Default.People},null)},label={Text(when(t){PageTab.HOME->"Home";PageTab.PRODUCTION->"Production";PageTab.MACHINES->"Machinery";PageTab.DISPATCH->"Dispatch";else->"Staff"},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
+},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.MACHINES,PageTab.DISPATCH,PageTab.STAFF).forEach{t->NavigationBarItem(selected=tab==t,onClick={setTab(t)},icon={Icon(when(t){PageTab.HOME->Icons.Default.Home;PageTab.PRODUCTION->Icons.Default.Build;PageTab.MACHINES->Icons.Default.PrecisionManufacturing;PageTab.DISPATCH->Icons.Default.LocalShipping;else->Icons.Default.People},null)},label={Text(when(t){PageTab.HOME->"Home";PageTab.PRODUCTION->"Production";PageTab.MACHINES->"Machinery";PageTab.DISPATCH->"Dispatch";else->"Staff"},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
  Box(Modifier.fillMaxSize().padding(padding)){
  when(tab){
  PageTab.HOME->{
   val todayProduction=production.filter{it.productionDate==date}
   val todayPacking=packing.filter{it.packingDate==date}
-  val todayMeters=meters.filter{it.readingDate==date}
+  val todayMeters=meters.filter{it.readingDate==date&&it.status=="COMPLETED"}
   val produced=todayProduction.sumOf{it.producedBottles}
   val good=todayProduction.sumOf{it.goodBottles}
   val rejected=todayProduction.sumOf{it.rejectedBottles}
@@ -387,7 +372,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      }
     }
    }
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text("Today's performance",fontSize=19.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Actual saved totals · no sample values",fontSize=11.sp,color=Muted)};TextButton(onClick={tab=PageTab.REPORTS}){Text("Reports  →")}}}
+   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text("Today's performance",fontSize=19.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Actual saved totals · no sample values",fontSize=11.sp,color=Muted)};TextButton(onClick={setTab(PageTab.REPORTS)}){Text("Reports  →")}}}
    item{
     Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
      HomeKpiCard("Produced today",produced.toString(),"Bottles",Icons.Default.WaterDrop,Color(0xFF147DEB),Modifier.weight(1f))
@@ -410,14 +395,14 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     val activeLinesCount=productionLines.count{it.status=="ACTIVE"}
     val runningMachinesCount=machines.count{it.status=="RUNNING"}
     val alertMachines=machines.filter{it.status in setOf("STOPPED","DOWN","MAINTENANCE")}
-    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={tab=PageTab.MACHINES}){
+    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={setTab(PageTab.MACHINES)}){
      Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
       Row(verticalAlignment=Alignment.CenterVertically){
        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
         Text("Production lines & machinery",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
         Text("Shop-floor operational status",fontSize=11.sp,color=Muted)
        }
-       TextButton(onClick={tab=PageTab.MACHINES}){Text("Manage →")}
+       TextButton(onClick={setTab(PageTab.MACHINES)}){Text("Manage →")}
       }
       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
        Surface(Modifier.weight(1f),color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Active lines",fontSize=10.sp,color=Muted);Text(activeLinesCount.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy)}}
@@ -435,7 +420,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
      Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
       Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text("Quick operations",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Start a common factory task",fontSize=11.sp,color=Muted)};Icon(Icons.Default.Bolt,null,tint=Cyan)}
       Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Production",Icons.Default.Build,Color(0xFF147DEB),{dialog="production"},Modifier.weight(1f));HomeActionTile("Packing",Icons.Default.Inventory2,Color(0xFF7656D9),{dialog="packing"},Modifier.weight(1f));HomeActionTile("Dispatch",Icons.Default.LocalShipping,Color(0xFFD98523),{dialog="dispatch"},Modifier.weight(1f))}
-      Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{tab=PageTab.PRODUCTS},Modifier.weight(1f));HomeActionTile("Machinery",Icons.Default.Settings,Color(0xFF1E88E5),{tab=PageTab.MACHINES},Modifier.weight(1f));HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{dialog="meter"},Modifier.weight(1f))}
+      Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{setTab(PageTab.PRODUCTS)},Modifier.weight(1f));HomeActionTile("Machinery",Icons.Default.Settings,Color(0xFF1E88E5),{tab=PageTab.MACHINES},Modifier.weight(1f));HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{meterDialogMode="MORNING";selectedMeterReading=null;dialog="meter"},Modifier.weight(1f))}
      }
     }
    }
@@ -445,16 +430,16 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
        Surface(color=if(lowStock.isEmpty())Color(0xFFD1F1E1) else Color(0xFFFFE6B6),shape=RoundedCornerShape(12.dp)){Icon(if(lowStock.isEmpty())Icons.Default.CheckCircle else Icons.Default.WarningAmber,null,tint=if(lowStock.isEmpty())Color(0xFF16804A) else Color(0xFF9B5B00),modifier=Modifier.padding(10.dp))}
        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text(if(lowStock.isEmpty())"Stock overview" else "Stock needs attention",fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp);Text(if(lowStock.isEmpty())active.size.toString()+" active products · "+availablePacks+" available packs" else lowStock.size.toString()+" product(s) at or below the 5-pack alert threshold",fontSize=11.sp,color=Muted)}
-       TextButton(onClick={tab=PageTab.STOCK}){Text("View stock")}
+       TextButton(onClick={setTab(PageTab.STOCK)}){Text("View stock")}
       }
       if(lowStock.isNotEmpty())lowStock.take(3).forEach{p->Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.WaterDrop,null,tint=Color(0xFFB7791F),modifier=Modifier.size(17.dp));Text(p.name,Modifier.weight(1f),fontSize=12.sp,color=Navy);Text(((packedAll[p.id]?:0)-(legacyOut[p.id]?:0)-(batchOut[p.id]?:0)).coerceAtLeast(0).toString()+" packs",fontSize=12.sp,fontWeight=FontWeight.Bold,color=Navy)}}
      }
     }
    }
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Factory products",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Active bottle lines & pack counts",fontSize=11.sp,color=Muted)};TextButton(onClick={tab=PageTab.PRODUCTS}){Text("Manage →")}}}
+   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Factory products",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Active bottle lines & pack counts",fontSize=11.sp,color=Muted)};TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage →")}}}
    if(active.isEmpty())item{EmptyDashboardState("No active products","Add your factory's bottle types to start recording operations.",Icons.Default.WaterDrop)}
    items(active.take(6),key={it.id}){p->BottleProductCard(name=p.name,capacity=p.sizeLabel,packSizeLabel=if(p.bottlesPerPack>0)"${p.bottlesPerPack} bottles per pack" else "",active=p.active,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",iconName=p.iconName,imageUri=p.imageUri,colour=p.colour,onClick={editingProduct=p;dialog="product"})}
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Recent production",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Latest saved production entries",fontSize=11.sp,color=Muted)};TextButton(onClick={tab=PageTab.PRODUCTION}){Text("View all →")}}}
+   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Recent production",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Latest saved production entries",fontSize=11.sp,color=Muted)};TextButton(onClick={setTab(PageTab.PRODUCTION)}){Text("View all →")}}}
    if(production.isEmpty())item{EmptyDashboardState("No production entries yet","Record the first production run to populate your dashboard.",Icons.Default.Build)}
    else items(production.take(5),key={it.id}){e->Record(e.productNameSnapshot,e.goodBottles.toString()+" good · "+e.rejectedBottles+" rejected",e.productionDate)}
   }
@@ -666,15 +651,182 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   }
  }
  PageTab.ELECTRICITY->{
-  val sorted=meters.sortedByDescending{it.readingDate}
-  val totalUnits=meters.filter{it.readingDate.startsWith(date.substring(0,7))}.sumOf{it.consumption}
-  val latest=sorted.firstOrNull()
+  val sorted=meters.sortedWith(compareByDescending<MeterReadingEntity>{it.readingDate}.thenByDescending{it.createdAt})
+  val completedMeters=meters.filter{it.status=="COMPLETED"}
+  val totalUnits=completedMeters.filter{it.readingDate.startsWith(date.substring(0,7))}.sumOf{it.consumption}
+  val latestCompleted=sorted.firstOrNull{it.status=="COMPLETED"}
+  val pendingReading=meters.firstOrNull{it.status=="PENDING"}
+
   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("ENERGY MONITORING",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Electricity",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Meter readings and consumption history",fontSize=12.sp,color=Muted)};Button(onClick={dialog="meter"},shape=RoundedCornerShape(14.dp)){Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("Reading")}}}
-   item{Surface(color=Navy,shape=RoundedCornerShape(20.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("CURRENT MONTH",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.3.sp);Text(String.format(Locale.US,"%.1f units",totalUnits),fontSize=31.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text("Total from saved meter readings",fontSize=11.sp,color=Color(0xFFD4E2F0));HorizontalDivider(color=Color(0xFF345574));Text(if(latest!=null)"Latest: "+latest.meterId+" · "+latest.readingDate else "No meter readings recorded yet",fontSize=12.sp,color=Color.White)}}}
+   item{
+    Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+     Row(verticalAlignment=Alignment.CenterVertically){
+      Column(Modifier.weight(1f)){
+       Text("ENERGY MONITORING",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp)
+       Text("Electricity",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+       Text("Morning & evening meter readings · daily unit calculation",fontSize=12.sp,color=Muted)
+      }
+      OutlinedButton(onClick={meterDialogMode="FULL";selectedMeterReading=null;dialog="meter"},shape=RoundedCornerShape(12.dp)){
+       Icon(Icons.Default.Add,null,modifier=Modifier.size(16.dp))
+       Spacer(Modifier.width(4.dp))
+       Text("Full Entry",fontSize=11.sp)
+      }
+     }
+     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+      Button(
+       onClick={meterDialogMode="MORNING";selectedMeterReading=null;dialog="meter"},
+       modifier=Modifier.weight(1f),
+       shape=RoundedCornerShape(12.dp),
+       colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF0284C7))
+      ){
+       Icon(Icons.Default.WbSunny,null,modifier=Modifier.size(16.dp))
+       Spacer(Modifier.width(6.dp))
+       Text("☀️ Day Start",fontSize=12.sp,fontWeight=FontWeight.Bold)
+      }
+      Button(
+       onClick={meterDialogMode="EVENING";selectedMeterReading=pendingReading;dialog="meter"},
+       modifier=Modifier.weight(1f),
+       shape=RoundedCornerShape(12.dp),
+       colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF4338CA))
+      ){
+       Icon(Icons.Default.Schedule,null,modifier=Modifier.size(16.dp))
+       Spacer(Modifier.width(6.dp))
+       Text("🌙 Day End",fontSize=12.sp,fontWeight=FontWeight.Bold)
+      }
+     }
+    }
+   }
+
+   if(pendingReading!=null&&pendingReading.readingDate<date){
+    item{
+     Surface(
+      color=Color(0xFFFEF3C7),
+      shape=RoundedCornerShape(16.dp),
+      border=androidx.compose.foundation.BorderStroke(1.5.dp,Color(0xFFF59E0B))
+     ){
+      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+       Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Icon(Icons.Default.WarningAmber,null,tint=Color(0xFFB45309),modifier=Modifier.size(24.dp))
+        Column(Modifier.weight(1f)){
+         Text("Missed Evening Reading!",fontWeight=FontWeight.Bold,color=Color(0xFF92400E),fontSize=14.sp)
+         Text("${pendingReading.readingDate} started at ${pendingReading.startReading} kWh, but evening end reading was not entered.",fontSize=11.sp,color=Color(0xFF78350F))
+        }
+       }
+       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Button(
+         onClick={meterDialogMode="EVENING";selectedMeterReading=pendingReading;dialog="meter"},
+         modifier=Modifier.weight(1f),
+         shape=RoundedCornerShape(10.dp),
+         colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFD97706))
+        ){
+         Text("Complete End Reading",fontSize=11.sp,fontWeight=FontWeight.Bold)
+        }
+        OutlinedButton(
+         onClick={meterDialogMode="CATCH_UP";selectedMeterReading=pendingReading;dialog="meter"},
+         modifier=Modifier.weight(1f),
+         shape=RoundedCornerShape(10.dp)
+        ){
+         Text("Close & Start Today",fontSize=11.sp,fontWeight=FontWeight.Bold)
+        }
+       }
+      }
+     }
+    }
+   }
+
+   if(pendingReading!=null&&pendingReading.readingDate==date){
+    item{
+     Surface(
+      color=Color(0xFFE0F2FE),
+      shape=RoundedCornerShape(16.dp),
+      border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF38BDF8))
+     ){
+      Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+       Surface(color=Color(0xFF0284C7),shape=RoundedCornerShape(50)){
+        Icon(Icons.Default.WbSunny,null,tint=Color.White,modifier=Modifier.padding(8.dp).size(20.dp))
+       }
+       Column(Modifier.weight(1f)){
+        Text("Today's Reading in Progress",fontWeight=FontWeight.Bold,color=Color(0xFF0369A1),fontSize=13.sp)
+        Text("Start reading: ${pendingReading.startReading} kWh · Awaiting evening end reading",fontSize=11.sp,color=Color(0xFF075985))
+       }
+       Button(
+        onClick={meterDialogMode="EVENING";selectedMeterReading=pendingReading;dialog="meter"},
+        shape=RoundedCornerShape(10.dp),
+        colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF0284C7))
+       ){
+        Text("Enter End",fontSize=11.sp)
+       }
+      }
+     }
+    }
+   }
+
+   item{
+    Surface(color=Navy,shape=RoundedCornerShape(20.dp)){
+     Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+      Text("CURRENT MONTH",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.3.sp)
+      Text(String.format(Locale.US,"%.1f units",totalUnits),fontSize=31.sp,fontWeight=FontWeight.ExtraBold,color=Color.White)
+      Text("Total from finalized meter readings",fontSize=11.sp,color=Color(0xFFD4E2F0))
+      HorizontalDivider(color=Color(0xFF345574))
+      Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+       Text(if(latestCompleted!=null)"Latest: "+latestCompleted.meterId+" · "+latestCompleted.readingDate else "No completed readings yet",fontSize=12.sp,color=Color.White)
+       if(latestCompleted!=null)Text("End: ${latestCompleted.endReading} kWh",fontSize=11.sp,color=Cyan)
+      }
+     }
+    }
+   }
+
    item{Text("Reading history",fontSize=19.sp,fontWeight=FontWeight.Bold,color=Navy)}
-   if(sorted.isEmpty())item{EmptyDashboardState("No meter readings yet","Add a start and end reading to calculate electricity usage.",Icons.Default.Bolt)}
-   items(sorted,key={it.id}){entry->Surface(color=Color.White,shape=RoundedCornerShape(17.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){Row(verticalAlignment=Alignment.CenterVertically){Surface(color=Color(0xFFFFF4DF),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Bolt,null,tint=Color(0xFF9B5B00),modifier=Modifier.padding(10.dp).size(22.dp))};Column(Modifier.weight(1f).padding(start=10.dp)){Text(entry.meterId,fontWeight=FontWeight.Bold,color=Navy);Text(entry.readingDate,fontSize=11.sp,color=Muted)};Column(horizontalAlignment=Alignment.End){Text(String.format(Locale.US,"%.1f",entry.consumption),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("units",fontSize=10.sp,color=Muted)}};Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Start",entry.startReading.toInt(),Modifier.weight(1f));StockMiniMetric("End",entry.endReading.toInt(),Modifier.weight(1f));StockMiniMetric("Used",entry.consumption.toInt(),Modifier.weight(1f))};if(entry.remarks.isNotBlank())Text(entry.remarks,fontSize=11.sp,color=Muted)}}}
+   if(sorted.isEmpty())item{EmptyDashboardState("No meter readings yet","Add morning and evening readings to calculate electricity usage.",Icons.Default.Bolt)}
+
+   items(sorted,key={it.id}){entry->
+    val isPending=entry.status=="PENDING"
+    Surface(
+     color=if(isPending) Color(0xFFFFFBEB) else Color.White,
+     shape=RoundedCornerShape(17.dp),
+     border=androidx.compose.foundation.BorderStroke(1.dp,if(isPending) Color(0xFFFDE68A) else Border)
+    ){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Surface(color=if(isPending) Color(0xFFFEF3C7) else Color(0xFFFFF4DF),shape=RoundedCornerShape(12.dp)){
+        Icon(if(isPending) Icons.Default.Schedule else Icons.Default.Bolt,null,tint=if(isPending) Color(0xFFD97706) else Color(0xFF9B5B00),modifier=Modifier.padding(10.dp).size(22.dp))
+       }
+       Column(Modifier.weight(1f).padding(start=10.dp)){
+        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+         Text(entry.meterId,fontWeight=FontWeight.Bold,color=Navy)
+         if(isPending){
+          Surface(color=Color(0xFFFDE68A),shape=RoundedCornerShape(6.dp)){
+           Text("DAY IN PROGRESS",fontSize=9.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF92400E),modifier=Modifier.padding(horizontal=5.dp,vertical=2.dp))
+          }
+         }
+        }
+        Text(entry.readingDate,fontSize=11.sp,color=Muted)
+       }
+       Column(horizontalAlignment=Alignment.End){
+        if(isPending){
+         Button(
+          onClick={meterDialogMode="EVENING";selectedMeterReading=entry;dialog="meter"},
+          shape=RoundedCornerShape(8.dp),
+          colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFD97706)),
+          contentPadding=PaddingValues(horizontal=10.dp,vertical=4.dp)
+         ){
+          Text("Enter End",fontSize=10.sp)
+         }
+        }else{
+         Text(String.format(Locale.US,"%.1f",entry.consumption),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+         Text("units",fontSize=10.sp,color=Muted)
+        }
+       }
+      }
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+       StockMiniMetric("Start",entry.startReading.toInt().toString(),Modifier.weight(1f))
+       StockMiniMetric("End",if(isPending)"Pending" else entry.endReading.toInt().toString(),Modifier.weight(1f))
+       StockMiniMetric("Used",if(isPending)"—" else entry.consumption.toInt().toString(),Modifier.weight(1f))
+      }
+      if(entry.remarks.isNotBlank())Text(entry.remarks,fontSize=11.sp,color=Muted)
+     }
+    }
+   }
   }
  }
  PageTab.CUSTOMERS->{
@@ -1536,7 +1688,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
   isOpen = showTools,
   onClose = { showTools = false },
   currentTab = tab,
-  onSelectTab = { tab = it },
+  onSelectTab = { setTab(it) },
   session = session,
   onOpenRoleSwitcher = { dialog = "role_switcher" },
   onQuickAction = { action -> dialog = action },
@@ -1553,8 +1705,8 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
    message = "Signed out"
   }
  )
- if(dialog=="reverse"&&reversalBatchId!=null)ReverseDispatchForm({dialog="";reversalBatchId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"};dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");"Dispatch reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalBatchId=null}
- if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");"Packing entry reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
+ if(dialog=="reverse"&&reversalBatchId!=null)ReverseDispatchForm({dialog="";reversalBatchId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"};if(session?.isCloud==true){val b=dispatchBatches.firstOrNull{it.id==reversalBatchId};if(b!=null){CloudInventoryRepository(context).reverseDispatch(session!!,b.idempotencyKey,reason)}};dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");"Dispatch reversed"+if(session?.isCloud==true)" · server confirmed" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalBatchId=null}
+ if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};if(session?.isCloud==true){val pk=packing.firstOrNull{it.id==reversalPackingId};if(pk!=null&&pk.cloudOperationKey.isNotBlank()){CloudInventoryRepository(context).reversePacking(session!!,pk.cloudOperationKey,reason)}};dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Packing entry reversed"+if(session?.isCloud==true)" · server confirmed" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
 
  if(dialog=="line")LineForm(editingLine,{dialog="";editingLine=null}){code,name,desc,cap,unit,status->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot manage production lines"};val existing=editingLine;if(existing==null){val id=dao.insertProductionLine(ProductionLineEntity(lineCode=code,name=name,description=desc,targetCapacity=cap,capacityUnit=unit,status=status));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-register:$id",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_REGISTERED",payloadJson=JSONObject().put("lineId",id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_REGISTERED",entityType="production_line",entityId=code,afterJson=name,reason="Production line created",actorId=session?.uid?:"local"));message="Production line $name registered"}else{dao.updateProductionLine(existing.id,name,desc,cap,unit,status);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-update:${existing.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_UPDATED",payloadJson=JSONObject().put("lineId",existing.id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_UPDATED",entityType="production_line",entityId=existing.id.toString(),beforeJson=existing.name,afterJson=name,reason="Line configuration updated",actorId=session?.uid?:"local"));message="Production line $name updated"}}.onFailure{message=it.message}};dialog="";editingLine=null}
  if(dialog=="assignLine"&&assigningMachine!=null){val machine=assigningMachine!!;AssignMachineLineForm(machine,productionLines,{dialog="";assigningMachine=null}){selectedLineId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot reassign machines"};dao.assignMachineToLine(machine.id,selectedLineId);val lineName=productionLines.firstOrNull{it.id==selectedLineId}?.name?:"Unassigned";dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-assign:${machine.id}:$selectedLineId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_LINE_ASSIGNED",payloadJson=JSONObject().put("machineId",machine.id).put("lineId",selectedLineId).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_LINE_ASSIGNED",entityType="machine",entityId=machine.id.toString(),beforeJson=machine.lineId?.toString()?:"none",afterJson=selectedLineId?.toString()?:"none",reason="Reassigned to $lineName",actorId=session?.uid?:"local"));message="${machine.name} assigned to $lineName"}.onFailure{message=it.message}};dialog="";assigningMachine=null}}
@@ -1566,18 +1718,80 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  if(dialog=="plan")ProductionPlanForm(active,machines,{dialog=""}){product,d,shift,target,machineId,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot create production plans"};val planId=dao.insertProductionPlan(ProductionPlanEntity(planDate=d,shift=shift,productId=product.id,productNameSnapshot=product.name,targetBottles=target,assignedMachineId=machineId,notes=notes,createdBy=session?.uid?:"local"));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="production-plan:"+planId,organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_PLAN_CREATED",payloadJson=JSONObject().put("planId",planId).put("productId",product.id).put("date",d).put("shift",shift).put("target",target).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_CREATED",entityType="product",entityId=product.id.toString(),afterJson="plan saved",reason="Production plan created",actorId=session?.uid?:"local"));message="Production plan saved"}.onFailure{message=it.message}};dialog=""}
  if(dialog=="order")SalesOrderForm(customers,active,{dialog=""}){customer,product,number,d,due,packs,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ORDERS)){"Your role cannot create sales orders"};val id=dao.insertSalesOrder(SalesOrderEntity(orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"));dao.insertSalesOrderLines(listOf(SalesOrderLineEntity(orderId=id,productId=product.id,productNameSnapshot=product.name,packsOrdered=packs,packSizeSnapshot=product.bottlesPerPack)));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="sales-order:"+id,organisationId=session?.organisationId?:"local-org",eventType="SALES_ORDER_CREATED",payloadJson=JSONObject().put("orderId",id).put("orderNumber",number).put("customerId",customer.id).put("productId",product.id).put("packs",packs).toString()));dao.insertAudit(AuditEventEntity(eventType="SALES_ORDER_CREATED",entityType="sales_order",entityId=id.toString(),afterJson="order created",reason="Sales order created",actorId=session?.uid?:"local"));message="Sales order created"}.onFailure{message=it.message}};dialog=""}
  if(dialog=="fulfilOrder"&&selectedOrderId!=null){val order=orders.firstOrNull{it.id==selectedOrderId};val lines=orderLines.filter{it.orderId==selectedOrderId};if(order!=null)FulfilOrderForm(order,lines,{dialog="";selectedOrderId=null}){line,qty->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot update order fulfilment"};require(dao.setOrderLineFulfilled(line.id,qty)==1){"Fulfilment quantity is invalid"};val all=lines.map{if(it.id==line.id)it.copy(packsDispatched=qty) else it};val status=when{all.all{it.packsDispatched>=it.packsOrdered}->"FULFILLED";all.any{it.packsDispatched>0}->"PARTIAL";else->"OPEN"};dao.updateSalesOrderStatus(order.id,status);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="order-fulfilment:"+order.id+":"+line.id+":"+qty,organisationId=session?.organisationId?:"local-org",eventType="ORDER_FULFILMENT_UPDATED",payloadJson=JSONObject().put("orderId",order.id).put("lineId",line.id).put("packsFulfilled",qty).put("status",status).toString()));dao.insertAudit(AuditEventEntity(eventType="ORDER_FULFILMENT_UPDATED",entityType="sales_order",entityId=order.id.toString(),afterJson="fulfilment updated",reason="Order fulfilment progress updated; dispatch posting remains a separate operation",actorId=session?.uid?:"local"));message="Order fulfilment updated"}.onFailure{message=it.message}};dialog="";selectedOrderId=null}}
- if(dialog=="login"||dialog=="role_switcher")RoleSwitcherDialog(currentRole=session?.role?:"",onSelectRole={newRole->
-  if(session?.isCloud==true){message="Cloud accounts cannot switch into a local role. Sign out and use the intended staff account."}
-  else if(session?.role !in setOf("owner","admin")){message="Only a local owner/admin can switch local test roles."}
-  else {val newSession=FactoryAuthRepository(context).setLocalRole(newRole);session=newSession;message="Local test role: ${newRole.uppercase()}";dialog=""}
- },onDismiss={dialog=""},firebaseConfigured=FirebaseApp.getApps(context).isNotEmpty(),onFirebaseSignIn={email,password->if(FirebaseApp.getApps(context).isEmpty()){message="Cloud server not reachable. Check your connection."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed."}}},onSyncNow={SyncScheduler.runNow(context);message="Cloud sync triggered"},onSignOut={FactoryAuthRepository(context).signOut();session=null;dialog="";message="Signed out"})
+ if(dialog=="login"||dialog=="role_switcher")RoleSwitcherDialog(currentRole=session?.role?:"",onSelectRole={
+  message="Roles are authoritative and managed in Firebase Cloud. Sign in with the corresponding staff account or update staff roles in Staff Management."
+ },onDismiss={dialog=""},firebaseConfigured=isServerOnline(context)&&FirebaseApp.getApps(context).isNotEmpty(),onFirebaseSignIn={email,password->if(!isServerOnline(context)){message="Cloud server not reachable. Check your connection."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed."}}},onSyncNow={SyncScheduler.runNow(context);message="Cloud sync triggered"},onSignOut={FactoryAuthRepository(context).signOut();session=null;dialog="";message="Signed out"})
  if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p,icon,img->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};val localId=if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p,iconName=icon,imageUri=img)) else {dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org",iconName=icon,imageUri=img);existing.id};val saved=dao.productById(localId)?:error("Product was saved but could not be reloaded");if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).upsertProduct(session!!,saved)}.getOrElse{error("Product saved locally, but cloud catalog sync failed: "+(it.message?:"unknown error"))}};SyncScheduler.runNow(context);message=if(p>0)"${n.trim()} saved · $p bottles per pack"+if(session?.isCloud==true)" · cloud catalog synced" else "" else "${n.trim()} saved"+if(session?.isCloud==true)" · cloud catalog synced" else ""}.onFailure{message=it.message}};dialog="";editingProduct=null}
  if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val entry=ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId);val cloudRepo=if(session?.isCloud==true)CloudInventoryRepository(context) else null;val cloudKey=if(session?.isCloud==true)cloudRepo!!.postProduction(session!!,p,entry) else "";val id=if(session?.isCloud==true)dao.recordCloudProduction(entry.copy(cloudOperationKey=cloudKey),session!!.uid) else dao.postProduction(entry,session?.organisationId?:"local-org",session?.uid?:"local");if(session?.isCloud==true)cloudRepo!!.acknowledgeProduction(entry,p,session!!);SyncScheduler.runNow(context);message="Production run #$id saved · $total bottles"+if(session?.isCloud==true)" · server confirmed" else " · local only"}.onFailure{message=it.message}};dialog=""}
- if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudRepo=if(session?.isCloud==true)CloudInventoryRepository(context) else null;val resultMessage=if(session?.isCloud==true){val result=cloudRepo!!.postPacking(session!!,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,session!!.uid);cloudRepo.acknowledgePacking(entry,p,session!!);"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles · server confirmed"}else{dao.postPacking(entry,session?.organisationId?:"local-org",session?.uid?:"local");"Saved "+calc.completePacks+" packs and "+calc.looseBottles+" loose bottles · local only"};SyncScheduler.runNow(context);resultMessage}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
- if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};require(session?.isCloud!=true){"Cloud dispatch is not connected to authoritative inventory yet. Dispatch is blocked for cloud sessions to prevent cross-device stock mismatches."};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=reference.ifBlank{"DSP-"+System.currentTimeMillis()},dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=session?.uid?:"local",salesOrderId=orderId);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local") else dao.postMultiLineDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local");SyncScheduler.runNow(context);"Dispatch saved"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
+ if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};require(p.bottlesPerPack>0){"Pack size is not configured for ${p.name}. Please set bottles per pack in Product Master first."};val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudRepo=if(session?.isCloud==true)CloudInventoryRepository(context) else null;val resultMessage=if(session?.isCloud==true){val result=cloudRepo!!.postPacking(session!!,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,session!!.uid);cloudRepo.acknowledgePacking(entry,p,session!!);"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles · server confirmed"}else{dao.postPacking(entry,session?.organisationId?:"local-org",session?.uid?:"local");"Saved "+calc.completePacks+" packs and "+calc.looseBottles+" loose bottles · local only"};SyncScheduler.runNow(context);resultMessage}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=session?.uid?:"local",salesOrderId=orderId);if(session?.isCloud==true){val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};cloudRepo.postDispatch(session!!,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks)};if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local") else dao.postMultiLineDispatch(batch,lines,session?.organisationId?:"local-org",session?.uid?:"local");SyncScheduler.runNow(context);"Dispatch saved"+if(session?.isCloud==true)" · server confirmed" else " · local only"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
  if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage customers"};dao.insertCustomer(CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst));SyncScheduler.runNow(context)}.onSuccess{message="Customer saved"}.onFailure{message=it.message}};dialog=""}
  if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage customers"};require(existing!=null);dao.updateCustomer(existing!!.id,name,phone,address,gst,existing.active);SyncScheduler.runNow(context)}.onSuccess{message="Customer details updated"}.onFailure{message=it.message}};dialog="";editingCustomer=null}
- if(dialog=="meter")MeterForm({dialog=""}){d,m,s,e,r->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"};val used=ElectricityRules.consumption(s,e);dao.insertMeterReading(MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r));SyncScheduler.runNow(context);"Reading saved: "+used+" units"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+  if(dialog=="meter"){
+   val pending=selectedMeterReading?:meters.firstOrNull{it.status=="PENDING"}
+   MeterForm(
+    initialMode=meterDialogMode,
+    initialReading=pending,
+    meters=meters,
+    close={dialog="";selectedMeterReading=null},
+    onSaveMorning={d,m,s,r->
+     scope.launch{
+      runCatching{
+       require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"}
+       val existing=dao.meterReadingByDate(m,d)
+       val toSave=existing?.copy(startReading=s,remarks=r,status="PENDING")?:MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=0.0,consumption=0.0,remarks=r,status="PENDING")
+       dao.insertMeterReading(toSave)
+       SyncScheduler.runNow(context)
+       "☀️ Morning reading recorded: $s kWh for $d. Day in progress."
+      }.onSuccess{message=it}.onFailure{message=it.message}
+     }
+     dialog="";selectedMeterReading=null
+    },
+    onSaveEvening={existingId,d,m,s,e,r->
+     scope.launch{
+      runCatching{
+       require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"}
+       val used=ElectricityRules.consumption(s,e)
+       val existing=if(existingId!=null) dao.meterById(existingId) else dao.meterReadingByDate(m,d)
+       val toSave=existing?.copy(startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")?:MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")
+       dao.insertMeterReading(toSave)
+       SyncScheduler.runNow(context)
+       "🌙 Day completed! Consumed: $used units ($s -> $e kWh)"
+      }.onSuccess{message=it}.onFailure{message=it.message}
+     }
+     dialog="";selectedMeterReading=null
+    },
+    onSaveFull={d,m,s,e,r->
+     scope.launch{
+      runCatching{
+       require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"}
+       val used=ElectricityRules.consumption(s,e)
+       val existing=dao.meterReadingByDate(m,d)
+       val toSave=existing?.copy(startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")?:MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")
+       dao.insertMeterReading(toSave)
+       SyncScheduler.runNow(context)
+       "⚡ Reading saved: $used units ($s -> $e kWh)"
+      }.onSuccess{message=it}.onFailure{message=it.message}
+     }
+     dialog="";selectedMeterReading=null
+    },
+    onCatchUpAndStartToday={yesterdayReading,currentReading,todayDate->
+     scope.launch{
+      runCatching{
+       require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"}
+       val used=ElectricityRules.consumption(yesterdayReading.startReading,currentReading)
+       dao.insertMeterReading(yesterdayReading.copy(endReading=currentReading,consumption=used,status="COMPLETED",remarks=(yesterdayReading.remarks+" [Closed next morning at $currentReading kWh]").trim()))
+       val todayExisting=dao.meterReadingByDate(yesterdayReading.meterId,todayDate)
+       val todayEntry=todayExisting?.copy(startReading=currentReading,status="PENDING")?:MeterReadingEntity(meterId=yesterdayReading.meterId,readingDate=todayDate,startReading=currentReading,endReading=0.0,consumption=0.0,remarks="Carried over from yesterday close",status="PENDING")
+       dao.insertMeterReading(todayEntry)
+       SyncScheduler.runNow(context)
+       "✅ Yesterday closed ($used units) & Today started at $currentReading kWh!"
+      }.onSuccess{message=it}.onFailure{message=it.message}
+     }
+     dialog="";selectedMeterReading=null
+    }
+   )
+  }
  if(dialog=="staff"){
   StaffForm(
    initial=editingStaff,
@@ -1973,6 +2187,9 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
 @Composable private fun StockMiniMetric(title:String,value:Int,modifier:Modifier=Modifier){
  Surface(modifier,color=Page,shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text(title,fontSize=10.sp,color=Muted);Text(value.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}}
 }
+@Composable private fun StockMiniMetric(title:String,valueText:String,modifier:Modifier=Modifier){
+ Surface(modifier,color=Page,shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text(title,fontSize=10.sp,color=Muted);Text(valueText,fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}}
+}
 
 @Composable private fun EmptyDashboardState(title:String,detail:String,icon:androidx.compose.ui.graphics.vector.ImageVector){
  Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
@@ -2324,7 +2541,237 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  )
 }
 @Composable private fun DispatchForm(products:List<ProductEntity>,dao:FactoryDao,close:()->Unit,save:(ProductEntity?,String,String,Int,String,String)->Unit){var p by remember{mutableStateOf(products.firstOrNull())};var d by remember{mutableStateOf(today())};var customer by remember{mutableStateOf("Nachiyar Cooldrinks")};var packs by remember{mutableStateOf("")};var ref by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")};var stock by remember{mutableIntStateOf(0)};LaunchedEffect(p?.id){p?.let{stock=dao.totalCompletePacks(it.id)-dao.totalDispatchedPacks(it.id)}};val n=packs.toIntOrNull()?:0;AlertDialog(onDismissRequest=close,title={Text("Delivery / dispatch")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){DateField(d){d=it};OutlinedTextField(customer,{customer=it},label={Text("Customer")});ProductPicker(products,p){p=it};Text("Available finished packs: "+stock.coerceAtLeast(0),color=Blue);Field("Packs to dispatch",packs){packs=it};OutlinedTextField(ref,{ref=it},label={Text("Delivery reference")});OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=n>0&&n<=stock&&p!=null&&customer.isNotBlank(),onClick={save(p,d,customer,n,ref,remarks)}){Text("Confirm dispatch")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
-@Composable private fun MeterForm(close:()->Unit,save:(String,String,Double,Double,String)->Unit){var d by remember{mutableStateOf(today())};var meter by remember{mutableStateOf("MAIN")};var start by remember{mutableStateOf("")};var end by remember{mutableStateOf("")};var remarks by remember{mutableStateOf("")};val used=runCatching{ElectricityRules.consumption(start.toDouble(),end.toDouble())}.getOrNull();AlertDialog(onDismissRequest=close,title={Text("Electricity reading")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){DateField(d){d=it};OutlinedTextField(meter,{meter=it},label={Text("Meter ID")});Field("Start reading",start,{start=it},true);Field("End reading",end,{end=it},true);Text("Consumption: "+(used?.toString()?: "—")+" units",color=Blue);OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")})}},confirmButton={Button(enabled=used!=null,onClick={if(used!=null)save(d,meter,start.toDouble(),end.toDouble(),remarks)}){Text("Save reading")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
+@Composable
+private fun MeterForm(
+ initialMode:String,
+ initialReading:MeterReadingEntity?,
+ meters:List<MeterReadingEntity>,
+ close:()->Unit,
+ onSaveMorning:(String,String,Double,String)->Unit,
+ onSaveEvening:(Long?,String,String,Double,Double,String)->Unit,
+ onSaveFull:(String,String,Double,Double,String)->Unit,
+ onCatchUpAndStartToday:(MeterReadingEntity,Double,String)->Unit
+){
+ var mode by remember{mutableStateOf(initialMode)}
+ val latestCompleted=remember(meters){meters.firstOrNull{it.status=="COMPLETED"}}
+ val pendingReading=remember(meters,initialReading){initialReading?:meters.firstOrNull{it.status=="PENDING"}}
+
+ var d by remember{mutableStateOf(initialReading?.readingDate?:today())}
+ var meter by remember{mutableStateOf(initialReading?.meterId?:"MAIN")}
+ var start by remember{
+  mutableStateOf(
+   initialReading?.startReading?.let{String.format(Locale.US,"%.1f",it)}
+    ?: latestCompleted?.endReading?.let{String.format(Locale.US,"%.1f",it)}
+    ?: ""
+  )
+ }
+ var end by remember{mutableStateOf(if(initialReading?.endReading!=null&&initialReading.endReading>0.0) String.format(Locale.US,"%.1f",initialReading.endReading) else "")}
+ var currentMeterInput by remember{mutableStateOf("")}
+ var remarks by remember{mutableStateOf(initialReading?.remarks.orEmpty())}
+
+ val startVal=start.toDoubleOrNull()
+ val endVal=end.toDoubleOrNull()
+ val currentVal=currentMeterInput.toDoubleOrNull()
+ val consumption=if(startVal!=null&&endVal!=null&&endVal>=startVal){
+  runCatching{ElectricityRules.consumption(startVal,endVal)}.getOrNull()
+ }else null
+
+ val catchUpConsumption=if(pendingReading!=null&&currentVal!=null&&currentVal>=pendingReading.startReading){
+  runCatching{ElectricityRules.consumption(pendingReading.startReading,currentVal)}.getOrNull()
+ }else null
+
+ AlertDialog(
+  onDismissRequest=close,
+  title={
+   Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+    Text(
+     when(mode){
+      "MORNING"->"☀️ Morning Reading (Day Start)"
+      "EVENING"->"🌙 Evening Reading (Day End)"
+      "CATCH_UP"->"⚡ Catch-Up & Start Today"
+      else->"⚡ Full Day Reading"
+     },
+     fontSize=20.sp,
+     fontWeight=FontWeight.ExtraBold,
+     color=Navy
+    )
+    Text(
+     when(mode){
+      "MORNING"->"Record initial meter reading when operations begin."
+      "EVENING"->"Record day-end meter reading to calculate daily power usage."
+      "CATCH_UP"->"Close missed previous reading and start today automatically."
+      else->"Record both start and end readings together."
+     },
+     fontSize=12.sp,
+     color=Muted
+    )
+   }
+  },
+  text={
+   Column(
+    modifier=Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+    verticalArrangement=Arrangement.spacedBy(10.dp)
+   ){
+    Row(modifier=Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+     FilterChip(
+      selected=mode=="MORNING",
+      onClick={mode="MORNING"},
+      label={Text("☀️ Morning",fontSize=11.sp)},
+      modifier=Modifier.weight(1f)
+     )
+     FilterChip(
+      selected=mode=="EVENING",
+      onClick={mode="EVENING"},
+      label={Text("🌙 Evening",fontSize=11.sp)},
+      modifier=Modifier.weight(1f)
+     )
+     FilterChip(
+      selected=mode=="FULL",
+      onClick={mode="FULL"},
+      label={Text("⚡ Full",fontSize=11.sp)},
+      modifier=Modifier.weight(1f)
+     )
+    }
+
+    when(mode){
+     "MORNING"->{
+      DateField(d){d=it}
+      OutlinedTextField(meter,{meter=it},label={Text("Meter ID")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+      Field("Morning Start Reading (kWh)",start,{start=it},true)
+      if(latestCompleted!=null&&startVal==latestCompleted.endReading){
+       Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(8.dp)){
+        Text("✨ Pre-filled from previous day end (${latestCompleted.endReading} kWh on ${latestCompleted.readingDate})",fontSize=11.sp,color=Blue,modifier=Modifier.padding(8.dp))
+       }
+      }
+      OutlinedTextField(remarks,{remarks=it},label={Text("Remarks (optional)")},modifier=Modifier.fillMaxWidth())
+     }
+     "EVENING"->{
+      if(pendingReading!=null){
+       Surface(
+        color=Color(0xFFF0FDF4),
+        shape=RoundedCornerShape(12.dp),
+        border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFFBBF7D0))
+       ){
+        Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Text("Day Start Reading (Recorded)",fontWeight=FontWeight.Bold,color=Color(0xFF166534),fontSize=11.sp)
+         Text("Date: ${pendingReading.readingDate} · Meter: ${pendingReading.meterId}",fontSize=12.sp,color=Navy)
+         Text("Start: ${pendingReading.startReading} kWh",fontSize=14.sp,fontWeight=FontWeight.ExtraBold,color=Blue)
+        }
+       }
+       Field("Evening End Reading (kWh)",end,{end=it},true)
+      }else{
+       DateField(d){d=it}
+       Field("Start Reading (kWh)",start,{start=it},true)
+       Field("Evening End Reading (kWh)",end,{end=it},true)
+      }
+
+      if(endVal!=null&&startVal!=null){
+       if(endVal>=startVal){
+        Surface(color=Color(0xFFE0F2FE),shape=RoundedCornerShape(10.dp)){
+         Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+          Text("Power Consumed Today:",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+          Text("${consumption?:0.0} units",fontWeight=FontWeight.ExtraBold,color=Blue,fontSize=16.sp)
+         }
+        }
+       }else{
+        Text("⚠️ Evening reading cannot be below start reading ($startVal kWh)",color=Color(0xFFDC2626),fontSize=11.sp,fontWeight=FontWeight.Bold)
+       }
+      }
+      OutlinedTextField(remarks,{remarks=it},label={Text("Remarks (optional)")},modifier=Modifier.fillMaxWidth())
+     }
+     "CATCH_UP"->{
+      if(pendingReading!=null){
+       Surface(
+        color=Color(0xFFFEF3C7),
+        shape=RoundedCornerShape(12.dp),
+        border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFFFDE68A))
+       ){
+        Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Text("Missed Evening Reading",fontWeight=FontWeight.Bold,color=Color(0xFF92400E),fontSize=11.sp)
+         Text("Date: ${pendingReading.readingDate} · Start was: ${pendingReading.startReading} kWh",fontSize=12.sp,color=Navy)
+        }
+       }
+       Text("Enter current meter reading right now. It will close ${pendingReading.readingDate}'s usage and start today's (${today()}) reading at this value!",fontSize=12.sp,color=Muted)
+       Field("Current Meter Reading (kWh)",currentMeterInput,{currentMeterInput=it},true)
+       if(catchUpConsumption!=null){
+        Surface(color=Color(0xFFDCFCE7),shape=RoundedCornerShape(10.dp)){
+         Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){
+          Text("Yesterday usage: $catchUpConsumption units",fontWeight=FontWeight.Bold,color=Color(0xFF166534),fontSize=12.sp)
+          Text("Today will start at: $currentVal kWh",fontSize=11.sp,color=Color(0xFF15803D))
+         }
+        }
+       }
+      }
+     }
+     "FULL"->{
+      DateField(d){d=it}
+      OutlinedTextField(meter,{meter=it},label={Text("Meter ID")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+      Field("Start Reading (kWh)",start,{start=it},true)
+      Field("End Reading (kWh)",end,{end=it},true)
+      if(consumption!=null){
+       Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(8.dp)){
+        Text("Consumption: $consumption units",color=Blue,fontWeight=FontWeight.Bold,modifier=Modifier.padding(8.dp))
+       }
+      }
+      OutlinedTextField(remarks,{remarks=it},label={Text("Remarks")},modifier=Modifier.fillMaxWidth())
+     }
+    }
+   }
+  },
+  confirmButton={
+   when(mode){
+    "MORNING"->{
+     Button(
+      enabled=startVal!=null&&startVal>=0.0,
+      onClick={onSaveMorning(d,meter,startVal!!,remarks)},
+      shape=RoundedCornerShape(10.dp)
+     ){
+      Text("Save Morning Reading")
+     }
+    }
+    "EVENING"->{
+     Button(
+      enabled=consumption!=null,
+      onClick={
+       val targetId=pendingReading?.id
+       val targetDate=pendingReading?.readingDate?:d
+       val targetMeter=pendingReading?.meterId?:meter
+       val targetStart=pendingReading?.startReading?:startVal!!
+       onSaveEvening(targetId,targetDate,targetMeter,targetStart,endVal!!,remarks)
+      },
+      shape=RoundedCornerShape(10.dp)
+     ){
+      Text("Save & Complete Day")
+     }
+    }
+    "CATCH_UP"->{
+     Button(
+      enabled=catchUpConsumption!=null&&pendingReading!=null,
+      onClick={
+       if(pendingReading!=null&&currentVal!=null){
+        onCatchUpAndStartToday(pendingReading,currentVal,today())
+       }
+      },
+      shape=RoundedCornerShape(10.dp),
+      colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFD97706))
+     ){
+      Text("Close & Start Today")
+     }
+    }
+    else->{
+     Button(
+      enabled=consumption!=null,
+      onClick={onSaveFull(d,meter,startVal!!,endVal!!,remarks)},
+      shape=RoundedCornerShape(10.dp)
+     ){
+      Text("Save Reading")
+     }
+    }
+   }
+  },
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
 @Composable private fun CustomerForm(initial:CustomerEntity?,close:()->Unit,save:(String,String,String,String)->Unit){
  var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
  var phone by remember(initial?.id){mutableStateOf(initial?.phone.orEmpty())}
@@ -2422,7 +2869,7 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
  var email by remember(initial?.id){mutableStateOf(initial?.email.orEmpty())}
  var password by remember(initial?.id){mutableStateOf("")}
  var passwordVisible by remember{mutableStateOf(false)}
- var role by remember(initial?.id){mutableStateOf(initial?.role?:"PRODUCTION_OPERATOR")}
+ var role by remember(initial?.id){mutableStateOf(initial?.role?: FactoryRole.PRODUCTION_STAFF.name)}
  var roleExpanded by remember{mutableStateOf(false)}
 
  val allModules = listOf(
@@ -2964,7 +3411,7 @@ private fun FullSlideMenuScreen(
           Text("Sync Now", fontSize = 11.sp)
          }
          Button(
-          onClick = { onClose(); onOpenRoleSwitcher() },
+          onClick = { onClose(); onSelectTab(PageTab.STAFF) },
           modifier = Modifier.weight(1f),
           shape = RoundedCornerShape(10.dp),
           colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))

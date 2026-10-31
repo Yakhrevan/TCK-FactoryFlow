@@ -49,7 +49,7 @@ data class AuditEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val eve
 @Entity(tableName="sync_outbox",indices=[Index(value=["eventKey"],unique=true),Index("status"),Index("createdAt")])
 data class SyncOutboxEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val eventKey:String,val organisationId:String,val eventType:String,val payloadJson:String,val status:String="PENDING",val attempts:Int=0,val lastError:String="",val createdAt:Long=System.currentTimeMillis(),val syncedAt:Long?=null)
 @Entity(tableName="meter_readings",indices=[Index(value=["meterId","readingDate"],unique=true)])
-data class MeterReadingEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val meterId:String="MAIN",val readingDate:String,val startReading:Double,val endReading:Double,val consumption:Double,val remarks:String="",val createdAt:Long=System.currentTimeMillis())
+data class MeterReadingEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val meterId:String="MAIN",val readingDate:String,val startReading:Double,val endReading:Double=0.0,val consumption:Double=0.0,val remarks:String="",val status:String="COMPLETED",val createdAt:Long=System.currentTimeMillis())
 
 data class DispatchRequestLine(val productId:Long,val packs:Int,val looseBottles:Int=0)
 data class DispatchPostResult(val batchId:Long,val reference:String,val lineCount:Int)
@@ -326,8 +326,11 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeCustomers():List<CustomerEntity>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertCustomer(c:CustomerEntity):Long
  @Query("UPDATE customers SET name=:name,phone=:phone,address=:address,gstNumber=:gst,active=:active WHERE id=:id") abstract suspend fun updateCustomer(id:Long,name:String,phone:String,address:String,gst:String,active:Boolean)
- @Query("SELECT * FROM meter_readings ORDER BY readingDate DESC") abstract fun observeMeterReadings():Flow<List<MeterReadingEntity>>
- @Insert abstract suspend fun insertMeterReading(e:MeterReadingEntity):Long
+ @Query("SELECT * FROM meter_readings ORDER BY readingDate DESC, createdAt DESC") abstract fun observeMeterReadings():Flow<List<MeterReadingEntity>>
+ @Insert(onConflict=OnConflictStrategy.REPLACE) abstract suspend fun insertMeterReading(e:MeterReadingEntity):Long
+ @Update abstract suspend fun updateMeterReading(e:MeterReadingEntity)
+ @Query("SELECT * FROM meter_readings WHERE meterId=:meterId AND readingDate=:readingDate LIMIT 1") abstract suspend fun meterReadingByDate(meterId:String,readingDate:String):MeterReadingEntity?
+ @Query("DELETE FROM meter_readings WHERE id=:id") abstract suspend fun deleteMeterReading(id:Long)
 
  @Transaction open suspend fun postMultiLineDispatch(batch:DispatchBatchEntity,requestedLines:List<DispatchRequestLine>,organisationId:String,actorId:String):DispatchPostResult {
   require(batch.idempotencyKey.isNotBlank()){"Idempotency key is required"};require(batch.customerNameSnapshot.isNotBlank()){"Customer is required"};require(requestedLines.isNotEmpty()){"Add at least one product line"}
@@ -394,7 +397,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=11,exportSchema=true)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=12,exportSchema=true)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -503,7 +506,12 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_packing_entries_cloudOperationKey ON packing_entries(cloudOperationKey)")
    }
   }
+  internal val MIGRATION_11_12=object:Migration(11,12){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("ALTER TABLE meter_readings ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED'")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11,MIGRATION_11_12).build().also{instance=it}}
  }
 }

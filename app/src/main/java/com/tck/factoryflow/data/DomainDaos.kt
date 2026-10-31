@@ -71,11 +71,20 @@ interface ElectricityDao {
     @Query("UPDATE meter_readings SET remarks=remarks WHERE id=:id")
     suspend fun touchMeter(id: Long)
 
-    @Query("SELECT * FROM meter_readings ORDER BY readingDate DESC")
+    @Query("SELECT * FROM meter_readings ORDER BY readingDate DESC, createdAt DESC")
     fun observeMeterReadings(): Flow<List<MeterReadingEntity>>
 
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeterReading(e: MeterReadingEntity): Long
+
+    @Update
+    suspend fun updateMeterReading(e: MeterReadingEntity)
+
+    @Query("SELECT * FROM meter_readings WHERE meterId=:meterId AND readingDate=:readingDate LIMIT 1")
+    suspend fun meterReadingByDate(meterId: String, readingDate: String): MeterReadingEntity?
+
+    @Query("DELETE FROM meter_readings WHERE id=:id")
+    suspend fun deleteMeterReading(id: Long)
 }
 
 @Dao

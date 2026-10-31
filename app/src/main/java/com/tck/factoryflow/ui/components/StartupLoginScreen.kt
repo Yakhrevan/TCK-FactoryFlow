@@ -34,9 +34,9 @@ private val AdminColor = Color(0xFF4F46E5)
 
 @Composable
 fun StartupLoginScreen(
-    firebaseConfigured: Boolean,
+    isOnline: Boolean,
     onFirebaseSignIn: (email: String, password: String, onError: (String) -> Unit) -> Unit,
-    onOfflineSignIn: (email: String, pass: String, onError: (String) -> Unit) -> Unit
+    onRetryConnection: () -> Unit
 ) {
     var email by remember { mutableStateOf("admin@tckfactory.com") }
     var password by remember { mutableStateOf("") }
@@ -84,14 +84,14 @@ fun StartupLoginScreen(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("TCK FactoryFlow", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
-                    Text("SMART BOTTLE MANUFACTURING SYSTEM", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.3.sp)
+                    Text("100% ONLINE CLOUD MANUFACTURING SYSTEM", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.3.sp)
                 }
 
                 // Server Status Indicator
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = if (firebaseConfigured) Color(0xFFE8F7F0) else Color(0xFFFFF4E5),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (firebaseConfigured) Color(0xFF86EFAC) else Color(0xFFFFD8A8))
+                    color = if (isOnline) Color(0xFFE8F7F0) else Color(0xFFFEE2E2),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isOnline) Color(0xFF86EFAC) else Color(0xFFFCA5A5))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
@@ -102,16 +102,48 @@ fun StartupLoginScreen(
                             Modifier
                                 .size(9.dp)
                                 .background(
-                                    if (firebaseConfigured) Color(0xFF16804A) else Color(0xFFD97706),
+                                    if (isOnline) Color(0xFF16804A) else Color(0xFFDC2626),
                                     RoundedCornerShape(5.dp)
                                 )
                         )
                         Text(
-                            if (firebaseConfigured) "Server Connected · Realtime Cloud Sync" else "Offline Mode · Local Storage Active",
+                            if (isOnline) "Realtime Cloud Connected · Firebase Active" else "No Internet Connection · Cloud Access Required",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (firebaseConfigured) Color(0xFF16804A) else Color(0xFFB45309)
+                            color = if (isOnline) Color(0xFF16804A) else Color(0xFF991B1B)
                         )
+                    }
+                }
+
+                if (!isOnline) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA))
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.CloudOff, null, tint = Color(0xFFDC2626))
+                                Text("Internet Connection Required", fontWeight = FontWeight.Bold, color = Color(0xFF991B1B), fontSize = 14.sp)
+                            }
+                            Text(
+                                "TCK FactoryFlow operates strictly in 100% Online Mode. All production records, pack inventories, and dispatches are committed directly to the central cloud server. Please connect to Wi-Fi or mobile data.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF7F1D1D),
+                                lineHeight = 16.sp
+                            )
+                            Button(
+                                onClick = onRetryConnection,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                            ) {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Check Connection Again", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
 
@@ -149,8 +181,8 @@ fun StartupLoginScreen(
                                     Icon(Icons.Default.AdminPanelSettings, null, tint = Color.White, modifier = Modifier.size(22.dp))
                                 }
                                 Column(Modifier.weight(1f)) {
-                                    Text("ADMINISTRATOR LOGIN", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = AdminColor)
-                                    Text("Full Factory Governance & Operations", fontSize = 10.sp, color = Muted)
+                                    Text("CLOUD ADMINISTRATOR LOGIN", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = AdminColor)
+                                    Text("Full Server Governance & Live Operations", fontSize = 10.sp, color = Muted)
                                 }
                             }
                         }
@@ -187,6 +219,7 @@ fun StartupLoginScreen(
                             label = { Text("Email Address") },
                             placeholder = { Text("admin@tckfactory.com") },
                             singleLine = true,
+                            enabled = isOnline && !isLoading,
                             modifier = Modifier.fillMaxWidth(),
                             leadingIcon = { Icon(Icons.Default.Email, null, tint = AdminColor) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -200,6 +233,7 @@ fun StartupLoginScreen(
                             label = { Text("Password") },
                             placeholder = { Text("••••••••") },
                             singleLine = true,
+                            enabled = isOnline && !isLoading,
                             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),
                             leadingIcon = { Icon(Icons.Default.Lock, null, tint = AdminColor) },
@@ -214,19 +248,12 @@ fun StartupLoginScreen(
                             },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
-                                if (email.isNotBlank() && password.isNotBlank() && !isLoading) {
+                                if (isOnline && email.isNotBlank() && password.isNotBlank() && !isLoading) {
                                     isLoading = true
-                                    val performSignIn = if (firebaseConfigured) {
-                                        { onFirebaseSignIn(email.trim(), password) { err ->
-                                            onOfflineSignIn(email.trim(), password) { offlineErr ->
-                                                isLoading = false
-                                                errorMessage = "$err ($offlineErr)"
-                                            }
-                                        } }
-                                    } else {
-                                        { onOfflineSignIn(email.trim(), password) { err -> isLoading = false; errorMessage = err } }
+                                    onFirebaseSignIn(email.trim(), password) { err ->
+                                        isLoading = false
+                                        errorMessage = err
                                     }
-                                    performSignIn()
                                 }
                             }),
                             shape = RoundedCornerShape(12.dp)
@@ -240,21 +267,12 @@ fun StartupLoginScreen(
                                     return@Button
                                 }
                                 isLoading = true
-                                if (firebaseConfigured) {
-                                    onFirebaseSignIn(email.trim(), password) { err ->
-                                        onOfflineSignIn(email.trim(), password) { offlineErr ->
-                                            isLoading = false
-                                            errorMessage = "$err ($offlineErr)"
-                                        }
-                                    }
-                                } else {
-                                    onOfflineSignIn(email.trim(), password) { err ->
-                                        isLoading = false
-                                        errorMessage = err
-                                    }
+                                onFirebaseSignIn(email.trim(), password) { err ->
+                                    isLoading = false
+                                    errorMessage = err
                                 }
                             },
-                            enabled = !isLoading,
+                            enabled = isOnline && !isLoading,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(50.dp),
@@ -264,9 +282,9 @@ fun StartupLoginScreen(
                             if (isLoading) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Default.Login, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.CloudSync, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Sign In as Administrator", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Sign In to Factory Cloud", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 

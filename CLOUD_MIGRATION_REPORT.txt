@@ -1,0 +1,14 @@
+TCK FACTORYFLOW CLOUD MIGRATION REPORT
+
+ROOM FILES:
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt
+app/src/main/java/com/tck/factoryflow/data/DomainDaos.kt
+
+FIREBASE FILES:
+app/src/main/java/com/tck/factoryflow/sync/CloudInventoryRepository.kt
+app/src/main/java/com/tck/factoryflow/sync/SyncOutboxWorker.kt
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt
+
+REPOSITORY FILES:
+app/src/main/java/com/tck/factoryflow/sync/CloudInventoryRepository.kt
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt

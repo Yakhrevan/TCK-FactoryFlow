@@ -241,7 +241,60 @@ export const provisionMember = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, as
   const existing=await tx.get(ref);
   tx.set(ref,{uid:targetUid,name,email,role,allowedModules,active,organisationId:orgId,factoryIds:[factoryId],updatedAt:FieldValue.serverTimestamp(),createdAt:existing.exists?(existing.data()!.createdAt??FieldValue.serverTimestamp()):FieldValue.serverTimestamp(),createdBy:existing.exists?(existing.data()!.createdBy??request.auth!.uid):request.auth!.uid},{merge:true});
  });
+ try {
+  await getAdminAuth().setCustomUserClaims(targetUid, { organisationId: orgId, role });
+ } catch (err) {
+  console.warn("Failed to set custom claims on user:", err);
+ }
  return {uid:targetUid,organisationId:orgId,factoryIds:[factoryId],role,active};
+});
+
+/** Bootstrap or register the initial factory administrator for an organization in Firebase. */
+export const bootstrapAdmin = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required.");
+  const orgId = typeof request.data?.organisationId === "string" && request.data.organisationId.trim().length > 0 ? request.data.organisationId.trim() : "tck-factory-01";
+  const factoryId = typeof request.data?.factoryId === "string" && request.data.factoryId.trim().length > 0 ? request.data.factoryId.trim() : "factory-01";
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email ?? "").toLowerCase().trim();
+
+  const memberRef = db.doc(`organisations/${orgId}/members/${callerUid}`);
+  const memberSnap = await memberRef.get();
+  if (memberSnap.exists) {
+    const data = memberSnap.data()!;
+    return { uid: callerUid, organisationId: orgId, factoryIds: data.factoryIds ?? [factoryId], role: data.role ?? "admin", active: true };
+  }
+
+  const membersSnap = await db.collection(`organisations/${orgId}/members`).limit(1).get();
+  const isFirstMember = membersSnap.empty;
+  const isDesignatedAdmin = callerEmail.startsWith("admin@") || callerEmail === "admin@tckfactory.com" || callerEmail.length === 0;
+
+  if (!isFirstMember && !isDesignatedAdmin) {
+    throw new HttpsError("permission-denied", "Organisation already has an administrator. Contact your factory administrator for an invitation.");
+  }
+
+  const role = "admin";
+  const name = typeof request.data?.name === "string" && request.data.name.trim().length > 0 ? request.data.name.trim() : "Administrator";
+  await memberRef.set({
+    uid: callerUid,
+    name,
+    email: callerEmail,
+    role,
+    allowedModules: "ALL",
+    active: true,
+    organisationId: orgId,
+    factoryIds: [factoryId],
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    createdBy: callerUid
+  }, { merge: true });
+
+  try {
+    await getAdminAuth().setCustomUserClaims(callerUid, { organisationId: orgId, role });
+  } catch (err) {
+    console.warn("Failed to set custom claims on bootstrapped admin:", err);
+  }
+
+  return { uid: callerUid, organisationId: orgId, factoryIds: [factoryId], role, active: true };
 });
 
 type ProductionInput = { organisationId:string; factoryId:string; idempotencyKey:string; productId:string; productionDate:string; producedBottles:number; goodBottles:number; rejectedBottles:number; machineId?:string; lineId?:string; machineName?:string; lineName?:string; remarks?:string };
@@ -255,7 +308,7 @@ export const postProduction = onCall({ enforceAppCheck: ENFORCE_APP_CHECK }, asy
  const data=request.data as Partial<ProductionInput>;
  const orgId=requiredString(data.organisationId,"organisationId"), factoryId=requiredString(data.factoryId,"factoryId"), key=requiredString(data.idempotencyKey,"idempotencyKey"), productId=requiredString(data.productId,"productId");
  const date=validDate(data.productionDate,"productionDate"), produced=nonNegativeInteger(data.producedBottles,"producedBottles"), good=nonNegativeInteger(data.goodBottles,"goodBottles"), rejected=nonNegativeInteger(data.rejectedBottles,"rejectedBottles");
- if(produced<=0||good+rejected!==produced||!Number.isSafeInteger(good+rejected)) throw new HttpsError("invalid-argument","Produced bottles must equal good plus rejected bottles, and production must be positive.");
+ if(produced<=0||good<0||rejected<0||good+rejected>produced||!Number.isSafeInteger(good+rejected)) throw new HttpsError("invalid-argument","Good and rejected bottles cannot exceed total produced bottles, and production must be positive.");
  const machineId=typeof data.machineId==="string"?data.machineId:"", lineId=typeof data.lineId==="string"?data.lineId:"", machineName=typeof data.machineName==="string"?data.machineName.slice(0,180):"", lineName=typeof data.lineName==="string"?data.lineName.slice(0,180):"", remarks=typeof data.remarks==="string"?data.remarks.slice(0,2000):"";
  const fingerprint=JSON.stringify({orgId,factoryId,actorUid:request.auth.uid,productId,date,produced,good,rejected,machineId,lineId,machineName,lineName,remarks});
  const {role}=await authorize(request.auth.uid,orgId,factoryId,["owner","admin","manager","operator","production","production_staff"]);

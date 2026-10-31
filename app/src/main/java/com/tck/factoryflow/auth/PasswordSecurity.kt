@@ -40,8 +40,13 @@ object PasswordSecurity {
         }
     }
 
+    fun normalizeEmail(email: String): String {
+        val clean = email.lowercase().trim()
+        return if (clean == "admin@tck-factoryflow.com") ADMIN_EMAIL else clean
+    }
+
     fun saveCredential(context: Context, email: String, password: String) {
-        val cleanEmail = email.lowercase().trim()
+        val cleanEmail = normalizeEmail(email)
         val salt = generateSalt()
         val hash = hashPassword(password, salt)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -60,7 +65,7 @@ object PasswordSecurity {
 
     fun verifyPassword(context: Context, email: String, password: String): Boolean {
         initializeDefaultAdminIfNeeded(context)
-        val cleanEmail = email.lowercase().trim()
+        val cleanEmail = normalizeEmail(email)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedHash = prefs.getString("hash_$cleanEmail", null) ?: return false
         val savedSalt = prefs.getString("salt_$cleanEmail", null) ?: return false

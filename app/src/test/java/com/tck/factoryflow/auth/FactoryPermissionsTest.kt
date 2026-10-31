@@ -6,6 +6,12 @@ class FactoryPermissionsTest {
  @Test fun dispatchStaffCannotManageStaff(){assertTrue(FactoryPermissions.allows(FactoryRole.DISPATCH_STAFF,FactoryAction.POST_DISPATCH));assertFalse(FactoryPermissions.allows(FactoryRole.DISPATCH_STAFF,FactoryAction.MANAGE_STAFF))}
  @Test fun crossOrganisationAccessDenied(){FactoryPermissions.requireOrganisation("factory-a","factory-a");assertThrows(IllegalArgumentException::class.java){FactoryPermissions.requireOrganisation("factory-a","factory-b")}}
  @Test fun firebaseOperatorClaimMapsToProductionRole(){assertEquals(FactoryRole.PRODUCTION_STAFF,FactoryPermissions.fromClaim("operator"))}
+ @Test fun roleAliasesMapProperly(){
+  assertEquals(FactoryRole.PRODUCTION_STAFF,FactoryPermissions.fromClaim("production"))
+  assertEquals(FactoryRole.PRODUCTION_STAFF,FactoryPermissions.fromClaim("production_operator"))
+  assertEquals(FactoryRole.PACKING_STAFF,FactoryPermissions.fromClaim("packing"))
+  assertEquals(FactoryRole.DISPATCH_STAFF,FactoryPermissions.fromClaim("dispatch"))
+ }
  @Test fun unknownClaimDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.fromClaim("superuser")}}
  @Test fun blankOrganisationDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.requireOrganisation("","factory-a")}}
 

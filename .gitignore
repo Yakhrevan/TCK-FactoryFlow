@@ -14,3 +14,6 @@ keystore.properties
 *.apk
 *.zip
 .kotlin/
+node_modules/
+functions/node_modules/
+functions/lib/

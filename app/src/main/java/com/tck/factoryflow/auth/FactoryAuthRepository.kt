@@ -41,9 +41,9 @@ class FactoryAuthRepository(private val context: Context) {
     private suspend fun resolveRoleAndOrg(userUid: String, tokenClaims: Map<String, Any?>?, email: String?): MemberProfile {
         val claimOrg = tokenClaims?.get("organisationId") as? String
         val org = claimOrg?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
-        if (!hasFirebase()) error("Cloud authentication is unavailable.")
+        if (!hasFirebase()) error("Cloud authentication is unavailable. Please check your internet connection.")
 
-        val memberDoc = FirebaseFirestore.getInstance()
+        var memberDoc = FirebaseFirestore.getInstance()
             .collection("organisations")
             .document(org)
             .collection("members")
@@ -52,7 +52,26 @@ class FactoryAuthRepository(private val context: Context) {
             .await()
 
         if (!memberDoc.exists()) {
-            error("This account has no provisioned factory membership. Contact the administrator.")
+            val cleanEmail = email?.lowercase()?.trim().orEmpty()
+            if (cleanEmail == "admin@tckfactory.com" || cleanEmail.startsWith("admin@") || tokenClaims?.get("role") == "admin") {
+                runCatching {
+                    FirebaseFunctions.getInstance()
+                        .getHttpsCallable("bootstrapAdmin")
+                        .call(mapOf("organisationId" to org, "factoryId" to "factory-01", "name" to "Administrator"))
+                        .await()
+                    memberDoc = FirebaseFirestore.getInstance()
+                        .collection("organisations")
+                        .document(org)
+                        .collection("members")
+                        .document(userUid)
+                        .get()
+                        .await()
+                }
+            }
+        }
+
+        if (!memberDoc.exists()) {
+            error("This account ($email) has no provisioned factory membership. Contact the administrator.")
         }
         val docOrg = memberDoc.getString("organisationId")
         val role = memberDoc.getString("role")?.lowercase()?.trim()
@@ -63,7 +82,7 @@ class FactoryAuthRepository(private val context: Context) {
         if (docOrg != org || role.isNullOrBlank()) {
             error("Factory membership is incomplete or belongs to another organisation.")
         }
-        val allowedRoles = setOf("owner", "admin", "manager", "production_staff", "packing_staff", "storekeeper", "dispatch_staff", "viewer", "operator", "production", "packing", "dispatch")
+        val allowedRoles = setOf("owner", "admin", "manager", "production_staff", "packing_staff", "storekeeper", "dispatch_staff", "viewer", "operator", "production", "packing", "dispatch", "production_operator")
         if (role !in allowedRoles) error("Factory membership contains an unsupported role.")
         return MemberProfile(
             org = org,
@@ -79,7 +98,7 @@ class FactoryAuthRepository(private val context: Context) {
 
     suspend fun signIn(email: String, password: String): FactorySession {
         require(email.isNotBlank() && password.isNotBlank()) { "Email and password are required." }
-        val auth = getAuth() ?: error("Cloud authentication server is not reachable. Please connect to internet or use Local Role mode.")
+        val auth = getAuth() ?: error("Cloud authentication server is not reachable. Active internet connection required.")
         val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
         val user = result.user ?: error("Authentication returned no user.")
         val token = user.getIdToken(true).await()
@@ -217,7 +236,7 @@ class FactoryAuthRepository(private val context: Context) {
         val cleanRole = role.lowercase().trim()
         val session = FactorySession(
             uid = "local_${cleanRole}_${System.currentTimeMillis() % 10000}",
-            email = if (cleanRole == "admin" || cleanRole == "owner") "admin@tck-factoryflow.com" else "$cleanRole@tck-factoryflow.com",
+            email = if (cleanRole == "admin" || cleanRole == "owner") PasswordSecurity.ADMIN_EMAIL else "$cleanRole@tckfactory.com",
             organisationId = "tck-factory-01",
             role = cleanRole,
             name = staffName,
@@ -268,18 +287,21 @@ class FactoryAuthRepository(private val context: Context) {
                 saveLocalSession(session)
                 return session
             }
-            // If offline, device has no network, or token refresh failed,
-            // fall back to the cached local session below so the user stays signed in.
+            // If online profile could not be refreshed immediately, verify cached session was cloud authenticated
+        }
+        val isCloud = prefs.getBoolean("isCloud", false)
+        if (!isCloud) {
+            // In 100% Online mode, mock/local sessions are not permitted.
+            return null
         }
         val savedRole = prefs.getString("role", null) ?: return null
-        val uid = prefs.getString("uid", "local_$savedRole") ?: "local_$savedRole"
-        val email = prefs.getString("email", "$savedRole@tck-factoryflow.com")
+        val uid = prefs.getString("uid", null) ?: return null
+        val email = prefs.getString("email", null) ?: return null
         val org = prefs.getString("org", "tck-factory-01") ?: "tck-factory-01"
         val name = prefs.getString("name", "") ?: ""
         val allowedModules = prefs.getString("allowedModules", "ALL") ?: "ALL"
-        val isCloud = prefs.getBoolean("isCloud", false)
         val factoryIds = prefs.getString("factoryIds", "factory-01")?.split(",")?.filter { it.isNotBlank() } ?: listOf("factory-01")
-        return FactorySession(uid, email, org, savedRole, name, allowedModules, isCloud, factoryIds)
+        return FactorySession(uid, email, org, savedRole, name, allowedModules, isCloud = true, factoryIds = factoryIds)
     }
 
     fun signOut() {

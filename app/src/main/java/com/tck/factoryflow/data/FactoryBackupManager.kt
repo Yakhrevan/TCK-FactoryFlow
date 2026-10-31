@@ -10,14 +10,21 @@ import java.io.FileOutputStream
 /** Consistent, validated SQLite snapshots with rollback on failed restore validation. */
 object FactoryBackupManager {
     private const val DATABASE_NAME = "factoryflow.db"
-    private const val CURRENT_SCHEMA = 11
+    private const val CURRENT_SCHEMA = 12
 
     fun exportSnapshot(context: Context, destination: Uri) {
         val database = FactoryDatabase.get(context)
         val snapshot = File(context.cacheDir, "factoryflow-snapshot-" + System.currentTimeMillis() + ".db")
         try {
             val safePath = snapshot.absolutePath.replace("'", "''")
-            database.openHelper.writableDatabase.execSQL("VACUUM INTO '$safePath'")
+            val vacuumSuccess = runCatching {
+                database.openHelper.writableDatabase.execSQL("VACUUM INTO '$safePath'")
+            }.isSuccess
+            if (!vacuumSuccess || !snapshot.exists() || snapshot.length() == 0L) {
+                runCatching { database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close() }
+                val liveDb = context.getDatabasePath(DATABASE_NAME)
+                liveDb.copyTo(snapshot, overwrite = true)
+            }
             validate(snapshot)
             context.contentResolver.openOutputStream(destination)?.use { output ->
                 FileInputStream(snapshot).use { input -> input.copyTo(output) }
@@ -79,7 +86,7 @@ object FactoryBackupManager {
                 require(cursor.moveToFirst()) { "Could not read backup schema version." }
                 cursor.getInt(0)
             }
-            require(version == CURRENT_SCHEMA) { "Backup schema version " + version + " is not supported by this app (expected " + CURRENT_SCHEMA + ")." }
+            require(version in 9..CURRENT_SCHEMA) { "Backup schema version " + version + " is not supported by this app (expected 9 to " + CURRENT_SCHEMA + ")." }
             val hasProducts = db.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='products'", null).use { cursor ->
                 cursor.moveToFirst() && cursor.getInt(0) == 1
             }

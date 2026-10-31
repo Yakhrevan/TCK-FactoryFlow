@@ -14,16 +14,16 @@ object FactoryPermissions {
   FactoryRole.DISPATCH_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.POST_DISPATCH,FactoryAction.MANAGE_ORDERS)
   FactoryRole.VIEWER -> action in setOf(FactoryAction.VIEW,FactoryAction.EXPORT_REPORTS)
  }
- fun fromClaim(claim:String):FactoryRole = when(claim.lowercase()) {
+ fun fromClaim(claim:String):FactoryRole = when(claim.lowercase().trim()) {
   "owner" -> FactoryRole.OWNER
   "admin" -> FactoryRole.ADMIN
   "manager" -> FactoryRole.MANAGER
-  "production_staff", "production-staff", "operator" -> FactoryRole.PRODUCTION_STAFF
-  "packing_staff", "packing-staff" -> FactoryRole.PACKING_STAFF
-  "storekeeper" -> FactoryRole.STOREKEEPER
-  "dispatch_staff", "dispatch-staff" -> FactoryRole.DISPATCH_STAFF
+  "production_staff", "production-staff", "operator", "production", "production_operator" -> FactoryRole.PRODUCTION_STAFF
+  "packing_staff", "packing-staff", "packing" -> FactoryRole.PACKING_STAFF
+  "storekeeper", "inventory" -> FactoryRole.STOREKEEPER
+  "dispatch_staff", "dispatch-staff", "dispatch" -> FactoryRole.DISPATCH_STAFF
   "viewer" -> FactoryRole.VIEWER
-  else -> throw IllegalArgumentException("Unknown or unassigned staff role.")
+  else -> throw IllegalArgumentException("Unknown or unassigned staff role: $claim")
  }
  fun requireOrganisation(sessionOrganisationId:String,recordOrganisationId:String) {
   require(sessionOrganisationId.isNotBlank() && recordOrganisationId.isNotBlank() && sessionOrganisationId==recordOrganisationId) { "Access denied: organisation mismatch." }
