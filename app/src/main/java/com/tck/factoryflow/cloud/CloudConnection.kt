@@ -28,6 +28,10 @@ object CloudConnection {
         )
     }
 
+    fun requireOnlineIfWrite(context: Context, method: String) {
+        if (method.uppercase() in setOf("POST", "PUT", "PATCH", "DELETE")) requireOnline(context)
+    }
+
     fun requireOnline(context: Context) {
         check(isOnline(context)) {
             "Internet connection required. Please connect and try again."

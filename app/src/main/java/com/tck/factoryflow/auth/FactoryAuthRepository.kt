@@ -3,8 +3,9 @@ package com.tck.factoryflow.auth
 import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
+import com.tck.factoryflow.cloud.CloudResult
+import com.tck.factoryflow.cloud.CloudflareApiClient
+import org.json.JSONObject
 import kotlinx.coroutines.tasks.await
 
 data class FactorySession(
@@ -38,58 +39,101 @@ class FactoryAuthRepository(private val context: Context) {
         runCatching { FirebaseAuth.getInstance() }.getOrNull()
     } else null
 
-    private suspend fun resolveRoleAndOrg(userUid: String, tokenClaims: Map<String, Any?>?, email: String?): MemberProfile {
-        val claimOrg = tokenClaims?.get("organisationId") as? String
-        val org = claimOrg?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
-        if (!hasFirebase()) error("Cloud authentication is unavailable. Please check your internet connection.")
+    private suspend fun resolveRoleAndOrg(
+        userUid: String,
+        tokenClaims: Map<String, Any?>?,
+        email: String?
+    ): MemberProfile {
+        val org = (tokenClaims?.get("organisationId") as? String)
+            ?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
 
-        var memberDoc = FirebaseFirestore.getInstance()
-            .collection("organisations")
-            .document(org)
-            .collection("members")
-            .document(userUid)
-            .get()
-            .await()
+        if (!hasFirebase()) {
+            error("Cloud authentication is unavailable. Check your internet connection.")
+        }
 
-        if (!memberDoc.exists()) {
+        fun memberRequest() = JSONObject().put("organisationId", org)
+
+        var response = CloudflareApiClient.post(
+            context, "/api/auth/member", memberRequest()
+        )
+
+        if (response is CloudResult.Error) {
             val cleanEmail = email?.lowercase()?.trim().orEmpty()
-            if (cleanEmail == "admin@tckfactory.com" || cleanEmail.startsWith("admin@") || tokenClaims?.get("role") == "admin") {
-                runCatching {
-                    FirebaseFunctions.getInstance()
-                        .getHttpsCallable("bootstrapAdmin")
-                        .call(mapOf("organisationId" to org, "factoryId" to "factory-01", "name" to "Administrator"))
-                        .await()
-                    memberDoc = FirebaseFirestore.getInstance()
-                        .collection("organisations")
-                        .document(org)
-                        .collection("members")
-                        .document(userUid)
-                        .get()
-                        .await()
+            val eligibleAdmin = cleanEmail == "admin@tckfactory.com" ||
+                cleanEmail.startsWith("admin@") ||
+                tokenClaims?.get("role") == "admin"
+
+            if (eligibleAdmin) {
+                val bootstrap = CloudflareApiClient.post(
+                    context,
+                    "/api/auth/bootstrap-admin",
+                    JSONObject()
+                        .put("organisationId", org)
+                        .put("factoryId", "factory-01")
+                        .put("name", "Administrator")
+                )
+
+                if (bootstrap is CloudResult.Success) {
+                    response = CloudflareApiClient.post(
+                        context, "/api/auth/member", memberRequest()
+                    )
                 }
             }
         }
 
-        if (!memberDoc.exists()) {
-            error("This account ($email) has no provisioned factory membership. Contact the administrator.")
+        val json = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(
+                "This account ($email) has no provisioned factory membership. " +
+                    "Contact the administrator. Details: ${response.message}"
+            )
         }
-        val docOrg = memberDoc.getString("organisationId")
-        val role = memberDoc.getString("role")?.lowercase()?.trim()
-        val active = memberDoc.getBoolean("active") == true
-        val docFactoryIds = (memberDoc.get("factoryIds") as? List<*>)?.filterIsInstance<String>()?.filter { it.isNotBlank() }?.distinct().orEmpty()
-        val factoryIds = if (docFactoryIds.isEmpty() && (role == "admin" || role == "owner")) listOf("factory-01") else docFactoryIds
-        if (factoryIds.isEmpty()) error("Factory membership has no assigned factory IDs. Ask the administrator to configure factoryIds.")
+
+        val member = json.optJSONObject("member")
+            ?: error("Worker returned an invalid member profile.")
+
+        val docOrg = member.optString("organisationId")
+        val role = member.optString("role").lowercase().trim()
+        val active = member.optBoolean("active", false)
+
+        val factoryArray = member.optJSONArray("factoryIds")
+        val docFactoryIds = buildList {
+            if (factoryArray != null) {
+                for (i in 0 until factoryArray.length()) {
+                    factoryArray.optString(i).takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }.distinct()
+
+        val factoryIds = if (
+            docFactoryIds.isEmpty() && (role == "admin" || role == "owner")
+        ) listOf("factory-01") else docFactoryIds
+
+        if (factoryIds.isEmpty()) {
+            error("Factory membership has no assigned factory IDs. Ask the administrator to configure factoryIds.")
+        }
+
         if (docOrg != org || role.isNullOrBlank()) {
             error("Factory membership is incomplete or belongs to another organisation.")
         }
-        val allowedRoles = setOf("owner", "admin", "manager", "production_staff", "packing_staff", "storekeeper", "dispatch_staff", "viewer", "operator", "production", "packing", "dispatch", "production_operator")
-        if (role !in allowedRoles) error("Factory membership contains an unsupported role.")
+
+        val allowedRoles = setOf(
+            "owner", "admin", "manager", "production_staff", "packing_staff",
+            "storekeeper", "dispatch_staff", "viewer", "operator",
+            "production", "packing", "dispatch", "production_operator"
+        )
+
+        if (role !in allowedRoles) {
+            error("Factory membership contains an unsupported role.")
+        }
+
         return MemberProfile(
             org = org,
             role = role,
-            name = memberDoc.getString("name")?.takeIf { it.isNotBlank() }
+            name = member.optString("name").takeIf { it.isNotBlank() }
                 ?: (tokenClaims?.get("name") as? String).orEmpty(),
-            allowedModules = memberDoc.getString("allowedModules")?.takeIf { it.isNotBlank() }
+            allowedModules = member.optString("allowedModules")
+                .takeIf { it.isNotBlank() }
                 ?: (tokenClaims?.get("allowedModules") as? String ?: "ALL"),
             active = active,
             factoryIds = factoryIds
@@ -152,19 +196,23 @@ class FactoryAuthRepository(private val context: Context) {
 
         val db = com.tck.factoryflow.data.FactoryDatabase.get(context)
         if (hasFirebase()) {
-            FirebaseFunctions.getInstance().getHttpsCallable("provisionMember").call(
-                mapOf(
-                    "organisationId" to "tck-factory-01",
-                    "factoryId" to "factory-01",
-                    "uid" to staff.uid,
-                    "name" to staff.name,
-                    "email" to staff.email,
-                    "role" to staff.role,
-                    "allowedModules" to staff.allowedModules,
-                    "active" to true,
-                    "createdBy" to creatorUid
-                )
-            ).await()
+            val provisionResult = CloudflareApiClient.post(
+                context,
+                "/api/auth/provision-member",
+                JSONObject()
+                    .put("organisationId", "tck-factory-01")
+                    .put("factoryId", "factory-01")
+                    .put("uid", staff.uid)
+                    .put("name", staff.name)
+                    .put("email", staff.email)
+                    .put("role", staff.role)
+                    .put("allowedModules", staff.allowedModules)
+                    .put("active", true)
+                    .put("createdBy", creatorUid)
+            )
+            if (provisionResult is CloudResult.Error) {
+                error("Staff membership provisioning failed: ${provisionResult.message}")
+            }
         }
 
         db.factoryDao().insertStaffMember(staff)
@@ -201,18 +249,22 @@ class FactoryAuthRepository(private val context: Context) {
             ?: error("Staff record is missing its email address.")
 
         if (hasFirebase() && uid.isNotBlank()) {
-            FirebaseFunctions.getInstance().getHttpsCallable("provisionMember").call(
-                mapOf(
-                    "organisationId" to "tck-factory-01",
-                    "factoryId" to "factory-01",
-                    "uid" to uid,
-                    "name" to name.trim(),
-                    "email" to staffEmail,
-                    "role" to role.lowercase().trim(),
-                    "allowedModules" to allowedModules,
-                    "active" to active
-                )
-            ).await()
+            val provisionResult = CloudflareApiClient.post(
+                context,
+                "/api/auth/provision-member",
+                JSONObject()
+                    .put("organisationId", "tck-factory-01")
+                    .put("factoryId", "factory-01")
+                    .put("uid", uid)
+                    .put("name", name.trim())
+                    .put("email", staffEmail)
+                    .put("role", role.lowercase().trim())
+                    .put("allowedModules", allowedModules)
+                    .put("active", active)
+            )
+            if (provisionResult is CloudResult.Error) {
+                error("Staff membership update failed: ${provisionResult.message}")
+            }
         }
 
         db.factoryDao().updateStaffMember(id, name.trim(), role.lowercase().trim(), allowedModules, active)

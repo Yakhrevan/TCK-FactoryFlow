@@ -1,19 +1,12 @@
 package com.tck.factoryflow.sync
 
 import android.content.Context
-import com.google.firebase.FirebaseApp
-import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.auth.FirebaseAuth
-import java.net.HttpURLConnection
-import java.net.URL
-import com.google.firebase.auth.FirebaseAuth
-import java.net.HttpURLConnection
-import java.net.URL
 import com.tck.factoryflow.auth.FactorySession
 import com.tck.factoryflow.data.ProductEntity
 import com.tck.factoryflow.data.ProductionEntryEntity
 import com.tck.factoryflow.data.PackingEntryEntity
-import kotlinx.coroutines.tasks.await
+import com.tck.factoryflow.cloud.CloudflareApiClient
+import com.tck.factoryflow.cloud.CloudResult
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
@@ -47,10 +40,6 @@ class CloudInventoryRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("tck_cloud_inventory", Context.MODE_PRIVATE)
 
-    private fun functions(): FirebaseFunctions {
-        check(FirebaseApp.getApps(appContext).isNotEmpty()) { "Firebase is not configured on this installation." }
-        return FirebaseFunctions.getInstance()
-    }
 
     private fun scope(session: FactorySession): Map<String, String> {
         check(session.isCloud) { "Sign in with a provisioned cloud account before posting shared inventory." }
@@ -88,7 +77,16 @@ class CloudInventoryRepository(context: Context) {
             .put("bottlesPerPack", product.bottlesPerPack)
             .put("active", product.active)
             .toMap()
-        functions().getHttpsCallable("upsertProduct").call(payload).await()
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/products/upsert",
+            JSONObject(payload)
+        )
+
+        when (response) {
+            is CloudResult.Success -> Unit
+            is CloudResult.Error -> error(response.message)
+        }
     }
 
     suspend fun postProduction(session: FactorySession, product: ProductEntity, entry: ProductionEntryEntity): String {
@@ -109,43 +107,22 @@ class CloudInventoryRepository(context: Context) {
         val key = idempotencyKey("production", canonical)
         val payload = JSONObject(canonical).put("idempotencyKey", key)
 
-        val user = FirebaseAuth.getInstance().currentUser
-            ?: error("No Firebase user is signed in.")
-        val token = user.getIdToken(false).await().token
-            ?: error("Firebase ID token unavailable.")
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/production/post",
+            payload
+        )
 
-        val connection = URL("https://tck-factoryflow-api.tckfactoryflow.workers.dev/api/production/post")
-            .openConnection() as HttpURLConnection
-
-        try {
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Authorization", "Bearer $token")
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.connectTimeout = 20000
-            connection.readTimeout = 20000
-
-            connection.outputStream.bufferedWriter().use {
-                it.write(payload.toString())
+        when (response) {
+            is CloudResult.Success -> {
+                check(response.data.optBoolean("success")) {
+                    "Cloudflare rejected Production: ${response.data}"
+                }
+                return key
             }
-
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val response = stream.bufferedReader().use { it.readText() }
-
-            if (status !in 200..299) {
-                error("Cloudflare Production failed (HTTP $status): $response")
-            }
-
-            val result = JSONObject(response)
-            check(result.optBoolean("success")) {
-                "Cloudflare rejected Production: $response"
-            }
-
-            return key
-        } finally {
-            connection.disconnect()
+            is CloudResult.Error -> error(response.message)
         }
+
     }
 
     suspend fun postPacking(session: FactorySession, product: ProductEntity, entry: PackingEntryEntity): CloudPackingPostResult {
@@ -156,15 +133,26 @@ class CloudInventoryRepository(context: Context) {
             .put("productId", product.productCode)
             .put("packingDate", entry.packingDate)
             .put("bottlesConsumed", entry.bottlesConsumed)
-            .toString()
-        val key = idempotencyKey("packing", canonical)
-        val payload = JSONObject(canonical).put("idempotencyKey", key).toMap()
-        val response = functions().getHttpsCallable("postPacking").call(payload).await()
-        val result = response.data as? Map<*, *> ?: error("Server returned an invalid packing confirmation.")
-        val packs = (result["completePacks"] as? Number)?.toInt() ?: error("Server did not return complete-pack quantity.")
-        val loose = (result["looseBottles"] as? Number)?.toInt() ?: error("Server did not return loose-bottle quantity.")
-        val packSize = (result["bottlesPerPack"] as? Number)?.toInt() ?: error("Server did not return the authoritative pack size.")
-        require(packs >= 0 && loose >= 0 && packSize > 0) { "Server returned invalid packing quantities." }
+        val key = idempotencyKey("packing", canonical.toString())
+        val payload = JSONObject(canonical.toString()).put("idempotencyKey", key)
+
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/packing/post",
+            payload
+        )
+
+        val result = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+
+        val packs = result.optInt("completePacks", -1)
+        val loose = result.optInt("looseBottles", -1)
+        val packSize = result.optInt("bottlesPerPack", -1)
+        require(packs >= 0 && loose >= 0 && packSize > 0) {
+            "Server returned invalid packing quantities."
+        }
         return CloudPackingPostResult(key, packs, loose, packSize)
     }
 
@@ -199,26 +187,40 @@ class CloudInventoryRepository(context: Context) {
 
     suspend fun fetchStock(session: FactorySession): CloudStockSnapshot {
         val scope = scope(session)
-        val result = functions().getHttpsCallable("getInventorySnapshot").call(scope).await()
-        val data = result.data as? Map<*, *> ?: error("Server returned an invalid stock snapshot.")
-        val items = (data["items"] as? List<*>)?.mapNotNull { raw ->
-            val item = raw as? Map<*, *> ?: return@mapNotNull null
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/inventory/snapshot",
+            JSONObject(scope)
+        )
+
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+
+        val array = data.optJSONArray("items")
+        val items = (0 until (array?.length() ?: 0)).mapNotNull { index ->
+            val item = array?.optJSONObject(index) ?: return@mapNotNull null
+            val productId = item.optString("productId", "")
+            if (productId.isBlank()) return@mapNotNull null
+
             CloudStockItem(
-                productId = item["productId"] as? String ?: return@mapNotNull null,
-                name = item["name"] as? String ?: "",
-                sizeLabel = item["sizeLabel"] as? String ?: "",
-                colour = item["colour"] as? String ?: "",
-                bottlesPerPack = (item["bottlesPerPack"] as? Number)?.toInt() ?: 0,
-                active = item["active"] as? Boolean ?: false,
-                unpackedGoodBottles = (item["unpackedGoodBottles"] as? Number)?.toInt() ?: 0,
-                completePacks = (item["completePacks"] as? Number)?.toInt() ?: 0,
-                looseBottles = (item["looseBottles"] as? Number)?.toInt() ?: 0
+                productId = productId,
+                name = item.optString("name", ""),
+                sizeLabel = item.optString("sizeLabel", ""),
+                colour = item.optString("colour", ""),
+                bottlesPerPack = item.optInt("bottlesPerPack", 0),
+                active = item.optBoolean("active", false),
+                unpackedGoodBottles = item.optInt("unpackedGoodBottles", 0),
+                completePacks = item.optInt("completePacks", 0),
+                looseBottles = item.optInt("looseBottles", 0)
             )
-        }.orEmpty()
+        }
+
         return CloudStockSnapshot(
-            organisationId = data["organisationId"] as? String ?: session.organisationId,
-            factoryId = data["factoryId"] as? String ?: scope.getValue("factoryId"),
-            serverTime = data["serverTime"] as? String ?: "",
+            organisationId = data.optString("organisationId", session.organisationId),
+            factoryId = data.optString("factoryId", scope.getValue("factoryId")),
+            serverTime = data.optString("serverTime", ""),
             items = items
         )
     }
@@ -245,9 +247,16 @@ class CloudInventoryRepository(context: Context) {
             "lines" to lines,
             "remarks" to remarks
         )
-        val response = functions().getHttpsCallable("postDispatch").call(payload).await()
-        val data = response.data as? Map<*, *> ?: error("Server returned an invalid dispatch confirmation.")
-        return data["dispatchId"] as? String ?: idempotencyKey
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/dispatch/post",
+            JSONObject(payload)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        return data.optString("dispatchId", idempotencyKey)
     }
 
     suspend fun reverseDispatch(
@@ -262,9 +271,16 @@ class CloudInventoryRepository(context: Context) {
             "dispatchId" to dispatchId,
             "reason" to reason
         )
-        val response = functions().getHttpsCallable("reverseDispatch").call(payload).await()
-        val data = response.data as? Map<*, *> ?: error("Server returned an invalid reversal response.")
-        return data["reversed"] as? Boolean ?: true
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/dispatch/reverse",
+            JSONObject(payload)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        return data.optBoolean("reversed", true)
     }
 
     suspend fun reversePacking(
@@ -279,9 +295,16 @@ class CloudInventoryRepository(context: Context) {
             "packingId" to packingId,
             "reason" to reason
         )
-        val response = functions().getHttpsCallable("reversePacking").call(payload).await()
-        val data = response.data as? Map<*, *> ?: error("Server returned an invalid packing reversal response.")
-        return data["reversed"] as? Boolean ?: true
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/packing/reverse",
+            JSONObject(payload)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        return data.optBoolean("reversed", true)
     }
 
     private fun JSONObject.toMap(): Map<String, Any> {

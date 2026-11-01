@@ -5,9 +5,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
+import com.tck.factoryflow.cloud.CloudResult
+import com.tck.factoryflow.cloud.CloudflareApiClient
 import com.tck.factoryflow.data.FactoryDatabase
+import org.json.JSONObject
 import kotlinx.coroutines.tasks.await
 
 class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params) {
@@ -18,10 +19,17 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
   val dao=FactoryDatabase.get(applicationContext).factoryDao()
   var organisationId=token.claims["organisationId"] as? String
   if(organisationId.isNullOrBlank()) {
-   val memberDoc=runCatching{
-    FirebaseFirestore.getInstance().collection("organisations").document("tck-factory-01").collection("members").document(user.uid).get().await()
-   }.getOrNull()
-   organisationId=memberDoc?.getString("organisationId")?:"tck-factory-01"
+   val memberResult=CloudflareApiClient.post(
+    applicationContext,
+    "/api/auth/member",
+    JSONObject().put("organisationId","tck-factory-01")
+   )
+   organisationId=when(memberResult) {
+    is CloudResult.Success -> memberResult.data
+      .optJSONObject("member")?.optString("organisationId")
+      ?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
+    is CloudResult.Error -> "tck-factory-01"
+   }
   }
   var failed=false
   for(event in runCatching{dao.pendingSyncEvents(50)}.getOrElse{return Result.retry()}) {
@@ -32,19 +40,36 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
     continue
    }
    try {
-    val ref=FirebaseFirestore.getInstance().collection("organisations").document(targetOrg).collection("events").document(event.eventKey)
-    FirebaseFirestore.getInstance().runTransaction { transaction ->
-     val existing=transaction.get(ref)
-     if(!existing.exists()) {
-      transaction.set(ref,mapOf("eventKey" to event.eventKey,"eventType" to event.eventType,"payload" to event.payloadJson,"actorUid" to user.uid,"organisationId" to targetOrg,"createdAt" to FieldValue.serverTimestamp()))
-     } else {
-      val existingType=existing.getString("eventType")
-      val existingPayload=existing.getString("payload")
-      require(existingType==event.eventType&&existingPayload==event.payloadJson&&existing.getString("organisationId")==targetOrg){"Idempotency conflict: a different event already uses this key or organisation."}
+    val syncResult=CloudflareApiClient.post(
+     applicationContext,
+     "/api/sync/event",
+     JSONObject()
+      .put("organisationId",targetOrg)
+      .put("eventKey",event.eventKey)
+      .put("eventType",event.eventType)
+      .put("payload",event.payloadJson)
+    )
+    when(syncResult) {
+     is CloudResult.Success -> {
+      dao.markSyncSynced(event.id,System.currentTimeMillis())
      }
-     null
-    }.await()
-    dao.markSyncSynced(event.id,System.currentTimeMillis())
+     is CloudResult.Error -> {
+      val reason=syncResult.message.take(500)
+      if(reason.contains("Idempotency conflict",ignoreCase=true) ||
+         reason.contains("HTTP 409",ignoreCase=true)) {
+       dao.markSyncNeedsReview(event.id,reason)
+      } else if(event.attempts>=7) {
+       dao.markSyncNeedsReview(
+        event.id,
+        "Automatic retry limit reached after "+(event.attempts+1)+
+        " attempts. Last error: "+reason
+       )
+      } else {
+       dao.markSyncAttempt(event.id,reason)
+       failed=true
+      }
+     }
+    }
    } catch(e:Exception) {
     val reason=e.message?.take(500)?:e.javaClass.simpleName
     if(reason.contains("Idempotency conflict",ignoreCase=true)) dao.markSyncNeedsReview(event.id,reason)

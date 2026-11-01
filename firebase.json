@@ -1,5 +1,13 @@
 {
-  "firestore": { "rules": "firestore.rules" },
-  "functions": [{ "source": "functions", "codebase": "factoryflow", "runtime": "nodejs20" }],
-  "emulators": { "firestore": { "port": 8080 }, "ui": { "enabled": false } }
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
 }

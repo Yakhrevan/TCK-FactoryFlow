@@ -59,12 +59,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install backend dependencies
-        working-directory: functions
-        run: npm install
-      - name: Compile trusted backend functions
-        working-directory: functions
-        run: npm run build
       - name: Run Firestore rules tests in emulator
         run: npx --yes firebase-tools emulators:exec --project factoryflow-rules-test --only firestore "npm --prefix functions test"
 

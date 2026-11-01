@@ -94,6 +94,235 @@ export default {
       });
     }
 
+
+    // Fetch authenticated user's organisation membership
+    if (request.method === "POST" && url.pathname === "/api/auth/member") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const orgId = String(body.organisationId || "tck-factory-01");
+        const accessToken = await getGoogleAccessToken(env);
+        const path = `organisations/${orgId}/members/${user.sub}`;
+        const doc = await firestoreGet(env, path, accessToken);
+
+        if (!doc?.fields) {
+          return Response.json({success:false,error:"Member profile not found."},{status:404});
+        }
+
+        const f = doc.fields;
+        const member = {
+          uid: f.uid?.stringValue || user.sub,
+          name: f.name?.stringValue || "",
+          email: f.email?.stringValue || user.email || "",
+          role: f.role?.stringValue || "",
+          allowedModules: f.allowedModules?.stringValue || "ALL",
+          active: f.active?.booleanValue === true,
+          organisationId: f.organisationId?.stringValue || orgId,
+          factoryIds: (f.factoryIds?.arrayValue?.values || []).map(x => x.stringValue || "")
+        };
+
+        return Response.json({success:true,member});
+      } catch(error) {
+        console.error("Member fetch error:",error);
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
+      }
+    }
+
+    // Bootstrap first administrator membership
+    if (request.method === "POST" && url.pathname === "/api/auth/bootstrap-admin") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const orgId = String(body.organisationId || "tck-factory-01");
+        const factoryId = String(body.factoryId || "factory-01");
+        const name = String(body.name || "Administrator").trim();
+        const email = String(user.email || "").toLowerCase();
+        const allowedBootstrap =
+          email === "admin@tckfactory.com" ||
+          email.startsWith("admin@") ||
+          user.role === "admin";
+
+        if (!allowedBootstrap) {
+          return Response.json({success:false,error:"Bootstrap is restricted."},{status:403});
+        }
+
+        const accessToken = await getGoogleAccessToken(env);
+        const memberPath = `organisations/${orgId}/members/${user.sub}`;
+        const existing = await firestoreGet(env, memberPath, accessToken);
+
+        if (existing?.fields) {
+          return Response.json({success:true,created:false,member:existing.fields});
+        }
+
+        const members = await firestoreList(env, `organisations/${orgId}/members`, accessToken);
+        if (members.documents?.length) {
+          return Response.json({success:false,error:"Organisation already has members; bootstrap denied."},{status:403});
+        }
+
+        const fields = {
+          uid:{stringValue:user.sub},
+          name:{stringValue:name},
+          email:{stringValue:email},
+          role:{stringValue:"admin"},
+          allowedModules:{stringValue:"ALL"},
+          active:{booleanValue:true},
+          organisationId:{stringValue:orgId},
+          factoryIds:{arrayValue:{values:[{stringValue:factoryId}]}},
+          createdAt:{timestampValue:new Date().toISOString()},
+          updatedAt:{timestampValue:new Date().toISOString()},
+          createdBy:{stringValue:user.sub}
+        };
+
+        await firestorePatch(env, memberPath, fields, accessToken);
+        return Response.json({success:true,created:true,member:fields});
+      } catch(error) {
+        console.error("Bootstrap admin error:",error);
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
+      }
+    }
+
+
+    // Provision or update staff membership
+    if (request.method === "POST" && url.pathname === "/api/auth/provision-member") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+
+        const orgId = String(body.organisationId || "").trim();
+        const factoryId = String(body.factoryId || "").trim();
+        const targetUid = String(body.uid || "").trim();
+        const name = String(body.name || "").trim();
+        const email = String(body.email || "").trim().toLowerCase();
+        const role = String(body.role || "").trim().toLowerCase();
+        const allowedModules = String(body.allowedModules || "ALL").trim();
+        const active = body.active === true;
+        const createdBy = String(body.createdBy || user.sub).trim();
+
+        const allowedRoles = [
+          "admin", "manager", "production_staff", "packing_staff",
+          "storekeeper", "dispatch_staff", "viewer", "operator",
+          "production", "packing", "dispatch", "production_operator"
+        ];
+
+        if (!orgId || !factoryId || !targetUid || !name ||
+            !email.includes("@") || !allowedRoles.includes(role)) {
+          return Response.json({success:false,error:"Invalid member details."},{status:400});
+        }
+
+        if (targetUid === user.sub) {
+          return Response.json({success:false,error:"Cannot provision your own membership."},{status:403});
+        }
+
+        const accessToken = await getGoogleAccessToken(env);
+        const actorPath = `organisations/${orgId}/members/${user.sub}`;
+        const actor = await firestoreGet(env, actorPath, accessToken);
+        const actorFields = actor?.fields || {};
+        const actorRole = actorFields.role?.stringValue;
+        const actorFactories = actorFields.factoryIds?.arrayValue?.values || [];
+
+        const actorAllowed = actorFields.active?.booleanValue === true &&
+          actorFields.organisationId?.stringValue === orgId &&
+          ["owner","admin"].includes(actorRole) &&
+          (actorFactories.some(x => x.stringValue === factoryId) ||
+            (!actorFactories.length && ["owner","admin"].includes(actorRole) && factoryId === "factory-01"));
+
+        if (!actorAllowed) {
+          return Response.json({success:false,error:"Only an active owner/admin with factory access can provision staff."},{status:403});
+        }
+
+        if (role === "admin" && actorRole !== "owner") {
+          return Response.json({success:false,error:"Only owner can assign admin role."},{status:403});
+        }
+
+        const memberPath = `organisations/${orgId}/members/${targetUid}`;
+        const now = new Date().toISOString();
+        const fields = {
+          uid:{stringValue:targetUid},
+          name:{stringValue:name},
+          email:{stringValue:email},
+          role:{stringValue:role},
+          allowedModules:{stringValue:allowedModules},
+          active:{booleanValue:active},
+          organisationId:{stringValue:orgId},
+          factoryIds:{arrayValue:{values:[{stringValue:factoryId}]}},
+          updatedAt:{timestampValue:now},
+          updatedBy:{stringValue:user.sub}
+        };
+
+        const existing = await firestoreGet(env, memberPath, accessToken);
+        if (!existing?.fields) {
+          fields.createdAt = {timestampValue:now};
+          fields.createdBy = {stringValue:createdBy};
+        }
+
+        await firestorePatch(env, memberPath, fields, accessToken);
+        return Response.json({success:true,uid:targetUid,role,active});
+      } catch(error) {
+        console.error("Provision member error:",error);
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
+      }
+    }
+
+    // Sync local outbox event with idempotency protection
+    if (request.method === "POST" && url.pathname === "/api/sync/event") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+
+        const orgId = String(body.organisationId || "").trim();
+        const eventKey = String(body.eventKey || "").trim();
+        const eventType = String(body.eventType || "").trim();
+        const payload = String(body.payload || "");
+
+        if (!orgId || !eventKey || !eventType) {
+          return Response.json({success:false,error:"Missing event details."},{status:400});
+        }
+
+        const accessToken = await getGoogleAccessToken(env);
+        const memberPath = `organisations/${orgId}/members/${user.sub}`;
+        const member = await firestoreGet(env, memberPath, accessToken);
+        const mf = member?.fields || {};
+
+        if (mf.active?.booleanValue !== true ||
+            mf.organisationId?.stringValue !== orgId) {
+          return Response.json({success:false,error:"Active organisation membership required."},{status:403});
+        }
+
+        const eventPath = `organisations/${orgId}/events/${eventKey}`;
+        const existing = await firestoreGet(env, eventPath, accessToken);
+
+        if (existing?.fields) {
+          const f = existing.fields;
+          const existingType = f.eventType?.stringValue || "";
+          const existingPayload = f.payload?.stringValue || "";
+          const existingOrg = f.organisationId?.stringValue || "";
+
+          if (existingType !== eventType ||
+              existingPayload !== payload ||
+              existingOrg !== orgId) {
+            return Response.json({success:false,error:"Idempotency conflict: a different event already uses this key or organisation."},{status:409});
+          }
+
+          return Response.json({success:true,duplicate:true,eventKey});
+        }
+
+        const fields = {
+          eventKey:{stringValue:eventKey},
+          eventType:{stringValue:eventType},
+          payload:{stringValue:payload},
+          actorUid:{stringValue:user.sub},
+          organisationId:{stringValue:orgId},
+          createdAt:{timestampValue:new Date().toISOString()}
+        };
+
+        await firestorePatch(env,eventPath,fields,accessToken);
+        return Response.json({success:true,duplicate:false,eventKey});
+      } catch(error) {
+        console.error("Sync event error:",error);
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
+      }
+    }
+
     // Firebase token verification
     if (
       request.method === "GET" &&
@@ -422,6 +651,557 @@ export default {
           { success: false, error: missingAuth ? "Firebase authentication token is required." : "Product upsert failed." },
           { status: missingAuth ? 401 : 500 }
         );
+      }
+    }
+
+    // Packing posting endpoint
+    if (request.method === "POST" && url.pathname === "/api/packing/post") {
+      let transaction;
+
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+
+        const {
+          organisationId: orgId,
+          factoryId,
+          idempotencyKey: key,
+          productId,
+          packingDate: date,
+          bottlesConsumed: consumed
+        } = body;
+
+        const remarks = typeof body.remarks === "string"
+          ? body.remarks.slice(0, 2000)
+          : "";
+
+        const validString = v =>
+          typeof v === "string" && v.trim().length > 0;
+
+        if (
+          ![orgId, factoryId, key, productId, date].every(validString) ||
+          !Number.isSafeInteger(consumed) ||
+          consumed <= 0 ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(date)
+        ) {
+          return Response.json(
+            { success: false, error: "Invalid packing input." },
+            { status: 400 }
+          );
+        }
+
+        const fingerprint = JSON.stringify({
+          orgId,
+          factoryId,
+          actorUid: user.sub,
+          productId,
+          date,
+          consumed,
+          remarks
+        });
+
+        const accessToken = await getGoogleAccessToken(env);
+        const member = await firestoreGet(
+          env,
+          `organisations/${orgId}/members/${user.sub}`,
+          accessToken
+        );
+
+        const fields = member?.fields || {};
+        const role = fields.role?.stringValue || "";
+        const factoryIds = fields.factoryIds?.arrayValue?.values || [];
+        const hasFactory =
+          factoryIds.some(x => x.stringValue === factoryId) ||
+          (factoryIds.length === 0 &&
+            ["admin", "owner"].includes(role) &&
+            factoryId === "factory-01");
+
+        if (
+          fields.active?.booleanValue !== true ||
+          fields.organisationId?.stringValue !== orgId ||
+          !hasFactory ||
+          !["owner", "admin", "manager", "operator", "packing", "packing_staff"].includes(role)
+        ) {
+          return Response.json(
+            { success: false, error: "Insufficient permissions." },
+            { status: 403 }
+          );
+        }
+
+        const root = `organisations/${orgId}/factories/${factoryId}`;
+        const packingPath = `${root}/packings/${key}`;
+        const productPath = `${root}/products/${productId}`;
+        const stockPath = `${root}/stock/${productId}`;
+
+        transaction = await firestoreBeginTransaction(accessToken);
+
+        const batchResults = await firestoreBatchGet(
+          accessToken,
+          transaction,
+          [packingPath, productPath, stockPath]
+        );
+
+        const snapshots = new Map();
+        for (const item of batchResults) {
+          if (item.found) {
+            const path = item.found.name.split("/documents/")[1];
+            snapshots.set(path, item.found);
+          } else if (item.missing) {
+            const path = item.missing.split("/documents/")[1];
+            snapshots.set(path, null);
+          }
+        }
+
+        const existing = snapshots.get(packingPath) || null;
+        const productSnap = snapshots.get(productPath) || null;
+        const stockSnap = snapshots.get(stockPath) || null;
+
+        if (existing) {
+          const prior = existing.fields || {};
+          if (
+            prior.actorUid?.stringValue !== user.sub ||
+            prior.organisationId?.stringValue !== orgId ||
+            prior.factoryId?.stringValue !== factoryId ||
+            prior.requestFingerprint?.stringValue !== fingerprint
+          ) {
+            await firestoreRollback(accessToken, transaction);
+            transaction = null;
+            return Response.json(
+              { success: false, error: "Idempotency key already used for a different packing." },
+              { status: 409 }
+            );
+          }
+
+          await firestoreRollback(accessToken, transaction);
+          transaction = null;
+          return Response.json({
+            success: true,
+            packingId: key,
+            status: prior.status?.stringValue || "POSTED",
+            duplicate: true
+          });
+        }
+
+        if (!productSnap || productSnap.fields?.active?.booleanValue !== true) {
+          throw new Error("Product is missing or inactive.");
+        }
+
+        const product = productSnap.fields;
+        const packSize = Number(product.bottlesPerPack?.integerValue);
+        if (!Number.isSafeInteger(packSize) || packSize <= 0) {
+          throw new Error("Product pack size is not configured.");
+        }
+
+        const stock = stockSnap?.fields || {};
+        const unpacked = Number(stock.unpackedGoodBottles?.integerValue || 0);
+        const completePacks = Number(stock.completePacks?.integerValue || 0);
+        const looseBottles = Number(stock.looseBottles?.integerValue || 0);
+        const packs = Math.floor(consumed / packSize);
+        const loose = consumed % packSize;
+
+        if (
+          !Number.isSafeInteger(unpacked) || unpacked < consumed ||
+          !Number.isSafeInteger(completePacks) || completePacks < 0 ||
+          !Number.isSafeInteger(looseBottles) || looseBottles < 0
+        ) {
+          throw new Error("Insufficient or invalid unpacked bottle stock.");
+        }
+
+        const name = product.name?.stringValue || productId;
+        const now = new Date().toISOString();
+
+        const packingFields = {
+          organisationId: { stringValue: orgId },
+          factoryId: { stringValue: factoryId },
+          idempotencyKey: { stringValue: key },
+          requestFingerprint: { stringValue: fingerprint },
+          productId: { stringValue: productId },
+          productNameSnapshot: { stringValue: name },
+          packingDate: { stringValue: date },
+          bottlesConsumed: { integerValue: String(consumed) },
+          completePacks: { integerValue: String(packs) },
+          looseBottles: { integerValue: String(loose) },
+          remarks: { stringValue: remarks },
+          status: { stringValue: "POSTED" },
+          actorUid: { stringValue: user.sub },
+          actorRole: { stringValue: role },
+          createdAt: { timestampValue: now },
+          reversalId: { nullValue: null }
+        };
+
+        const stockFields = {
+          unpackedGoodBottles: { integerValue: String(unpacked - consumed) },
+          completePacks: { integerValue: String(completePacks + packs) },
+          looseBottles: { integerValue: String(looseBottles + loose) },
+          updatedAt: { timestampValue: now }
+        };
+
+        const writes = [
+          {
+            update: {
+              name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${stockPath}`,
+              fields: stockFields
+            }
+          },
+          {
+            update: {
+              name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${packingPath}`,
+              fields: packingFields
+            },
+            currentDocument: { exists: false }
+          }
+        ];
+
+        const ledgerBase = {
+          organisationId: { stringValue: orgId },
+          factoryId: { stringValue: factoryId },
+          productId: { stringValue: productId },
+          productNameSnapshot: { stringValue: name },
+          actorUid: { stringValue: user.sub },
+          sourceType: { stringValue: "packing" },
+          sourceId: { stringValue: key },
+          createdAt: { timestampValue: now }
+        };
+
+        const ledgerPath = `${root}/inventoryTransactions`;
+        const bottleOut = {
+          ...ledgerBase,
+          quantity: { integerValue: String(-consumed) },
+          unit: { stringValue: "BOTTLE" },
+          transactionType: { stringValue: "PACKING_BOTTLES_OUT" },
+          idempotencyKey: { stringValue: `${key}:${productId}:bottles-out` }
+        };
+
+        writes.push({
+          update: {
+            name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${ledgerPath}/${key}-bottles-out`,
+            fields: bottleOut
+          },
+          currentDocument: { exists: false }
+        });
+
+        if (packs > 0) {
+          writes.push({
+            update: {
+              name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${ledgerPath}/${key}-packs-in`,
+              fields: {
+                ...ledgerBase,
+                quantity: { integerValue: String(packs) },
+                unit: { stringValue: "PACK" },
+                transactionType: { stringValue: "PACKING_PACKS_IN" },
+                idempotencyKey: { stringValue: `${key}:${productId}:packs-in` }
+              }
+            },
+            currentDocument: { exists: false }
+          });
+        }
+
+        if (loose > 0) {
+          writes.push({
+            update: {
+              name: `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${ledgerPath}/${key}-loose-in`,
+              fields: {
+                ...ledgerBase,
+                quantity: { integerValue: String(loose) },
+                unit: { stringValue: "BOTTLE" },
+                transactionType: { stringValue: "PACKING_LOOSE_IN" },
+                idempotencyKey: { stringValue: `${key}:${productId}:loose-in` }
+              }
+            },
+            currentDocument: { exists: false }
+          });
+        }
+
+        await firestoreCommit(accessToken, transaction, writes);
+        transaction = null;
+
+        return Response.json({
+          success: true,
+          packingId: key,
+          status: "POSTED",
+          duplicate: false,
+          completePacks: packs,
+          looseBottles: loose,
+          bottlesPerPack: packSize
+        });
+
+      } catch (error) {
+        if (transaction) {
+          try {
+            const token = await getGoogleAccessToken(env);
+            await firestoreRollback(token, transaction);
+          } catch {}
+        }
+
+        const missingAuth = error.message === "AUTH_MISSING";
+        console.error("Packing posting error:", error?.message || error);
+
+        return Response.json({
+          success: false,
+          error: missingAuth
+            ? "Firebase authentication token is required."
+            : `Packing posting failed: ${String(error?.message || error).slice(0, 300)}`
+        }, { status: missingAuth ? 401 : 500 });
+      }
+    }
+
+
+    // Dispatch posting endpoint
+    if (request.method === "POST" && url.pathname === "/api/dispatch/post") {
+      let transaction;
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const orgId = body.organisationId;
+        const factoryId = body.factoryId;
+        const key = body.idempotencyKey;
+        const reference = body.dispatchReference;
+        const date = body.dispatchDate;
+        const customerId = body.customerId;
+        const customerName = body.customerName;
+        const remarks = String(body.remarks || "");
+        const lines = body.lines;
+
+        if (![orgId, factoryId, key, reference, date, customerId, customerName].every(x => typeof x === "string" && x.trim()) ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(lines) || !lines.length || lines.length > 50 ||
+            remarks.length > 2000) {
+          return Response.json({ success:false, error:"Invalid dispatch input." }, {status:400});
+        }
+
+        const accessToken = await getGoogleAccessToken(env);
+        const member = await firestoreGet(env, `organisations/${orgId}/members/${user.sub}`, accessToken);
+        const f = member?.fields || {};
+        const role = f.role?.stringValue;
+        const factories = f.factoryIds?.arrayValue?.values || [];
+        if (f.active?.booleanValue !== true || f.organisationId?.stringValue !== orgId ||
+            !["owner","admin","manager","dispatch","dispatch_staff"].includes(role) ||
+            !(factories.some(x=>x.stringValue===factoryId) ||
+              (!factories.length && ["owner","admin"].includes(role) && factoryId==="factory-01"))) {
+          return Response.json({success:false,error:"Permission denied."},{status:403});
+        }
+
+        const merged = new Map();
+        for (const line of lines) {
+          if (typeof line.productId !== "string" || !line.productId.trim() ||
+              !Number.isSafeInteger(line.packs) || line.packs < 0 ||
+              !Number.isSafeInteger(line.looseBottles) || line.looseBottles < 0 ||
+              (!line.packs && !line.looseBottles)) {
+            return Response.json({success:false,error:"Invalid dispatch line."},{status:400});
+          }
+          const old = merged.get(line.productId) || {productId:line.productId,packs:0,looseBottles:0};
+          old.packs += line.packs;
+          old.looseBottles += line.looseBottles;
+          merged.set(line.productId,old);
+        }
+        const normalized = [...merged.values()];
+        const fingerprint = JSON.stringify({orgId,factoryId,user:user.sub,reference,date,customerId,customerName,lines:normalized,remarks});
+        const root = `organisations/${orgId}/factories/${factoryId}`;
+        const dispatchPath = `${root}/dispatches/${key}`;
+        transaction = await firestoreBeginTransaction(accessToken);
+        const customerPath = `${root}/customers/${customerId}`;
+        const paths = [dispatchPath,customerPath];
+        for (const l of normalized) paths.push(`${root}/products/${l.productId}`,`${root}/stock/${l.productId}`);
+        const docs = await firestoreBatchGet(accessToken,transaction,paths);
+        const snap = new Map(docs.map(d=>[d.name.split("/documents/")[1],d]));
+        const existing = snap.get(dispatchPath);
+        if (existing) {
+          const oldFp = existing.fields?.requestFingerprint?.stringValue;
+          await firestoreRollback(accessToken,transaction); transaction=null;
+          if(oldFp!==fingerprint) return Response.json({success:false,error:"Idempotency key conflict."},{status:409});
+          return Response.json({success:true,dispatchId:key,status:"POSTED",duplicate:true});
+        }
+        const customer = snap.get(customerPath);
+        if (!customer || customer.fields?.active?.booleanValue===false)
+          throw new Error("Customer missing or inactive.");
+        const posted=[];
+        const writes=[];
+        for (const l of normalized) {
+          const product=snap.get(`${root}/products/${l.productId}`)?.fields;
+          const stock=snap.get(`${root}/stock/${l.productId}`)?.fields;
+          if (!product || product.active?.booleanValue!==true) throw new Error(`Product ${l.productId} missing or inactive.`);
+          const packSize=Number(product.bottlesPerPack?.integerValue || product.bottlesPerPack?.doubleValue);
+          const packs=Number(stock?.completePacks?.integerValue);
+          const loose=Number(stock?.looseBottles?.integerValue || 0);
+          if (!Number.isSafeInteger(packSize)||packSize<=0||!Number.isSafeInteger(packs)||packs<0||
+              !Number.isSafeInteger(loose)||loose<0) throw new Error(`Invalid stock or pack size for ${l.productId}.`);
+          if(l.packs>packs||l.looseBottles>loose) throw new Error(`Insufficient stock for ${l.productId}.`);
+          const name=product.name?.stringValue||l.productId;
+          posted.push({...l,productName:name,packSizeSnapshot:packSize,bottles:l.packs*packSize+l.looseBottles});
+          writes.push({update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${root}/stock/${l.productId}`,
+            fields:{completePacks:{integerValue:String(packs-l.packs)},looseBottles:{integerValue:String(loose-l.looseBottles)},updatedAt:{timestampValue:new Date().toISOString()}}}});
+          for (const [qty, unit, type] of [
+            [l.packs, "PACK", "DISPATCH_OUT"],
+            [l.looseBottles, "BOTTLE", "DISPATCH_LOOSE_OUT"]
+          ]) {
+            if (qty <= 0) continue;
+            const ledgerId = crypto.randomUUID();
+            writes.push({
+              update: {
+                name: `projects/${PROJECT_ID}/databases/(default)/documents/${root}/inventoryTransactions/${ledgerId}`,
+                fields: {
+                  organisationId: {stringValue: orgId},
+                  factoryId: {stringValue: factoryId},
+                  productId: {stringValue: l.productId},
+                  productName: {stringValue: name},
+                  transactionType: {stringValue: type},
+                  quantity: {integerValue: String(qty)},
+                  unit: {stringValue: unit},
+                  referenceId: {stringValue: key},
+                  referenceType: {stringValue: "DISPATCH"},
+                  dispatchReference: {stringValue: reference},
+                  actorUid: {stringValue: user.sub},
+                  actorRole: {stringValue: role},
+                  createdAt: {timestampValue: new Date().toISOString()}
+                },
+                currentDocument: {exists: false}
+              }
+            });
+          }
+        }
+        const fields={organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},
+          idempotencyKey:{stringValue:key},requestFingerprint:{stringValue:fingerprint},
+          dispatchReference:{stringValue:reference},dispatchDate:{stringValue:date},
+          customerId:{stringValue:customerId},customerName:{stringValue:customerName},
+          lines:{arrayValue:{values:posted.map(l=>({mapValue:{fields:{
+            productId:{stringValue:l.productId},productName:{stringValue:l.productName},
+            packSizeSnapshot:{integerValue:String(l.packSizeSnapshot)},packs:{integerValue:String(l.packs)},
+            looseBottles:{integerValue:String(l.looseBottles)},bottles:{integerValue:String(l.bottles)}
+          }}}))}},remarks:{stringValue:remarks},status:{stringValue:"POSTED"},
+          actorUid:{stringValue:user.sub},actorRole:{stringValue:role}};
+        writes.push({update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${dispatchPath}`,fields}});
+        await firestoreCommit(accessToken,transaction,writes); transaction=null;
+        return Response.json({success:true,dispatchId:key,status:"POSTED",duplicate:false});
+      } catch(error) {
+        if(transaction) try { await firestoreRollback(await getGoogleAccessToken(env),transaction); } catch {}
+        console.error("Dispatch posting error:",error);
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
+      }
+    }
+
+
+
+    // Dispatch reversal endpoint
+    if (request.method === "POST" && url.pathname === "/api/dispatch/reverse") {
+      let transaction;
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId, dispatchId, reason } = body;
+        if (![orgId,factoryId,dispatchId,reason].every(x=>typeof x==="string"&&x.trim()))
+          return Response.json({success:false,error:"Invalid reversal input."},{status:400});
+
+        const accessToken=await getGoogleAccessToken(env);
+        const member=await firestoreGet(env,`organisations/${orgId}/members/${user.sub}`,accessToken);
+        const f=member?.fields||{}, role=f.role?.stringValue, factories=f.factoryIds?.arrayValue?.values||[];
+        if(f.active?.booleanValue!==true||f.organisationId?.stringValue!==orgId||
+          !["owner","admin","manager"].includes(role)||
+          !(factories.some(x=>x.stringValue===factoryId)||(!factories.length&&["owner","admin"].includes(role)&&factoryId==="factory-01")))
+          return Response.json({success:false,error:"Permission denied."},{status:403});
+
+        const root=`organisations/${orgId}/factories/${factoryId}`;
+        const dispatchPath=`${root}/dispatches/${dispatchId}`;
+        const reversalPath=`${root}/dispatchReversals/${dispatchId}`;
+        transaction=await firestoreBeginTransaction(accessToken);
+        const docs=await firestoreBatchGet(accessToken,transaction,[dispatchPath,reversalPath]);
+        const map=new Map(docs.map(d=>[d.name.split("/documents/")[1],d]));
+        const d=map.get(dispatchPath);
+        if(!d) throw new Error("Dispatch not found.");
+        if(map.get(reversalPath)){
+          await firestoreRollback(accessToken,transaction);transaction=null;
+          return Response.json({success:true,reversed:false,duplicate:true});
+        }
+        const df=d.fields||{};
+        if(df.status?.stringValue!=="POSTED"||df.organisationId?.stringValue!==orgId||df.factoryId?.stringValue!==factoryId)
+          throw new Error("Only a posted dispatch in this factory can be reversed.");
+        const lines=df.lines?.arrayValue?.values||[];
+        if(!lines.length) throw new Error("Dispatch lines missing.");
+        const parsed=lines.map(x=>x.mapValue.fields);
+        const stockPaths=parsed.map(l=>`${root}/stock/${l.productId.stringValue}`);
+        const stockDocs=await firestoreBatchGet(accessToken,transaction,stockPaths);
+        const stocks=new Map(stockDocs.map(x=>[x.name.split("/documents/")[1],x]));
+        const writes=[{update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${dispatchPath}`,
+          fields:{status:{stringValue:"REVERSED"},reversalId:{stringValue:dispatchId},reversedAt:{timestampValue:new Date().toISOString()}}}},
+          {update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${reversalPath}`,
+          fields:{organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},dispatchId:{stringValue:dispatchId},
+          reason:{stringValue:reason},actorUid:{stringValue:user.sub},actorRole:{stringValue:role},createdAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}}];
+        for(const l of parsed){
+          const id=l.productId.stringValue, packs=Number(l.packs.integerValue), loose=Number(l.looseBottles?.integerValue||0);
+          const path=`${root}/stock/${id}`, st=stocks.get(path)?.fields;
+          const cp=Number(st?.completePacks?.integerValue), cl=Number(st?.looseBottles?.integerValue||0);
+          if(!st||![packs,loose,cp,cl].every(Number.isSafeInteger)||packs<0||loose<0||cp<0||cl<0)
+            throw new Error(`Invalid stock balance for ${id}.`);
+          writes.push({update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${path}`,
+            fields:{completePacks:{integerValue:String(cp+packs)},looseBottles:{integerValue:String(cl+loose)},updatedAt:{timestampValue:new Date().toISOString()}}}});
+          for(const [qty,unit,type,suffix] of [[packs,"PACK","DISPATCH_REVERSAL_IN","packs"],[loose,"BOTTLE","DISPATCH_LOOSE_REVERSAL_IN","loose"]]){
+            if(qty>0) writes.push({update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${root}/inventoryTransactions/${crypto.randomUUID()}`,
+              fields:{organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},productId:{stringValue:id},
+              productNameSnapshot:l.productName,quantity:{integerValue:String(qty)},unit:{stringValue:unit},
+              transactionType:{stringValue:type},sourceType:{stringValue:"dispatchReversal"},sourceId:{stringValue:dispatchId},
+              idempotencyKey:{stringValue:`reverse:${dispatchId}:${id}:${suffix}`},reason:{stringValue:reason},actorUid:{stringValue:user.sub},
+              createdAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}});
+          }
+        }
+        await firestoreCommit(accessToken,transaction,writes);transaction=null;
+        return Response.json({success:true,reversed:true,duplicate:false});
+      }catch(error){
+        if(transaction)try{await firestoreRollback(await getGoogleAccessToken(env),transaction)}catch{}
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
+      }
+    }
+
+    // Packing reversal endpoint
+    if (request.method === "POST" && url.pathname === "/api/packing/reverse") {
+      let transaction;
+      try {
+        const user=await verifyFirebaseToken(request);
+        const body=await request.json();
+        const {organisationId:orgId,factoryId,packingId,reason}=body;
+        if(![orgId,factoryId,packingId,reason].every(x=>typeof x==="string"&&x.trim()))
+          return Response.json({success:false,error:"Invalid reversal input."},{status:400});
+        const accessToken=await getGoogleAccessToken(env);
+        const member=await firestoreGet(env,`organisations/${orgId}/members/${user.sub}`,accessToken);
+        const f=member?.fields||{},role=f.role?.stringValue,factories=f.factoryIds?.arrayValue?.values||[];
+        if(f.active?.booleanValue!==true||f.organisationId?.stringValue!==orgId||
+          !["owner","admin","manager"].includes(role)||
+          !(factories.some(x=>x.stringValue===factoryId)||(!factories.length&&["owner","admin"].includes(role)&&factoryId==="factory-01")))
+          return Response.json({success:false,error:"Permission denied."},{status:403});
+        const root=`organisations/${orgId}/factories/${factoryId}`;
+        const packingPath=`${root}/packings/${packingId}`, reversalPath=`${root}/packingReversals/${packingId}`;
+        transaction=await firestoreBeginTransaction(accessToken);
+        const docs=await firestoreBatchGet(accessToken,transaction,[packingPath,reversalPath]);
+        const map=new Map(docs.map(d=>[d.name.split("/documents/")[1],d]));
+        const packing=map.get(packingPath);
+        if(!packing)throw new Error("Packing record not found.");
+        if(map.get(reversalPath)){await firestoreRollback(accessToken,transaction);transaction=null;return Response.json({success:true,reversed:false,duplicate:true});}
+        const pf=packing.fields||{};
+        if(pf.status?.stringValue!=="POSTED"||pf.organisationId?.stringValue!==orgId||pf.factoryId?.stringValue!==factoryId)
+          throw new Error("Only a posted packing record in this factory can be reversed.");
+        const id=pf.productId?.stringValue, consumed=Number(pf.bottlesConsumed?.integerValue),packs=Number(pf.completePacks?.integerValue),loose=Number(pf.looseBottles?.integerValue);
+        if(!id||![consumed,packs,loose].every(Number.isSafeInteger)||consumed<=0||packs<0||loose<0)
+          throw new Error("Packing quantities invalid.");
+        const stockPath=`${root}/stock/${id}`, stockDocs=await firestoreBatchGet(accessToken,transaction,[stockPath]);
+        const st=stockDocs[0]?.fields;
+        const unpacked=Number(st?.unpackedGoodBottles?.integerValue),cp=Number(st?.completePacks?.integerValue),cl=Number(st?.looseBottles?.integerValue||0);
+        if(!st||![unpacked,cp,cl].every(Number.isSafeInteger)||unpacked<0||cp<packs||cl<loose)
+          throw new Error("Cannot reverse packing: finished stock has been dispatched or adjusted.");
+        const writes=[
+          {update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${packingPath}`,fields:{status:{stringValue:"REVERSED"},reversalId:{stringValue:packingId},reversedAt:{timestampValue:new Date().toISOString()}}}},
+          {update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${reversalPath}`,fields:{organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},packingId:{stringValue:packingId},reason:{stringValue:reason},actorUid:{stringValue:user.sub},actorRole:{stringValue:role},createdAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}},
+          {update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${stockPath}`,fields:{unpackedGoodBottles:{integerValue:String(unpacked+consumed)},completePacks:{integerValue:String(cp-packs)},looseBottles:{integerValue:String(cl-loose)},updatedAt:{timestampValue:new Date().toISOString()}}}}
+        ];
+        const name=pf.productNameSnapshot||{stringValue:id};
+        for(const [qty,unit,type,suffix] of [[consumed,"BOTTLE","PACKING_REVERSAL_BOTTLES_IN","bottles"],[packs,"PACK","PACKING_REVERSAL_PACKS_OUT","packs"],[loose,"BOTTLE","PACKING_REVERSAL_LOOSE_OUT","loose"]]){
+          if(qty>0)writes.push({update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${root}/inventoryTransactions/${crypto.randomUUID()}`,fields:{
+            organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},productId:{stringValue:id},productNameSnapshot:name,
+            quantity:{integerValue:String(type.includes("BOTTLES_IN")?qty:-qty)},unit:{stringValue:unit},transactionType:{stringValue:type},
+            sourceType:{stringValue:"packingReversal"},sourceId:{stringValue:packingId},idempotencyKey:{stringValue:`reverse:${packingId}:${id}:${suffix}`},
+            reason:{stringValue:reason},actorUid:{stringValue:user.sub},createdAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}});
+        }
+        await firestoreCommit(accessToken,transaction,writes);transaction=null;
+        return Response.json({success:true,reversed:true,duplicate:false});
+      }catch(error){
+        if(transaction)try{await firestoreRollback(await getGoogleAccessToken(env),transaction)}catch{}
+        return Response.json({success:false,error:String(error.message||error)},{status:500});
       }
     }
 
