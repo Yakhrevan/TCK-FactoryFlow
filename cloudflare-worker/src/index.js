@@ -132,15 +132,13 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/auth/bootstrap-admin") {
       try {
         const user = await verifyFirebaseToken(request);
-        const body = await request.json();
-        const orgId = String(body.organisationId || "tck-factory-01");
-        const factoryId = String(body.factoryId || "factory-01");
-        const name = String(body.name || "Administrator").trim();
+        await request.json();
+        const orgId = "tck-factory-01";
+        const factoryId = "factory-01";
+        const name = "Administrator";
         const email = String(user.email || "").toLowerCase();
         const allowedBootstrap =
-          email === "admin@tckfactory.com" ||
-          email.startsWith("admin@") ||
-          user.role === "admin";
+          email === "admin@tckfactory.com";
 
         if (!allowedBootstrap) {
           return Response.json({success:false,error:"Bootstrap is restricted."},{status:403});
@@ -148,16 +146,46 @@ export default {
 
         const accessToken = await getGoogleAccessToken(env);
         const memberPath = `organisations/${orgId}/members/${user.sub}`;
-        const existing = await firestoreGet(env, memberPath, accessToken);
+        const lockPath = `organisations/${orgId}/system/bootstrap-admin`;
+        const transaction = await firestoreBeginTransaction(accessToken);
 
-        if (existing?.fields) {
-          return Response.json({success:true,created:false,member:existing.fields});
-        }
+        try {
+          const lock = await firestoreGet(
+            env, lockPath, accessToken, transaction
+          );
 
-        const members = await firestoreList(env, `organisations/${orgId}/members`, accessToken);
-        if (members.documents?.length) {
-          return Response.json({success:false,error:"Organisation already has members; bootstrap denied."},{status:403});
-        }
+          if (lock?.fields?.completed?.booleanValue === true) {
+            await firestoreRollback(accessToken, transaction);
+            return Response.json({
+              success:false,
+              error:"Bootstrap has already been completed."
+            }, {status:403});
+          }
+
+          const existing = await firestoreGet(
+            env, memberPath, accessToken, transaction
+          );
+
+          if (existing?.fields) {
+            await firestoreRollback(accessToken, transaction);
+            return Response.json({
+              success:true,
+              created:false,
+              member:existing.fields
+            });
+          }
+
+          const members = await firestoreList(
+            env, `organisations/${orgId}/members`, accessToken
+          );
+
+          if (members.length) {
+            await firestoreRollback(accessToken, transaction);
+            return Response.json({
+              success:false,
+              error:"Organisation already has members; bootstrap denied."
+            }, {status:403});
+          }
 
         const fields = {
           uid:{stringValue:user.sub},
@@ -173,7 +201,29 @@ export default {
           createdBy:{stringValue:user.sub}
         };
 
-        await firestorePatch(env, memberPath, fields, accessToken);
+        const lockPath = `organisations/${orgId}/system/bootstrap-admin`;
+
+        await firestoreCommit(accessToken, transaction, [
+          {
+            update: {
+              name: `projects/${PROJECT_ID}/databases/(default)/documents/${lockPath}`,
+              fields: {
+                completed: {booleanValue:true},
+                adminUid: {stringValue:user.sub},
+                createdAt: {timestampValue:new Date().toISOString()}
+              }
+            },
+            currentDocument: {exists:false}
+          },
+          {
+            update: {
+              name: `projects/${PROJECT_ID}/databases/(default)/documents/${memberPath}`,
+              fields
+            },
+            currentDocument: {exists:false}
+          }
+        ]);
+
         return Response.json({success:true,created:true,member:fields});
       } catch(error) {
         console.error("Bootstrap admin error:",error);
@@ -289,34 +339,62 @@ export default {
         }
 
         const eventPath = `organisations/${orgId}/events/${eventKey}`;
-        const existing = await firestoreGet(env, eventPath, accessToken);
+        const transaction = await firestoreBeginTransaction(accessToken);
 
-        if (existing?.fields) {
-          const f = existing.fields;
-          const existingType = f.eventType?.stringValue || "";
-          const existingPayload = f.payload?.stringValue || "";
-          const existingOrg = f.organisationId?.stringValue || "";
+        try {
+          const existing = await firestoreGet(
+            env, eventPath, accessToken, transaction
+          );
 
-          if (existingType !== eventType ||
-              existingPayload !== payload ||
-              existingOrg !== orgId) {
-            return Response.json({success:false,error:"Idempotency conflict: a different event already uses this key or organisation."},{status:409});
+          if (existing?.fields) {
+            const f = existing.fields;
+            const existingType = f.eventType?.stringValue || "";
+            const existingPayload = f.payload?.stringValue || "";
+            const existingOrg = f.organisationId?.stringValue || "";
+
+            await firestoreRollback(accessToken, transaction);
+
+            if (existingType !== eventType ||
+                existingPayload !== payload ||
+                existingOrg !== orgId) {
+              return Response.json(
+                {success:false,error:"Idempotency conflict: a different event already uses this key or organisation."},
+                {status:409}
+              );
+            }
+
+            return Response.json({success:true,duplicate:true,eventKey});
           }
 
-          return Response.json({success:true,duplicate:true,eventKey});
+          const fields = {
+            eventKey:{stringValue:eventKey},
+            eventType:{stringValue:eventType},
+            payload:{stringValue:payload},
+            actorUid:{stringValue:user.sub},
+            organisationId:{stringValue:orgId},
+            createdAt:{timestampValue:new Date().toISOString()}
+          };
+
+          await firestoreCommit(accessToken, transaction, [{
+            update: {
+              name: `projects/${PROJECT_ID}/databases/(default)/documents/${eventPath}`,
+              fields
+            },
+            currentDocument: { exists: false }
+          }]);
+
+          return Response.json({success:true,duplicate:false,eventKey});
+        } catch (transactionError) {
+          await firestoreRollback(accessToken, transaction).catch(() => {});
+          if (String(transactionError.message).includes("ALREADY_EXISTS") ||
+              String(transactionError.message).includes("FAILED_PRECONDITION")) {
+            return Response.json(
+              {success:false,error:"Event was concurrently submitted. Retry safely."},
+              {status:409}
+            );
+          }
+          throw transactionError;
         }
-
-        const fields = {
-          eventKey:{stringValue:eventKey},
-          eventType:{stringValue:eventType},
-          payload:{stringValue:payload},
-          actorUid:{stringValue:user.sub},
-          organisationId:{stringValue:orgId},
-          createdAt:{timestampValue:new Date().toISOString()}
-        };
-
-        await firestorePatch(env,eventPath,fields,accessToken);
-        return Response.json({success:true,duplicate:false,eventKey});
       } catch(error) {
         console.error("Sync event error:",error);
         return Response.json({success:false,error:String(error.message||error)},{status:500});

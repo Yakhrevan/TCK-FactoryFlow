@@ -1,6 +1,7 @@
-export async function firestoreGet(env, documentPath, accessToken) {
+export async function firestoreGet(env, documentPath, accessToken, transaction = null) {
   const url =
-    `https://firestore.googleapis.com/v1/projects/${"tck-admin-ac864"}/databases/(default)/documents/${documentPath}`;
+    `https://firestore.googleapis.com/v1/projects/${"tck-admin-ac864"}/databases/(default)/documents/${documentPath}` +
+    (transaction ? `?transaction=${encodeURIComponent(transaction)}` : "");
 
   const response = await fetch(url, {
     headers: {
@@ -20,22 +21,33 @@ export async function firestoreGet(env, documentPath, accessToken) {
 }
 
 export async function firestoreList(env, collectionPath, accessToken) {
-  const url =
-    `https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents/${collectionPath}?pageSize=100`;
+  const documents = [];
+  let nextPageToken = null;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  do {
+    const params = new URLSearchParams({ pageSize: "100" });
+    if (nextPageToken) params.set("pageToken", nextPageToken);
 
-  const result = await response.json();
+    const url =
+      `https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents/${collectionPath}?${params}`;
 
-  if (!response.ok) {
-    throw new Error("FIRESTORE_LIST_FAILED");
-  }
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
-  return result.documents || [];
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error("FIRESTORE_LIST_FAILED");
+    }
+
+    documents.push(...(result.documents || []));
+    nextPageToken = result.nextPageToken || null;
+  } while (nextPageToken);
+
+  return documents;
 }
 
 export async function firestorePatch(env, documentPath, fields, accessToken) {

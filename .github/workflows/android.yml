@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: '20'
       - name: Run Firestore rules tests in emulator
-        run: npx --yes firebase-tools emulators:exec --project factoryflow-rules-test --only firestore "npm --prefix functions test"
+        run: npx --yes firebase-tools emulators:exec --project factoryflow-rules-test --only firestore "npm --prefix rules-tests test"
 
   android-instrumentation:
     runs-on: ubuntu-latest

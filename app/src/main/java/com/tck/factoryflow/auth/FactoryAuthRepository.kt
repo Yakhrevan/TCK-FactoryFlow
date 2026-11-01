@@ -59,9 +59,7 @@ class FactoryAuthRepository(private val context: Context) {
 
         if (response is CloudResult.Error) {
             val cleanEmail = email?.lowercase()?.trim().orEmpty()
-            val eligibleAdmin = cleanEmail == "admin@tckfactory.com" ||
-                cleanEmail.startsWith("admin@") ||
-                tokenClaims?.get("role") == "admin"
+            val eligibleAdmin = cleanEmail == "admin@tckfactory.com"
 
             if (eligibleAdmin) {
                 val bootstrap = CloudflareApiClient.post(
