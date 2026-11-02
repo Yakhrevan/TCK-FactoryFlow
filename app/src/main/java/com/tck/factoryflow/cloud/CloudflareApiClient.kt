@@ -26,45 +26,58 @@ object CloudflareApiClient {
             val user = FirebaseAuth.getInstance().currentUser
                 ?: return@withContext CloudResult.Error("Please login first.")
 
-            val token = user.getIdToken(false).await().token
+            var token = user.getIdToken(false).await().token
                 ?: return@withContext CloudResult.Error("Firebase ID token unavailable.")
 
-            val connection = URL("$BASE_URL$path").openConnection() as HttpURLConnection
+            fun executeHttp(authToken: String): Pair<Int, JSONObject> {
+                val connection = URL("$BASE_URL$path").openConnection() as HttpURLConnection
+                return try {
+                    connection.requestMethod = method.uppercase()
+                    connection.connectTimeout = 15000
+                    connection.readTimeout = 20000
+                    connection.setRequestProperty("Authorization", "Bearer $authToken")
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.setRequestProperty("Accept", "application/json")
 
-            try {
-                connection.requestMethod = method.uppercase()
-                connection.connectTimeout = 15000
-                connection.readTimeout = 20000
-                connection.setRequestProperty("Authorization", "Bearer $token")
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.setRequestProperty("Accept", "application/json")
-
-                if (body != null && method.uppercase() in setOf("POST", "PUT", "PATCH")) {
-                    connection.doOutput = true
-                    connection.outputStream.bufferedWriter().use {
-                        it.write(body.toString())
+                    if (body != null && method.uppercase() in setOf("POST", "PUT", "PATCH")) {
+                        connection.doOutput = true
+                        connection.outputStream.bufferedWriter().use {
+                            it.write(body.toString())
+                        }
                     }
-                }
 
-                val status = connection.responseCode
-                val stream = if (status in 200..299) {
-                    connection.inputStream
-                } else {
-                    connection.errorStream
-                }
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) {
+                        connection.inputStream
+                    } else {
+                        connection.errorStream
+                    }
 
-                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                val json = if (text.isBlank()) JSONObject() else JSONObject(text)
-
-                if (status in 200..299) {
-                    CloudResult.Success(json)
-                } else {
-                    CloudResult.Error(
-                        json.optString("error", "HTTP $status: Request failed.")
-                    )
+                    val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    val json = if (text.isBlank()) JSONObject() else JSONObject(text)
+                    Pair(status, json)
+                } finally {
+                    connection.disconnect()
                 }
-            } finally {
-                connection.disconnect()
+            }
+
+            var (status, json) = executeHttp(token)
+            if (status == 401) {
+                val refreshed = runCatching { user.getIdToken(true).await().token }.getOrNull()
+                if (refreshed != null && refreshed.isNotBlank()) {
+                    token = refreshed
+                    val retried = executeHttp(token)
+                    status = retried.first
+                    json = retried.second
+                }
+            }
+
+            if (status in 200..299) {
+                CloudResult.Success(json)
+            } else {
+                CloudResult.Error(
+                    json.optString("error", "HTTP $status: Request failed.")
+                )
             }
         } catch (e: Exception) {
             CloudResult.Error(

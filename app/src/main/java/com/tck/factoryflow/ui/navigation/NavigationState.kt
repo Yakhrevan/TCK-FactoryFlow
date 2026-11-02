@@ -32,20 +32,4 @@ enum class PageTab(val stringResId: Int, val icon: ImageVector) {
  * Handles back-navigation properly using Jetpack Compose BackHandler.
  * Prevents accidental app exit when deep in sub-screens or dialogs.
  */
-@Composable
-fun FactoryBackHandler(
-    backStack: SnapshotStateList<PageTab>,
-    hasActiveDialog: Boolean,
-    onDismissDialog: () -> Unit,
-    showTools: Boolean,
-    onDismissTools: () -> Unit
-) {
-    val canGoBack = hasActiveDialog || showTools || backStack.size > 1
-    BackHandler(enabled = canGoBack) {
-        when {
-            hasActiveDialog -> onDismissDialog()
-            showTools -> onDismissTools()
-            backStack.size > 1 -> backStack.removeAt(backStack.lastIndex)
-        }
-    }
-}
+

@@ -92,22 +92,31 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM production_lines WHERE status='ACTIVE' ORDER BY name COLLATE NOCASE") abstract suspend fun activeProductionLines():List<ProductionLineEntity>
  @Query("SELECT * FROM production_lines WHERE id=:id LIMIT 1") abstract suspend fun lineById(id:Long):ProductionLineEntity?
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertProductionLine(line:ProductionLineEntity):Long
- @Query("UPDATE production_lines SET name=:name,description=:description,targetCapacity=:capacity,capacityUnit=:unit,status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateProductionLine(id:Long,name:String,description:String,capacity:Int,unit:String,status:String,at:Long=System.currentTimeMillis())
+ @Query("UPDATE production_lines SET name=:name,description=:description,targetCapacity=:capacity,capacityUnit=:unit,status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateProductionLine(id:Long,name:String,description:String,capacity:Int,unit:String,status:String,at:Long=System.currentTimeMillis()):Int
  @Query("DELETE FROM production_lines WHERE id=:id") abstract suspend fun deleteProductionLine(id:Long)
  @Query("DELETE FROM machines WHERE id=:id") abstract suspend fun deleteMachine(id:Long)
+ @Query("SELECT COUNT(*) FROM machines WHERE lineId=:lineId AND status='RUNNING'")
+ abstract suspend fun countRunningMachinesForLine(lineId:Long):Int
+
  @Transaction open suspend fun removeProductionLine(id:Long,actor:String,reason:String,organisationId:String) {
   val line=lineById(id)?:return
+  require(countRunningMachinesForLine(id)==0){"Stop all machines on this line before deleting it."}
   deleteProductionLine(id)
   insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_DELETED",entityType="production_line",entityId=id.toString(),beforeJson=line.name,afterJson="DELETED",reason=reason,actorId=actor))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="line-delete:$organisationId:$id",organisationId=organisationId,eventType="PRODUCTION_LINE_DELETED",payloadJson=org.json.JSONObject().put("lineId",id).put("lineCode",line.lineCode).toString()))
  }
+ @Query("SELECT COUNT(*) FROM machine_events WHERE machineId=:machineId AND status='OPEN'")
+ abstract suspend fun countOpenMachineEvents(machineId:Long):Int
+
  @Transaction open suspend fun removeMachine(id:Long,actor:String,reason:String,organisationId:String) {
   val m=machineById(id)?:return
+  require(m.status!="RUNNING"){"Stop the machine before deleting it."}
+  require(countOpenMachineEvents(id)==0){"Close all open machine events before deleting this machine."}
   deleteMachine(id)
   insertAudit(AuditEventEntity(eventType="MACHINE_DELETED",entityType="machine",entityId=id.toString(),beforeJson=m.name,afterJson="DELETED",reason=reason,actorId=actor))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-delete:$organisationId:$id",organisationId=organisationId,eventType="MACHINE_DELETED",payloadJson=org.json.JSONObject().put("machineId",id).put("machineCode",m.machineCode).toString()))
  }
- @Query("UPDATE machines SET lineId=:lineId,updatedAt=:updatedAt WHERE id=:machineId") abstract suspend fun assignMachineToLine(machineId:Long,lineId:Long?,updatedAt:Long=System.currentTimeMillis())
+ @Query("UPDATE machines SET lineId=:lineId,updatedAt=:updatedAt WHERE id=:machineId") abstract suspend fun assignMachineToLine(machineId:Long,lineId:Long?,updatedAt:Long=System.currentTimeMillis()):Int
  @Query("SELECT * FROM machines WHERE lineId=:lineId ORDER BY name COLLATE NOCASE") abstract fun observeMachinesForLine(lineId:Long):Flow<List<MachineEntity>>
  @Query("SELECT * FROM machines WHERE lineId=:lineId ORDER BY name COLLATE NOCASE") abstract suspend fun machinesForLine(lineId:Long):List<MachineEntity>
  @Query("SELECT * FROM machines WHERE lineId=:lineId AND status='RUNNING' ORDER BY name COLLATE NOCASE") abstract suspend fun activeMachinesForLine(lineId:Long):List<MachineEntity>
@@ -216,13 +225,46 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
   require(orderLines.isNotEmpty()){"Sales order has no product lines"}
   val merged=requestedLines.groupBy{it.productId}.map{(id,lines)->DispatchRequestLine(id,lines.sumOf{it.packs})}
   require(merged.isNotEmpty()&&merged.all{it.packs>0}){"Dispatch quantities must be positive"}
-  merged.forEach{item->
-   val ordered=orderLines.filter{it.productId==item.productId}.sumOf{it.packsOrdered}
-   val already=postedPacksForOrderProduct(order.id,item.productId)
-   require(ordered>0){"Product is not part of this order"}
-   require(item.packs<=ordered-already){"Dispatch exceeds remaining order quantity"}
+  // SAFETY: An idempotency key must never link an existing dispatch
+  // to a different sales order or customer.
+  val existingBatch=batchByIdempotencyKey(batch.idempotencyKey)
+  if(existingBatch!=null){
+   require(existingBatch.salesOrderId==order.id){
+    "Idempotency key already belongs to another sales order"
+   }
+   require(existingBatch.customerId==order.customerId){
+    "Existing dispatch customer does not match this sales order"
+   }
+   require(existingBatch.status=="POSTED"){
+    "Existing dispatch is not in POSTED status"
+   }
+   val existingLines=linesForBatch(existingBatch.id)
+   val requested=merged.associate{it.productId to it.packs}
+   val actual=existingLines.associate{it.productId to it.packs}
+   require(requested==actual){
+    "Idempotency key was already used with different dispatch quantities"
+   }
+  }else{
+   merged.forEach{item->
+    val ordered=orderLines.filter{it.productId==item.productId}.sumOf{it.packsOrdered}
+    val already=postedPacksForOrderProduct(order.id,item.productId)
+    require(ordered>0){"Product is not part of this order"}
+    require(item.packs<=ordered-already){"Dispatch exceeds remaining order quantity"}
+   }
   }
-  val result=postMultiLineDispatch(batch.copy(salesOrderId=order.id),merged,organisationId,actorId)
+  val linkedBatch = existingBatch ?: run {
+   postMultiLineDispatch(batch, requestedLines, organisationId, actorId)
+   batchByIdempotencyKey(batch.idempotencyKey) ?: error("Dispatch batch was created but could not be reloaded")
+  }
+  require(linkedBatch.salesOrderId==order.id){
+   "Resolved dispatch is linked to a different sales order"
+  }
+  require(linkedBatch.customerId==order.customerId){
+   "Resolved dispatch customer does not match sales order"
+  }
+  require(linkedBatch.status=="POSTED"){
+   "Resolved dispatch is not POSTED"
+  }
   val current=salesOrderLinesForOrder(order.id)
   val remainingByProduct=mutableMapOf<Long,Int>()
   val updated=current.map{item->
@@ -231,9 +273,24 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
    remainingByProduct[item.productId]=(remaining-allocated).coerceAtLeast(0)
    item.copy(packsDispatched=allocated)
   }
-  updated.forEach{setSalesOrderLineFulfilled(it.id,it.packsDispatched.coerceAtMost(it.packsOrdered))}
+  updated.forEach{item->
+   val affected=setSalesOrderLineFulfilled(
+    item.id,item.packsDispatched.coerceAtMost(item.packsOrdered)
+   )
+   check(affected==1){
+    "Sales order fulfillment update failed for line ${item.id}; transaction aborted"
+   }
+  }
   val totalOrdered=updated.sumOf{it.packsOrdered};val totalDispatched=updated.sumOf{it.packsDispatched}
-  updateSalesOrderStatus(order.id,when{totalOrdered>0&&totalDispatched>=totalOrdered->"FULFILLED";totalDispatched>0->"PARTIAL";else->"OPEN"})
+  val nextStatus=when{
+   totalOrdered>0&&totalDispatched>=totalOrdered->"FULFILLED"
+   totalDispatched>0->"PARTIAL"
+   else->"OPEN"
+  }
+  check(updateSalesOrderStatus(order.id,nextStatus)==1){
+   "Sales order status update failed; transaction aborted"
+  }
+  val result=DispatchPostResult(linkedBatch.id,linkedBatch.dispatchReference,requestedLines.size)
   insertAudit(AuditEventEntity(eventType="ORDER_DISPATCH_LINKED",entityType="sales_order",entityId=order.id.toString(),afterJson="dispatchId=${result.batchId},reference=${batch.dispatchReference}",reason="Dispatch posted against explicit sales order",actorId=actorId))
   enqueueSyncEvent(SyncOutboxEntity(eventKey="order-dispatch-link:"+order.id+":"+result.batchId,organisationId=organisationId,eventType="ORDER_DISPATCH_LINKED",payloadJson=JSONObject().put("orderId",order.id).put("dispatchId",result.batchId).put("dispatchReference",batch.dispatchReference).toString()))
   return result
@@ -302,10 +359,272 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("UPDATE sync_outbox SET status='NEEDS_REVIEW',lastError=:reason WHERE id=:id") abstract suspend fun markSyncNeedsReview(id:Long,reason:String)
  @Query("SELECT * FROM machines ORDER BY name COLLATE NOCASE") abstract fun observeMachines():Flow<List<MachineEntity>>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertMachine(e:MachineEntity):Long
- @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineDetails(id:Long,name:String,type:String,location:String,notes:String,at:Long=System.currentTimeMillis())
- @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,lineId=:lineId,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineWithLine(id:Long,name:String,type:String,location:String,notes:String,lineId:Long?,at:Long=System.currentTimeMillis())
- @Query("UPDATE machines SET status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineStatus(id:Long,status:String,at:Long=System.currentTimeMillis())
+ @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineDetails(id:Long,name:String,type:String,location:String,notes:String,at:Long=System.currentTimeMillis()):Int
+ @Query("UPDATE machines SET name=:name,machineType=:type,location=:location,notes=:notes,lineId=:lineId,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineWithLine(id:Long,name:String,type:String,location:String,notes:String,lineId:Long?,at:Long=System.currentTimeMillis()):Int
+ @Query("UPDATE machines SET status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateMachineStatus(id:Long,status:String,at:Long=System.currentTimeMillis()):Int
+
+ @Query("SELECT * FROM machine_events WHERE machineId=:machineId AND eventType='MACHINE_STOPPED' AND status='OPEN' ORDER BY startedAt DESC LIMIT 1")
+ abstract suspend fun latestOpenMachineStopEvent(machineId:Long):MachineEventEntity?
+
+ @Transaction
+ open suspend fun changeMachineActivationSafely(
+  machineId:Long,
+  actor:String,
+  organisationId:String
+ ):String {
+  val machine=machineById(machineId)?:error("Machine not found")
+  val next=when(machine.status){
+   "DEACTIVATED" -> "RUNNING"
+   "RUNNING","STOPPED" -> "DEACTIVATED"
+   else -> error("Machine status does not allow activation changes.")
+  }
+
+  if(next=="DEACTIVATED"){
+   require(countOpenMachineEvents(machineId)==0) {
+    "Close all open machine events before deactivating this machine."
+   }
+  }
+
+  val now=System.currentTimeMillis()
+  check(updateMachineStatus(machine.id,next,now)==1) {
+   "Machine activation update failed"
+  }
+
+  val eventType=if(next=="DEACTIVATED")"MACHINE_DEACTIVATED" else "MACHINE_ACTIVATED"
+
+  enqueueSyncEvent(SyncOutboxEntity(
+   eventKey="machine-activation:${machine.id}:$next:$now",
+   organisationId=organisationId,
+   eventType=eventType,
+   payloadJson=org.json.JSONObject()
+    .put("machineId",machine.id)
+    .put("previousStatus",machine.status)
+    .put("status",next)
+    .toString()
+  ))
+
+  insertAudit(AuditEventEntity(
+   eventType=eventType,
+   entityType="machine",
+   entityId=machine.id.toString(),
+   beforeJson=machine.status,
+   afterJson=next,
+   reason=if(next=="DEACTIVATED")"Machine deactivated" else "Machine activated",
+   actorId=actor
+  ))
+
+  return next
+ }
+
+
+ @Transaction
+ open suspend fun changeMachineRunningStateSafely(
+  machineId:Long,
+  organisationId:String,
+  actor:String
+ ):String {
+  val machine=machineById(machineId)?:error("Machine not found")
+  require(machine.status=="RUNNING"||machine.status=="STOPPED") {
+   "Only RUNNING or STOPPED machines can be toggled manually."
+  }
+
+  val now=System.currentTimeMillis()
+  val next=if(machine.status=="RUNNING")"STOPPED" else "RUNNING"
+
+  if(next=="STOPPED"){
+   require(countOpenMachineEvents(machineId)==0) {
+    "Machine has an open maintenance or downtime event."
+   }
+
+   val eventId=insertMachineEvent(MachineEventEntity(
+    machineId=machine.id,
+    machineNameSnapshot=machine.name,
+    eventType="MACHINE_STOPPED",
+    startedAt=now,
+    reason="Operator stopped machine",
+    status="OPEN",
+    performedBy=actor
+   ))
+
+   check(updateMachineStatus(machine.id,next,now)==1) {
+    "Machine status update failed"
+   }
+
+   enqueueSyncEvent(SyncOutboxEntity(
+    eventKey="machine-stop:$eventId",
+    organisationId=organisationId,
+    eventType="MACHINE_STOPPED",
+    payloadJson=org.json.JSONObject()
+     .put("machineId",machine.id)
+     .put("eventId",eventId)
+     .toString()
+   ))
+
+   insertAudit(AuditEventEntity(
+    eventType="MACHINE_STOPPED",
+    entityType="machine",
+    entityId=machine.id.toString(),
+    beforeJson="RUNNING",
+    afterJson="STOPPED;eventId=$eventId",
+    reason="Operator stopped machine",
+    actorId=actor
+   ))
+  }else{
+   val stopEvent=latestOpenMachineStopEvent(machine.id)
+    ?:error("Open machine stop event not found")
+
+   check(closeMachineEvent(stopEvent.id,endedAt=now)==1) {
+    "Machine stop event could not be closed"
+   }
+
+   val eventId=insertMachineEvent(MachineEventEntity(
+    machineId=machine.id,
+    machineNameSnapshot=machine.name,
+    eventType="MACHINE_STARTED",
+    startedAt=now,
+    endedAt=now,
+    reason="Operator marked machine running",
+    status="CLOSED",
+    performedBy=actor
+   ))
+
+   check(updateMachineStatus(machine.id,next,now)==1) {
+    "Machine status update failed"
+   }
+
+   enqueueSyncEvent(SyncOutboxEntity(
+    eventKey="machine-start:$eventId",
+    organisationId=organisationId,
+    eventType="MACHINE_STARTED",
+    payloadJson=org.json.JSONObject()
+     .put("machineId",machine.id)
+     .put("eventId",eventId)
+     .toString()
+   ))
+
+   insertAudit(AuditEventEntity(
+    eventType="MACHINE_STARTED",
+    entityType="machine",
+    entityId=machine.id.toString(),
+    beforeJson="STOPPED;eventId=${stopEvent.id}",
+    afterJson="RUNNING;eventId=$eventId",
+    reason="Operator marked machine running",
+    actorId=actor
+   ))
+  }
+
+  return next
+ }
+
+ @Transaction open suspend fun createMachineEventSafely(
+  machineId:Long,
+  eventType:String,
+  reason:String,
+  maintenanceType:String,
+  actor:String,
+  organisationId:String
+ ):Long {
+  val machine=machineById(machineId)?:error("Machine not found")
+  require(machine.status=="RUNNING"){"Only running machines can be scheduled for maintenance or downtime."}
+  require(countOpenMachineEvents(machineId)==0){"This machine already has an open event."}
+  require(eventType=="MAINTENANCE"||eventType=="DOWNTIME"){"Invalid machine event type."}
+  val now=System.currentTimeMillis()
+  val eventId=insertMachineEvent(MachineEventEntity(
+   machineId=machine.id,
+   machineNameSnapshot=machine.name,
+   eventType=eventType,
+   startedAt=now,
+   reason=reason,
+   maintenanceType=maintenanceType,
+   status="OPEN",
+   performedBy=actor
+  ))
+  val nextStatus=if(eventType=="MAINTENANCE")"MAINTENANCE" else "DOWN"
+  check(updateMachineStatus(machine.id,nextStatus,now)==1){"Machine status update failed"}
+  val eventKey="${eventType.lowercase()}:$eventId"
+  val syncType=if(eventType=="MAINTENANCE")"MAINTENANCE_SCHEDULED" else "DOWNTIME_LOGGED"
+  enqueueSyncEvent(SyncOutboxEntity(
+   eventKey=eventKey,
+   organisationId=organisationId,
+   eventType=syncType,
+   payloadJson=org.json.JSONObject()
+    .put("eventId",eventId)
+    .put("machineId",machine.id)
+    .put("machineName",machine.name)
+    .put("type",maintenanceType)
+    .put("reason",reason)
+    .toString()
+  ))
+  insertAudit(AuditEventEntity(
+   eventType=syncType,
+   entityType="machine",
+   entityId=machine.id.toString(),
+   afterJson="eventId=$eventId;type=$maintenanceType;reason=$reason",
+   reason=if(eventType=="MAINTENANCE")"Preventive/corrective maintenance scheduled" else "Downtime / stoppage recorded",
+   actorId=actor
+  ))
+  return eventId
+ }
+
  @Query("SELECT * FROM machine_events ORDER BY startedAt DESC") abstract fun observeMachineEvents():Flow<List<MachineEventEntity>>
+
+ @Query("SELECT * FROM machine_events WHERE id=:id LIMIT 1")
+ abstract suspend fun machineEventById(id:Long):MachineEventEntity?
+
+ @Transaction
+ open suspend fun closeMachineEventSafely(
+  eventId:Long,
+  completionNotes:String,
+  partsUsed:String,
+  completedBy:String,
+  organisationId:String,
+  actor:String
+ ):Boolean {
+  val event=machineEventById(eventId)?:error("Machine event not found")
+  require(event.status=="OPEN"){"Machine event is already closed"}
+  val machine=machineById(event.machineId)?:error("Machine not found")
+
+  val now=System.currentTimeMillis()
+  check(closeMachineEvent(
+   id=event.id,
+   status="CLOSED",
+   endedAt=now,
+   completionNotes=completionNotes,
+   partsUsed=partsUsed,
+   completedBy=completedBy
+  )==1){"Machine event closure failed"}
+
+  val recovered=machine.status=="DOWN"||machine.status=="MAINTENANCE"
+  if(recovered){
+   check(updateMachineStatus(machine.id,"RUNNING",now)==1){"Machine recovery status update failed"}
+  }
+
+  enqueueSyncEvent(SyncOutboxEntity(
+   eventKey="machine-event-closed:${event.id}",
+   organisationId=organisationId,
+   eventType="MACHINE_EVENT_CLOSED",
+   payloadJson=org.json.JSONObject()
+    .put("eventId",event.id)
+    .put("machineId",event.machineId)
+    .put("completionNotes",completionNotes)
+    .put("partsUsed",partsUsed)
+    .put("completedBy",completedBy)
+    .put("recovered",recovered)
+    .toString()
+  ))
+
+  insertAudit(AuditEventEntity(
+   eventType="MACHINE_EVENT_CLOSED",
+   entityType="machine_event",
+   entityId=event.id.toString(),
+   afterJson="completion=$completionNotes;parts=$partsUsed;recovered=$recovered",
+   reason="Machine event closed",
+   actorId=actor
+  ))
+
+  return recovered
+ }
+
  @Insert abstract suspend fun insertMachineEvent(e:MachineEventEntity):Long
  @Query("UPDATE machine_events SET status=:status,endedAt=:endedAt,completionNotes=:completionNotes,partsUsed=:partsUsed,completedBy=:completedBy WHERE id=:id AND status='OPEN'") abstract suspend fun closeMachineEvent(id:Long,status:String="CLOSED",endedAt:Long=System.currentTimeMillis(),completionNotes:String="",partsUsed:String="",completedBy:String="local"):Int
  @Query("SELECT * FROM quality_inspections ORDER BY inspectionDate DESC,createdAt DESC") abstract fun observeQualityInspections():Flow<List<QualityInspectionEntity>>
@@ -313,14 +632,94 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM production_plans ORDER BY planDate DESC,createdAt DESC") abstract fun observeProductionPlans():Flow<List<ProductionPlanEntity>>
  @Insert abstract suspend fun insertProductionPlan(e:ProductionPlanEntity):Long
  @Query("UPDATE production_plans SET status=:status WHERE id=:id") abstract suspend fun updateProductionPlanStatus(id:Long,status:String)
+
+ @Query("""
+  UPDATE production_plans
+  SET planDate=:date, shift=:shift, productId=:productId,
+      productNameSnapshot=:productName, targetBottles=:target,
+      assignedMachineId=:machineId, notes=:notes
+  WHERE id=:id AND status='PLANNED'
+ """)
+ abstract suspend fun updatePlannedProductionSafely(
+  id:Long, date:String, shift:String, productId:Long,
+  productName:String, target:Int, machineId:Long?, notes:String
+ ):Int
  @Query("SELECT * FROM sales_orders ORDER BY orderDate DESC,createdAt DESC") abstract fun observeSalesOrders():Flow<List<SalesOrderEntity>>
  @Query("SELECT * FROM sales_orders WHERE id=:id LIMIT 1") abstract suspend fun salesOrderById(id:Long):SalesOrderEntity?
  @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
  @Query("UPDATE sales_order_lines SET packsDispatched=:packs WHERE id=:id AND :packs>=0 AND :packs<=packsOrdered") abstract suspend fun setOrderLineFulfilled(id:Long,packs:Int):Int
  @Query("SELECT * FROM sales_order_lines WHERE productId=:productId AND orderId IN (SELECT id FROM sales_orders WHERE customerId=:customerId AND status IN ('OPEN','PARTIAL')) ORDER BY createdAt,id") abstract suspend fun openSalesOrderLines(customerId:Long,productId:Long):List<SalesOrderLineEntity>
- @Query("UPDATE sales_orders SET status=:status WHERE id=:id") abstract suspend fun updateSalesOrderStatus(id:Long,status:String)
+ @Query("UPDATE sales_orders SET status=:status WHERE id=:id") abstract suspend fun updateSalesOrderStatus(id:Long,status:String):Int
+ @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId") abstract suspend fun salesOrderLinesByOrder(orderId:Long):List<SalesOrderLineEntity>
+ @Query("SELECT COALESCE(SUM(packsDispatched),0) FROM sales_order_lines WHERE orderId=:orderId") abstract suspend fun dispatchedPacksForOrder(orderId:Long):Int
+ @Transaction open suspend fun cancelSalesOrderSafely(orderId:Long):Boolean {
+  val order=salesOrderById(orderId)?:error("Sales order not found")
+  require(order.status in setOf("OPEN","PARTIAL")){"Only open/partial orders can be cancelled"}
+  val lines=salesOrderLinesByOrder(orderId)
+  require(lines.isNotEmpty()){"Order has no lines"}
+  require(lines.all{it.packsDispatched==0}){"Order has dispatched quantity; cancellation blocked"}
+  val affected=updateSalesOrderStatus(orderId,"CANCELLED")
+  check(affected==1){"Sales order cancellation failed; transaction aborted"}
+  return true
+ }
+ @Query("UPDATE production_plans SET status='CANCELLED' WHERE id=:id AND status='PLANNED'") abstract suspend fun cancelPlannedProduction(id:Long):Int
+ @Query("SELECT COUNT(*) FROM production_entries WHERE productId=:productId AND productionDate=:date") abstract suspend fun productionCountForPlan(productId:Long,date:String):Int
+ @Query("SELECT * FROM customers WHERE id=:id LIMIT 1") abstract suspend fun customerById(id:Long):CustomerEntity?
+ @Query("SELECT * FROM customers WHERE active=0 ORDER BY name COLLATE NOCASE") abstract fun observeArchivedCustomers():Flow<List<CustomerEntity>>
+
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertSalesOrder(e:SalesOrderEntity):Long
  @Insert abstract suspend fun insertSalesOrderLines(e:List<SalesOrderLineEntity>)
+
+ @Transaction
+ open suspend fun editSalesOrderSafely(
+  orderId:Long,
+  orderNumber:String,
+  customerId:Long?,
+  customerName:String,
+  orderDate:String,
+  dueDate:String,
+  notes:String,
+  lines:List<SalesOrderLineEntity>
+ ):Boolean {
+  val order=salesOrderById(orderId) ?: return false
+  if(order.status !in listOf("OPEN","PARTIAL")) return false
+  val current=salesOrderLinesForOrder(orderId)
+  if(current.any { it.packsDispatched > 0 }) return false
+  if(lines.isEmpty()) return false
+
+  // BULK DEV: Validate sales order line integrity before replacing rows.
+  if(lines.any { it.orderId != orderId }) return false
+  if(lines.any { it.productId <= 0L }) return false
+  if(lines.any { it.packsOrdered <= 0 }) return false
+  if(lines.any { it.packSizeSnapshot <= 0 }) return false
+  if(lines.any { it.productNameSnapshot.isBlank() }) return false
+  if(lines.map { it.productId }.distinct().size != lines.size) return false
+
+  val updated=updateSalesOrderHeaderSafely(
+   orderId,orderNumber,customerId,customerName,orderDate,dueDate,notes
+  )
+  if(updated != 1) return false
+
+  deleteSalesOrderLinesForOrder(orderId)
+  insertSalesOrderLines(lines.map {
+   it.copy(id=0,orderId=orderId,packsDispatched=0)
+  })
+  return true
+ }
+
+ @Query("""
+  UPDATE sales_orders SET orderNumber=:number, customerId=:customerId,
+   customerNameSnapshot=:customerName, orderDate=:orderDate,
+   dueDate=:dueDate, notes=:notes
+  WHERE id=:id AND status IN ('OPEN','PARTIAL')
+ """)
+ abstract suspend fun updateSalesOrderHeaderSafely(
+  id:Long, number:String, customerId:Long?, customerName:String,
+  orderDate:String, dueDate:String, notes:String
+ ):Int
+
+ @Query("DELETE FROM sales_order_lines WHERE orderId=:orderId")
+ abstract suspend fun deleteSalesOrderLinesForOrder(orderId:Long):Int
  @Query("SELECT * FROM inventory_movements ORDER BY createdAt DESC") abstract fun observeRecentInventoryMovements():Flow<List<InventoryMovementEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract fun observeCustomers():Flow<List<CustomerEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeCustomers():List<CustomerEntity>
@@ -360,13 +759,26 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
      if(remaining>0){
       val stillNeeded=(orderLine.packsOrdered-orderLine.packsDispatched).coerceAtLeast(0)
       val allocation=minOf(remaining,stillNeeded)
-      if(allocation>0){setOrderLineFulfilled(orderLine.id,orderLine.packsDispatched+allocation);remaining-=allocation}
+      if(allocation>0){
+       val affected=setOrderLineFulfilled(orderLine.id,orderLine.packsDispatched+allocation)
+       check(affected==1){
+        "Auto-allocation sales order line update failed; transaction aborted"
+       }
+       remaining-=allocation
+      }
      }
     }
     openLines.map{it.orderId}.distinct().forEach{orderId->
      val current=salesOrderLinesForOrder(orderId)
      val ordered=current.sumOf{it.packsOrdered};val fulfilled=current.sumOf{it.packsDispatched}
-     updateSalesOrderStatus(orderId,when{ordered>0&&fulfilled>=ordered->"FULFILLED";fulfilled>0->"PARTIAL";else->"OPEN"})
+     val nextStatus=when{
+      ordered>0&&fulfilled>=ordered->"FULFILLED"
+      fulfilled>0->"PARTIAL"
+      else->"OPEN"
+     }
+     check(updateSalesOrderStatus(orderId,nextStatus)==1){
+      "Auto-allocation sales order status update failed; transaction aborted"
+     }
     }
    }
   }

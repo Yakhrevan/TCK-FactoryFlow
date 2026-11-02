@@ -15,5 +15,9 @@ keystore.properties
 *.zip
 .kotlin/
 node_modules/
-functions/node_modules/
-functions/lib/
+
+# Local development backups
+*.backup
+*.backup-*
+*.backup.*
+project-backups/

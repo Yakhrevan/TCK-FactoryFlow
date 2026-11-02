@@ -110,13 +110,14 @@ class FactoryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _cloudStockLoading.value = true
             _cloudStockError.value = null
-            runCatching {
+            try {
                 val snapshot = cloudRepo.fetchStock(s)
                 _cloudStockSnapshot.value = snapshot
-            }.onFailure {
-                _cloudStockError.value = it.message ?: "Unable to load authoritative cloud stock"
+            } catch (e: Exception) {
+                _cloudStockError.value = e.message ?: "Unable to load authoritative cloud stock"
+            } finally {
+                _cloudStockLoading.value = false
             }
-            _cloudStockLoading.value = false
         }
     }
 }

@@ -16,7 +16,7 @@ data class FactorySession(
     val name: String = "",
     val allowedModules: String = "ALL",
     val isCloud: Boolean = false,
-    val factoryIds: List<String> = listOf("factory-01")
+    val factoryIds: List<String>
 )
 
 private data class MemberProfile(
@@ -42,38 +42,51 @@ class FactoryAuthRepository(private val context: Context) {
     private suspend fun resolveRoleAndOrg(
         userUid: String,
         tokenClaims: Map<String, Any?>?,
-        email: String?
+        email: String?,
+        firebaseUser: com.google.firebase.auth.FirebaseUser? = null
     ): MemberProfile {
-        val org = (tokenClaims?.get("organisationId") as? String)
-            ?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
+        val claimOrg = (tokenClaims?.get("organisationId") as? String)
+            ?.takeIf { it.isNotBlank() }
 
         if (!hasFirebase()) {
             error("Cloud authentication is unavailable. Check your internet connection.")
         }
 
-        fun memberRequest() = JSONObject().put("organisationId", org)
+        fun memberRequest(targetOrg: String?) = JSONObject().apply {
+            if (!targetOrg.isNullOrBlank()) {
+                put("organisationId", targetOrg)
+            }
+        }
 
         var response = CloudflareApiClient.post(
-            context, "/api/auth/member", memberRequest()
+            context, "/api/auth/member", memberRequest(claimOrg)
         )
 
         if (response is CloudResult.Error) {
             val cleanEmail = email?.lowercase()?.trim().orEmpty()
-            val eligibleAdmin = cleanEmail == "admin@tckfactory.com"
+            val eligibleAdmin = cleanEmail == "admin@tck-factory.com"
+
+            android.util.Log.e(
+                "FactoryAuth",
+                "Member lookup failed; adminEligible=$eligibleAdmin, error=${response.message}"
+            )
 
             if (eligibleAdmin) {
+                android.util.Log.i("FactoryAuth", "Calling admin bootstrap endpoint")
                 val bootstrap = CloudflareApiClient.post(
                     context,
                     "/api/auth/bootstrap-admin",
-                    JSONObject()
-                        .put("organisationId", org)
-                        .put("factoryId", "factory-01")
-                        .put("name", "Administrator")
+                    JSONObject().apply {
+                        if (!claimOrg.isNullOrBlank()) {
+                            put("organisationId", claimOrg)
+                        }
+                    }
                 )
 
                 if (bootstrap is CloudResult.Success) {
+                    firebaseUser?.getIdToken(true)?.await()
                     response = CloudflareApiClient.post(
-                        context, "/api/auth/member", memberRequest()
+                        context, "/api/auth/member", memberRequest(claimOrg)
                     )
                 }
             }
@@ -91,6 +104,7 @@ class FactoryAuthRepository(private val context: Context) {
             ?: error("Worker returned an invalid member profile.")
 
         val docOrg = member.optString("organisationId")
+            .takeIf { it.isNotBlank() } ?: error("Member profile is missing organisationId.")
         val role = member.optString("role").lowercase().trim()
         val active = member.optBoolean("active", false)
 
@@ -103,16 +117,18 @@ class FactoryAuthRepository(private val context: Context) {
             }
         }.distinct()
 
-        val factoryIds = if (
-            docFactoryIds.isEmpty() && (role == "admin" || role == "owner")
-        ) listOf("factory-01") else docFactoryIds
+        val factoryIds = docFactoryIds
 
         if (factoryIds.isEmpty()) {
             error("Factory membership has no assigned factory IDs. Ask the administrator to configure factoryIds.")
         }
 
-        if (docOrg != org || role.isNullOrBlank()) {
-            error("Factory membership is incomplete or belongs to another organisation.")
+        if (claimOrg != null && docOrg != claimOrg) {
+            error("Factory membership belongs to another organisation.")
+        }
+
+        if (role.isBlank()) {
+            error("Factory membership role is missing.")
         }
 
         val allowedRoles = setOf(
@@ -125,8 +141,12 @@ class FactoryAuthRepository(private val context: Context) {
             error("Factory membership contains an unsupported role.")
         }
 
+        if (claimOrg == null && firebaseUser != null) {
+            runCatching { firebaseUser.getIdToken(true).await() }
+        }
+
         return MemberProfile(
-            org = org,
+            org = docOrg,
             role = role,
             name = member.optString("name").takeIf { it.isNotBlank() }
                 ?: (tokenClaims?.get("name") as? String).orEmpty(),
@@ -144,7 +164,7 @@ class FactoryAuthRepository(private val context: Context) {
         val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
         val user = result.user ?: error("Authentication returned no user.")
         val token = user.getIdToken(true).await()
-        val profile = resolveRoleAndOrg(user.uid, token.claims, user.email)
+        val profile = resolveRoleAndOrg(user.uid, token.claims, user.email, user)
         if (!profile.active) {
             auth.signOut()
             error("This staff account has been deactivated. Please contact the administrator.")
@@ -160,11 +180,16 @@ class FactoryAuthRepository(private val context: Context) {
         password: String,
         role: String,
         allowedModules: String,
-        creatorUid: String
+        creatorUid: String,
+        session: FactorySession
     ): com.tck.factoryflow.data.StaffMemberEntity {
         require(name.isNotBlank()) { "Staff name cannot be empty." }
         require(email.isNotBlank() && email.contains("@")) { "Valid email address is required." }
         require(password.length >= 6) { "Password must be at least 6 characters." }
+        require(session.isCloud) { "A valid cloud session is required to create staff." }
+        require(session.organisationId.isNotBlank()) { "Session organisation is missing." }
+        val factoryId = session.factoryIds.firstOrNull()
+            ?: error("Your account has no assigned factory.")
 
         var generatedUid = "staff_${System.currentTimeMillis()}"
 
@@ -198,8 +223,8 @@ class FactoryAuthRepository(private val context: Context) {
                 context,
                 "/api/auth/provision-member",
                 JSONObject()
-                    .put("organisationId", "tck-factory-01")
-                    .put("factoryId", "factory-01")
+                    .put("organisationId", session.organisationId)
+                    .put("factoryId", factoryId)
                     .put("uid", staff.uid)
                     .put("name", staff.name)
                     .put("email", staff.email)
@@ -215,21 +240,8 @@ class FactoryAuthRepository(private val context: Context) {
 
         db.factoryDao().insertStaffMember(staff)
         PasswordSecurity.saveCredential(context, staff.email, password)
-        db.factoryDao().enqueueSyncEvent(
-            com.tck.factoryflow.data.SyncOutboxEntity(
-                eventKey = "staff-create:${staff.uid}",
-                organisationId = "tck-factory-01",
-                eventType = "STAFF_CREATED",
-                payloadJson = org.json.JSONObject()
-                    .put("uid", staff.uid)
-                    .put("name", staff.name)
-                    .put("email", staff.email)
-                    .put("role", staff.role)
-                    .put("allowedModules", staff.allowedModules)
-                    .put("active", true)
-                    .toString()
-            )
-        )
+        // Membership is provisioned directly through the authenticated Worker.
+        // Do not enqueue a second local STAFF_CREATED event.
 
         return staff
     }
@@ -240,8 +252,14 @@ class FactoryAuthRepository(private val context: Context) {
         name: String,
         role: String,
         allowedModules: String,
-        active: Boolean
+        active: Boolean,
+        session: FactorySession
     ) {
+        require(session.isCloud) { "A valid cloud session is required to update staff." }
+        require(session.organisationId.isNotBlank()) { "Session organisation is missing." }
+        val factoryId = session.factoryIds.firstOrNull()
+            ?: error("Your account has no assigned factory.")
+
         val db = com.tck.factoryflow.data.FactoryDatabase.get(context)
         val staffEmail = db.factoryDao().staffById(id)?.email
             ?: error("Staff record is missing its email address.")
@@ -251,8 +269,8 @@ class FactoryAuthRepository(private val context: Context) {
                 context,
                 "/api/auth/provision-member",
                 JSONObject()
-                    .put("organisationId", "tck-factory-01")
-                    .put("factoryId", "factory-01")
+                    .put("organisationId", session.organisationId)
+                    .put("factoryId", factoryId)
                     .put("uid", uid)
                     .put("name", name.trim())
                     .put("email", staffEmail)
@@ -266,35 +284,7 @@ class FactoryAuthRepository(private val context: Context) {
         }
 
         db.factoryDao().updateStaffMember(id, name.trim(), role.lowercase().trim(), allowedModules, active)
-        db.factoryDao().enqueueSyncEvent(
-            com.tck.factoryflow.data.SyncOutboxEntity(
-                eventKey = "staff-update:$uid:${System.currentTimeMillis()}",
-                organisationId = "tck-factory-01",
-                eventType = "STAFF_UPDATED",
-                payloadJson = org.json.JSONObject()
-                    .put("uid", uid)
-                    .put("name", name)
-                    .put("role", role)
-                    .put("allowedModules", allowedModules)
-                    .put("active", active)
-                    .toString()
-            )
-        )
-    }
-
-    fun setLocalRole(role: String, staffName: String = "Administrator"): FactorySession {
-        val cleanRole = role.lowercase().trim()
-        val session = FactorySession(
-            uid = "local_${cleanRole}_${System.currentTimeMillis() % 10000}",
-            email = if (cleanRole == "admin" || cleanRole == "owner") PasswordSecurity.ADMIN_EMAIL else "$cleanRole@tckfactory.com",
-            organisationId = "tck-factory-01",
-            role = cleanRole,
-            name = staffName,
-            allowedModules = "ALL",
-            isCloud = false
-        )
-        saveLocalSession(session)
-        return session
+        // Cloud membership was updated directly; no duplicate local sync event is needed.
     }
 
     fun saveLocalSession(session: FactorySession) {
@@ -316,7 +306,7 @@ class FactoryAuthRepository(private val context: Context) {
             val user = auth.currentUser!!
             val onlineProfile = runCatching {
                 val token = user.getIdToken(false).await()
-                resolveRoleAndOrg(user.uid, token?.claims, user.email)
+                resolveRoleAndOrg(user.uid, token?.claims, user.email, user)
             }.getOrNull()
 
             if (onlineProfile != null) {
@@ -337,21 +327,13 @@ class FactoryAuthRepository(private val context: Context) {
                 saveLocalSession(session)
                 return session
             }
-            // If online profile could not be refreshed immediately, verify cached session was cloud authenticated
-        }
-        val isCloud = prefs.getBoolean("isCloud", false)
-        if (!isCloud) {
-            // In 100% Online mode, mock/local sessions are not permitted.
+            // Cloud profile refresh failed. Fail closed instead of trusting cached permissions.
             return null
         }
-        val savedRole = prefs.getString("role", null) ?: return null
-        val uid = prefs.getString("uid", null) ?: return null
-        val email = prefs.getString("email", null) ?: return null
-        val org = prefs.getString("org", "tck-factory-01") ?: "tck-factory-01"
-        val name = prefs.getString("name", "") ?: ""
-        val allowedModules = prefs.getString("allowedModules", "ALL") ?: "ALL"
-        val factoryIds = prefs.getString("factoryIds", "factory-01")?.split(",")?.filter { it.isNotBlank() } ?: listOf("factory-01")
-        return FactorySession(uid, email, org, savedRole, name, allowedModules, isCloud = true, factoryIds = factoryIds)
+        // Never restore a privileged session from local preferences.
+        // A valid Firebase identity is required to establish permissions.
+        prefs.edit().clear().apply()
+        return null
     }
 
     fun signOut() {

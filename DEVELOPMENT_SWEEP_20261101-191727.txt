@@ -1,0 +1,137 @@
+TCK FACTORYFLOW DEVELOPMENT SWEEP
+Date: Sun Nov  1 07:17:27 PM IST 2026
+Branch: feature/full-firestore-architecture
+
+========== 1. TODO / FIXME / STUB SCAN ==========
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:2618: val startVal=start.toDoubleOrNull()
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:2619: val endVal=end.toDoubleOrNull()
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:2620: val currentVal=currentMeterInput.toDoubleOrNull()
+
+========== 2. EMPTY / SUSPICIOUS FUNCTION SCAN ==========
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt:325:                    return null
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt:345:            return null
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt:347:        val savedRole = prefs.getString("role", null) ?: return null
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt:348:        val uid = prefs.getString("uid", null) ?: return null
+app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt:349:        val email = prefs.getString("email", null) ?: return null
+app/src/main/java/com/tck/factoryflow/ui/components/FactoryComponents.kt:71:    if (path.isNullOrBlank()) return null
+
+========== 3. ANDROID API / CLOUD ROUTES ==========
+39
+95:    if (request.method === "GET" && url.pathname === "/") {
+105:    if (request.method === "POST" && url.pathname === "/api/auth/member") {
+138:    if (request.method === "POST" && url.pathname === "/api/auth/bootstrap-admin") {
+242:    if (request.method === "POST" && url.pathname === "/api/auth/provision-member") {
+323:    if (request.method === "POST" && url.pathname === "/api/sync/event") {
+413:      url.pathname === "/api/auth/verify"
+441:      url.pathname === "/api/firestore/test"
+499:      url.pathname === "/api/inventory/snapshot"
+643:    if (request.method === "POST" && url.pathname === "/api/products/upsert") {
+742:    if (request.method === "POST" && url.pathname === "/api/packing/post") {
+1036:    if (request.method === "POST" && url.pathname === "/api/dispatch/post") {
+1176:    if (request.method === "POST" && url.pathname === "/api/dispatch/reverse") {
+1251:    if (request.method === "POST" && url.pathname === "/api/packing/reverse") {
+1313:    if (request.method === "POST" && url.pathname === "/api/production/post") {
+1619:    if (request.method === "POST" && url.pathname === "/api/production/reverse") {
+1842:    if (request.method === "POST" && url.pathname === "/api/stock/adjust") {
+
+========== 4. SALES ORDER / MULTI-LINE STATUS ==========
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:1765: if(dialog=="order")SalesOrderForm(customers,active,{dialog=""}){customer,product,number,d,due,packs,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ORDERS)){"Your role cannot create sales orders"};val id=dao.insertSalesOrder(SalesOrderEntity(orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"));dao.insertSalesOrderLines(listOf(SalesOrderLineEntity(orderId=id,productId=product.id,productNameSnapshot=product.name,packsOrdered=packs,packSizeSnapshot=product.bottlesPerPack)));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="sales-order:"+id,organisationId=session?.organisationId?:"local-org",eventType="SALES_ORDER_CREATED",payloadJson=JSONObject().put("orderId",id).put("orderNumber",number).put("customerId",customer.id).put("productId",product.id).put("packs",packs).toString()));dao.insertAudit(AuditEventEntity(eventType="SALES_ORDER_CREATED",entityType="sales_order",entityId=id.toString(),afterJson="order created",reason="Sales order created",actorId=session?.uid?:"local"));message="Sales order created"}.onFailure{message=it.message}};dialog=""}
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:1766: if(dialog=="fulfilOrder"&&selectedOrderId!=null){val order=orders.firstOrNull{it.id==selectedOrderId};val lines=orderLines.filter{it.orderId==selectedOrderId};if(order!=null)FulfilOrderForm(order,lines,{dialog="";selectedOrderId=null}){line,qty->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot update order fulfilment"};require(dao.setOrderLineFulfilled(line.id,qty)==1){"Fulfilment quantity is invalid"};val all=lines.map{if(it.id==line.id)it.copy(packsDispatched=qty) else it};val status=when{all.all{it.packsDispatched>=it.packsOrdered}->"FULFILLED";all.any{it.packsDispatched>0}->"PARTIAL";else->"OPEN"};dao.updateSalesOrderStatus(order.id,status);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="order-fulfilment:"+order.id+":"+line.id+":"+qty,organisationId=session?.organisationId?:"local-org",eventType="ORDER_FULFILMENT_UPDATED",payloadJson=JSONObject().put("orderId",order.id).put("lineId",line.id).put("packsFulfilled",qty).put("status",status).toString()));dao.insertAudit(AuditEventEntity(eventType="ORDER_FULFILMENT_UPDATED",entityType="sales_order",entityId=order.id.toString(),afterJson="fulfilment updated",reason="Order fulfilment progress updated; dispatch posting remains a separate operation",actorId=session?.uid?:"local"));message="Order fulfilment updated"}.onFailure{message=it.message}};dialog="";selectedOrderId=null}}
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:2225:@Composable private fun SalesOrderForm(customers:List<CustomerEntity>,products:List<ProductEntity>,close:()->Unit,save:(CustomerEntity,ProductEntity,String,String,String,Int,String)->Unit){
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:2229:@Composable private fun FulfilOrderForm(order:SalesOrderEntity,lines:List<SalesOrderLineEntity>,close:()->Unit,save:(SalesOrderLineEntity,Int)->Unit){
+app/src/main/java/com/tck/factoryflow/MainActivity.kt:3130:@Composable private fun DispatchBatchForm(products:List<ProductEntity>,customers:List<CustomerEntity>,orders:List<SalesOrderEntity>,orderLines:List<SalesOrderLineEntity>,initialOrderId:Long?,close:()->Unit,save:(CustomerEntity?,String,String,String,String,List<DispatchRequestLine>,String,Long?)->Unit){
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:70:data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderId:Long,val productId:Long,val productNameSnapshot:String,val packsOrdered:Int,val packsDispatched:Int=0,val packSizeSnapshot:Int,val createdAt:Long=System.currentTimeMillis())
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:205: @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId ORDER BY id") abstract fun observeSalesOrderLinesForOrder(orderId:Long):Flow<List<SalesOrderLineEntity>>
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:209: @Query("SELECT * FROM sales_order_lines WHERE orderId=:orderId ORDER BY id") abstract suspend fun salesOrderLinesForOrder(orderId:Long):List<SalesOrderLineEntity>
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:318: @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:320: @Query("SELECT * FROM sales_order_lines WHERE productId=:productId AND orderId IN (SELECT id FROM sales_orders WHERE customerId=:customerId AND status IN ('OPEN','PARTIAL')) ORDER BY createdAt,id") abstract suspend fun openSalesOrderLines(customerId:Long,productId:Long):List<SalesOrderLineEntity>
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:323: @Insert abstract suspend fun insertSalesOrderLines(e:List<SalesOrderLineEntity>)
+app/src/main/java/com/tck/factoryflow/data/FactoryDatabase.kt:400:@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=12,exportSchema=true)
+
+========== 5. ACCESS CONTROL COVERAGE ==========
+55
+
+========== 6. DATABASE ENTITIES / DAO ==========
+19:data class ProductEntity(
+32:data class ProductConfigHistoryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productName:String,val sizeLabel:String,val colour:String,val bottlesPerPack:Int,val active:Boolean,val changedAt:Long=System.currentTimeMillis(),val changedBy:String="local",val reason:String="Configuration updated")
+34:data class ProductionEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val productionDate:String,val producedBottles:Int,val goodBottles:Int,val rejectedBottles:Int,val machineName:String="Machine 1",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val lineId:Long?=null,val lineNameSnapshot:String="",val machineId:Long?=null,@ColumnInfo(defaultValue="''") val cloudOperationKey:String="")
+36:data class PackingEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val packingDate:String,val bottlesConsumed:Int,val completePacks:Int,val looseBottles:Int,val createdAt:Long=System.currentTimeMillis(),@ColumnInfo(defaultValue="''") val cloudOperationKey:String="")
+38:data class DispatchEntryEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val dispatchReference:String,val dispatchDate:String,val customerName:String,val productId:Long,val productNameSnapshot:String,val packsDispatched:Int,val remarks:String="",val createdAt:Long=System.currentTimeMillis())
+40:data class CustomerEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val name:String,val phone:String="",val address:String="",val gstNumber:String="",val active:Boolean=true,val createdAt:Long=System.currentTimeMillis())
+42:data class DispatchBatchEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val idempotencyKey:String,val dispatchReference:String,val dispatchDate:String,val customerId:Long?,val customerNameSnapshot:String,val status:String="POSTED",val remarks:String="",val createdAt:Long=System.currentTimeMillis(),val createdBy:String="local",val salesOrderId:Long?=null)
+44:data class DispatchLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val batchId:Long,val productId:Long,val productNameSnapshot:String,val packSizeSnapshot:Int,val packs:Int,val bottles:Int,val createdAt:Long=System.currentTimeMillis())
+46:data class InventoryMovementEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productId:Long,val productNameSnapshot:String,val movementType:String,val quantity:Int,val unit:String,val sourceType:String,val sourceId:String,val note:String="",val createdAt:Long=System.currentTimeMillis(),val actorId:String="local")
+48:data class AuditEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val eventType:String,val entityType:String,val entityId:String,val beforeJson:String="",val afterJson:String="",val reason:String,val actorId:String="local",val createdAt:Long=System.currentTimeMillis())
+50:data class SyncOutboxEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val eventKey:String,val organisationId:String,val eventType:String,val payloadJson:String,val status:String="PENDING",val attempts:Int=0,val lastError:String="",val createdAt:Long=System.currentTimeMillis(),val syncedAt:Long?=null)
+52:data class MeterReadingEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val meterId:String="MAIN",val readingDate:String,val startReading:Double,val endReading:Double=0.0,val consumption:Double=0.0,val remarks:String="",val status:String="COMPLETED",val createdAt:Long=System.currentTimeMillis())
+58:data class ProductionLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val lineCode:String,val name:String,val description:String="",val status:String="ACTIVE",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis(),val targetCapacity:Int=0,val capacityUnit:String="BOTTLES_PER_HOUR")
+60:data class MachineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineCode:String,val name:String,val machineType:String,val location:String="",val status:String="RUNNING",val notes:String="",val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis(),val lineId:Long?=null)
+62:data class MachineEventEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val machineId:Long,val machineNameSnapshot:String,val eventType:String,val startedAt:Long,val endedAt:Long?=null,val reason:String="",val maintenanceType:String="",val status:String="OPEN",val performedBy:String="local",val createdAt:Long=System.currentTimeMillis(),val completionNotes:String="",val partsUsed:String="",val completedBy:String="")
+64:data class QualityInspectionEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val productionEntryId:Long?,val productId:Long,val productNameSnapshot:String,val inspectionDate:String,val inspectedBottles:Int,val passedBottles:Int,val failedBottles:Int,val defectCategory:String,val severity:String="MINOR",val notes:String="",val inspectorId:String="local",val createdAt:Long=System.currentTimeMillis())
+66:data class ProductionPlanEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val planDate:String,val shift:String,val productId:Long,val productNameSnapshot:String,val targetBottles:Int,val assignedMachineId:Long?=null,val status:String="PLANNED",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis(),val lineId:Long?=null)
+68:data class SalesOrderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderNumber:String,val customerId:Long?,val customerNameSnapshot:String,val orderDate:String,val dueDate:String,val status:String="OPEN",val notes:String="",val createdBy:String="local",val createdAt:Long=System.currentTimeMillis())
+70:data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderId:Long,val productId:Long,val productNameSnapshot:String,val packsOrdered:Int,val packsDispatched:Int=0,val packSizeSnapshot:Int,val createdAt:Long=System.currentTimeMillis())
+72:data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val uid:String,val name:String,val email:String,val role:String,val allowedModules:String="ALL",val active:Boolean=true,val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+73:@Dao abstract class FactoryDao {
+400:@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=12,exportSchema=true)
+
+========== 7. WORKER SECURITY / ERROR HANDLING ==========
+35:  } catch {
+47:  const serviceAccount = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+50:    serviceAccount.private_key,
+60:    .setIssuer(serviceAccount.client_email)
+131:      } catch(error) {
+234:      } catch(error) {
+316:      } catch(error) {
+393:        } catch (transactionError) {
+394:          await firestoreRollback(accessToken, transaction).catch(() => {});
+404:      } catch(error) {
+427:      } catch {
+481:      } catch (error) {
+627:      } catch (error) {
+732:      } catch (error) {
+1012:      } catch (error) {
+1017:          } catch (rollbackError) {
+1160:      } catch(error) {
+1164:          } catch (rollbackError) {
+1238:      }catch(error){
+1242:          } catch (rollbackError) {
+1300:      }catch(error){
+1304:          } catch (rollbackError) {
+1592:      } catch (error) {
+1597:          } catch (rollbackError) {
+1814:      } catch (error) {
+1818:          } catch (rollbackError) {
+1980:      } catch (error) {
+1984:          } catch (rollbackError) {
+
+========== 8. DOCUMENTATION ==========
+-rw-rw-r-- 1 yakry-ubuntu yakry-ubuntu 5.9K Nov  1 17:35 AI_MIGRATION_CONTEXT.md
+-rw-rw-r-- 1 yakry-ubuntu yakry-ubuntu 5.7K Nov  1 17:27 README.md
+
+========== 9. GIT CHANGE SUMMARY ==========
+ M .gitignore
+ M AI_MIGRATION_CONTEXT.md
+ M README.md
+ M app/build.gradle.kts
+ M app/src/main/AndroidManifest.xml
+ M app/src/main/java/com/tck/factoryflow/MainActivity.kt
+D  app/src/main/java/com/tck/factoryflow/MainActivity.kt.backup-cloudflare-debug
+D  app/src/main/java/com/tck/factoryflow/MainActivity.kt.backup-overlay-fix
+D  app/src/main/java/com/tck/factoryflow/auth/FactoryAuthRepository.kt.backup_cloud_auth
+ M app/src/main/java/com/tck/factoryflow/sync/CloudInventoryRepository.kt
+D  app/src/main/java/com/tck/factoryflow/sync/CloudInventoryRepository.kt.backup
+ M app/src/main/java/com/tck/factoryflow/viewmodel/FactoryViewModel.kt
+ M cloudflare-worker/src/index.js
+ D cloudflare-worker/src/index.js.auth-backup
+D  cloudflare-worker/src/index.js.backup
+D  cloudflare-worker/src/index.js.backup-before-inventory
+D  cloudflare-worker/src/index.js.backup-before-packing
+D  cloudflare-worker/src/index.js.backup.20261031-170204
+?? DEVELOPMENT_SWEEP_20261101-191727.txt
+?? app/src/main/java/com/tck/factoryflow/FactoryFlowApplication.kt
+?? cloudflare-worker/src/index.js.production-reversal-backup
+?? cloudflare-worker/src/index.js.stock-adjust-backup
+
+========== 10. DEVELOPMENT SWEEP COMPLETE ==========
+No build or tests were run. Testing remains reserved for final phase.

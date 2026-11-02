@@ -15,22 +15,36 @@ class SyncOutboxWorker(context:Context,params:WorkerParameters):CoroutineWorker(
  override suspend fun doWork():Result {
   if(FirebaseApp.getApps(applicationContext).isEmpty()) return Result.retry()
   val user=runCatching{FirebaseAuth.getInstance().currentUser}.getOrNull()?:return Result.retry()
-  val token=runCatching{user.getIdToken(false).await()}.getOrElse{return Result.retry()}
-  val dao=FactoryDatabase.get(applicationContext).factoryDao()
-  var organisationId=token.claims["organisationId"] as? String
-  if(organisationId.isNullOrBlank()) {
-   val memberResult=CloudflareApiClient.post(
-    applicationContext,
-    "/api/auth/member",
-    JSONObject().put("organisationId","tck-factory-01")
-   )
-   organisationId=when(memberResult) {
-    is CloudResult.Success -> memberResult.data
-      .optJSONObject("member")?.optString("organisationId")
-      ?.takeIf { it.isNotBlank() } ?: "tck-factory-01"
-    is CloudResult.Error -> "tck-factory-01"
-   }
+  var token=runCatching{user.getIdToken(false).await()}.getOrElse{return Result.retry()}
+  var claimOrg = token.claims["organisationId"] as? String
+  if (claimOrg.isNullOrBlank()) {
+      token = runCatching{user.getIdToken(true).await()}.getOrElse{return Result.retry()}
+      claimOrg = token.claims["organisationId"] as? String
   }
+  val dao=FactoryDatabase.get(applicationContext).factoryDao()
+  // Always verify active cloud membership before syncing any queued data.
+  // Never infer or fall back to a default organisation.
+  val memberResult = CloudflareApiClient.post(
+   applicationContext,
+   "/api/auth/member",
+   JSONObject().apply {
+       if (!claimOrg.isNullOrBlank()) {
+           put("organisationId", claimOrg)
+       }
+   }
+  )
+
+  val member = when(memberResult) {
+   is CloudResult.Success -> memberResult.data.optJSONObject("member")
+   is CloudResult.Error -> return Result.retry()
+  } ?: return Result.retry()
+
+  if (!member.optBoolean("active", false)) return Result.retry()
+
+  val organisationId = member.optString("organisationId")
+   .takeIf { it.isNotBlank() } ?: return Result.retry()
+
+  if (claimOrg != null && claimOrg != organisationId) return Result.retry()
   var failed=false
   for(event in runCatching{dao.pendingSyncEvents(50)}.getOrElse{return Result.retry()}) {
    val targetOrg=if(event.organisationId=="local-org"||event.organisationId.isBlank()) organisationId else event.organisationId

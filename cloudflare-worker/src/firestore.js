@@ -1,6 +1,6 @@
 export async function firestoreGet(env, documentPath, accessToken, transaction = null) {
   const url =
-    `https://firestore.googleapis.com/v1/projects/${"tck-admin-ac864"}/databases/(default)/documents/${documentPath}` +
+    `${FIRESTORE_BASE}/${documentPath}` +
     (transaction ? `?transaction=${encodeURIComponent(transaction)}` : "");
 
   const response = await fetch(url, {
@@ -11,11 +11,7 @@ export async function firestoreGet(env, documentPath, accessToken, transaction =
 
   if (response.status === 404) return null;
 
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error("FIRESTORE_GET_FAILED");
-  }
+  const result = await parseFirestoreResponse(response, "FIRESTORE_GET_FAILED");
 
   return result;
 }
@@ -29,7 +25,7 @@ export async function firestoreList(env, collectionPath, accessToken) {
     if (nextPageToken) params.set("pageToken", nextPageToken);
 
     const url =
-      `https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents/${collectionPath}?${params}`;
+      `${FIRESTORE_BASE}/${collectionPath}?${params}`;
 
     const response = await fetch(url, {
       headers: {
@@ -37,11 +33,7 @@ export async function firestoreList(env, collectionPath, accessToken) {
       },
     });
 
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error("FIRESTORE_LIST_FAILED");
-    }
+    const result = await parseFirestoreResponse(response, "FIRESTORE_LIST_FAILED");
 
     documents.push(...(result.documents || []));
     nextPageToken = result.nextPageToken || null;
@@ -52,7 +44,7 @@ export async function firestoreList(env, collectionPath, accessToken) {
 
 export async function firestorePatch(env, documentPath, fields, accessToken) {
   const url =
-    `https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents/${documentPath}`;
+    `${FIRESTORE_BASE}/${documentPath}`;
 
   const response = await fetch(url, {
     method: "PATCH",
@@ -63,21 +55,33 @@ export async function firestorePatch(env, documentPath, fields, accessToken) {
     body: JSON.stringify({ fields }),
   });
 
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error("FIRESTORE_PATCH_FAILED");
-  }
+  const result = await parseFirestoreResponse(response, "FIRESTORE_PATCH_FAILED");
 
   return result;
 }
 
+const PROJECT_ID = "tck-admin-ac864";
 const FIRESTORE_BASE =
-  "https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents";
+  `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+
+async function parseFirestoreResponse(response, errorCode) {
+  const body = await response.text();
+
+  if (!response.ok) {
+    console.error(`Firestore ${errorCode} HTTP error:`, response.status, body.slice(0, 500));
+    throw new Error(errorCode);
+  }
+
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    throw new Error(`${errorCode}_INVALID_RESPONSE`);
+  }
+}
 
 export async function firestoreBeginTransaction(accessToken) {
   const response = await fetch(
-    "https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents:beginTransaction",
+    `${FIRESTORE_BASE}:beginTransaction`,
     {
       method: "POST",
       headers: {
@@ -88,14 +92,13 @@ export async function firestoreBeginTransaction(accessToken) {
     }
   );
 
-  const result = await response.json();
-  if (!response.ok) throw new Error("FIRESTORE_BEGIN_TRANSACTION_FAILED");
+  const result = await parseFirestoreResponse(response, "FIRESTORE_BEGIN_TRANSACTION_FAILED");
   return result.transaction;
 }
 
 export async function firestoreCommit(accessToken, transaction, writes) {
   const response = await fetch(
-    "https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents:commit",
+    `${FIRESTORE_BASE}:commit`,
     {
       method: "POST",
       headers: {
@@ -106,19 +109,17 @@ export async function firestoreCommit(accessToken, transaction, writes) {
     }
   );
 
-  const result = await response.json();
-
-  if (!response.ok) {
-    const code = result?.error?.status || "FIRESTORE_COMMIT_FAILED";
-    throw new Error(code);
-  }
+  const result = await parseFirestoreResponse(
+    response,
+    "FIRESTORE_COMMIT_FAILED"
+  );
 
   return result;
 }
 
 export async function firestoreRollback(accessToken, transaction) {
-  await fetch(
-    "https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents:rollback",
+  const response = await fetch(
+    `${FIRESTORE_BASE}:rollback`,
     {
       method: "POST",
       headers: {
@@ -128,15 +129,21 @@ export async function firestoreRollback(accessToken, transaction) {
       body: JSON.stringify({ transaction }),
     }
   );
+
+  if (!response.ok) {
+    const body = await response.text();
+    console.error("Firestore rollback failed:", response.status, body.slice(0, 500));
+    throw new Error("FIRESTORE_ROLLBACK_FAILED");
+  }
 }
 
 
 export async function firestoreBatchGet(accessToken, transaction, documentPaths) {
   const baseUrl =
-    "https://firestore.googleapis.com/v1/projects/tck-admin-ac864/databases/(default)/documents:batchGet";
+    `${FIRESTORE_BASE}:batchGet`;
 
   const documents = documentPaths.map(
-    path => `projects/tck-admin-ac864/databases/(default)/documents/${path}`
+    path => `projects/${PROJECT_ID}/databases/(default)/documents/${path}`
   );
 
   const response = await fetch(baseUrl, {
@@ -166,7 +173,7 @@ export async function firestoreBatchGet(accessToken, transaction, documentPaths)
 
     if (inString) {
       if (escaped) escaped = false;
-      else if (ch === "\\\\") escaped = true;
+      else if (ch === "\\") escaped = true;
       else if (ch === '"') inString = false;
       continue;
     }
@@ -185,5 +192,83 @@ export async function firestoreBatchGet(accessToken, transaction, documentPaths)
     }
   }
 
+  if (depth !== 0 || inString || start !== -1) {
+    throw new Error("FIRESTORE_BATCH_GET_INVALID_RESPONSE");
+  }
+
+  if (body.trim() && parsed.length === 0) {
+    throw new Error("FIRESTORE_BATCH_GET_EMPTY_RESPONSE");
+  }
+
   return parsed;
+}
+
+export async function firestoreDelete(env, documentPath, accessToken) {
+  const url = `${FIRESTORE_BASE}/${documentPath}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (response.status === 404) return true;
+  if (!response.ok) {
+    const body = await response.text();
+    console.error("Firestore delete HTTP error:", response.status, body.slice(0, 500));
+    throw new Error("FIRESTORE_DELETE_FAILED");
+  }
+  return true;
+}
+
+export function toFirestoreValue(val) {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === "boolean") return { booleanValue: val };
+  if (typeof val === "number") {
+    if (Number.isInteger(val)) return { integerValue: String(val) };
+    return { doubleValue: val };
+  }
+  if (typeof val === "string") return { stringValue: val };
+  if (Array.isArray(val)) {
+    return { arrayValue: { values: val.map(toFirestoreValue) } };
+  }
+  if (typeof val === "object") {
+    const fields = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== undefined) fields[k] = toFirestoreValue(v);
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
+export function fromFirestoreValue(val) {
+  if (!val) return null;
+  if ("stringValue" in val) return val.stringValue;
+  if ("integerValue" in val) return parseInt(val.integerValue, 10);
+  if ("doubleValue" in val) return Number(val.doubleValue);
+  if ("booleanValue" in val) return val.booleanValue;
+  if ("timestampValue" in val) return val.timestampValue;
+  if ("nullValue" in val) return null;
+  if ("arrayValue" in val) {
+    return (val.arrayValue?.values || []).map(fromFirestoreValue);
+  }
+  if ("mapValue" in val) {
+    const res = {};
+    for (const [k, v] of Object.entries(val.mapValue?.fields || {})) {
+      res[k] = fromFirestoreValue(v);
+    }
+    return res;
+  }
+  return null;
+}
+
+export function fromFirestoreDoc(doc) {
+  if (!doc || !doc.fields) return null;
+  const id = doc.name ? doc.name.split("/").pop() : "";
+  const res = { id };
+  for (const [k, v] of Object.entries(doc.fields)) {
+    res[k] = fromFirestoreValue(v);
+  }
+  return res;
 }

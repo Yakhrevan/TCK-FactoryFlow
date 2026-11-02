@@ -35,4 +35,16 @@ class FactoryPermissionsTest {
   assertTrue(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_QUALITY))
   assertFalse(FactoryPermissions.allows(FactoryRole.MANAGER,FactoryAction.MANAGE_STAFF))
  }
+ @Test fun organisationMatchingValidation() {
+  FactoryPermissions.requireOrganisation("tck-factory-01", "tck-factory-01")
+  assertThrows(IllegalArgumentException::class.java) {
+   FactoryPermissions.requireOrganisation("tck-factory-01", "other-factory-99")
+  }
+  assertThrows(IllegalArgumentException::class.java) {
+   FactoryPermissions.requireOrganisation("", "tck-factory-01")
+  }
+  assertThrows(IllegalArgumentException::class.java) {
+   FactoryPermissions.requireOrganisation("tck-factory-01", "")
+  }
+ }
 }
