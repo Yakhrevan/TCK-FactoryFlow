@@ -389,32 +389,6 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
      }){Text(if(cloudStockLoading)"Loading…" else "Refresh")}
     }
    }
-   item{
-    Surface(color=Color(0xFF10243D),shape=RoundedCornerShape(20.dp)){
-     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-      Text("TCK  /  FACTORY CONTROL",fontSize=9.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF8FCBFF),letterSpacing=1.5.sp)
-      Row(verticalAlignment=Alignment.CenterVertically){
-       Column(Modifier.weight(1f)){
-        Text("Factory Dashboard",fontSize=22.sp,fontWeight=FontWeight.ExtraBold,color=Color.White)
-        Text(java.text.SimpleDateFormat("EEEE, dd MMM yyyy",Locale.US).format(Date()),fontSize=11.sp,color=Color(0xFFCAD8E8))
-       }
-       Surface(color=Color(0xFF1D3855),shape=RoundedCornerShape(12.dp),onClick={
-        cloudStockLoading=true;cloudStockError=null
-        scope.launch{try{cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)}catch(e:Exception){cloudStockError=e.message?: "Stock refresh failed"}finally{cloudStockLoading=false}}
-       }){
-        Row(Modifier.padding(horizontal=11.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
-         Icon(Icons.Default.Refresh,null,tint=Color(0xFFFFB35C),modifier=Modifier.size(16.dp))
-         Text(if(cloudStockLoading)"Syncing" else "Sync",fontSize=11.sp,fontWeight=FontWeight.Bold,color=Color.White)
-        }
-       }
-      }
-      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
-       Box(Modifier.size(7.dp).background(if(session?.isCloud==true)Color(0xFF36D48A)else Color(0xFFFFB547),RoundedCornerShape(50)))
-       Text(if(session?.isCloud==true)"LIVE CLOUD INVENTORY" else "LOCAL / OFFLINE VIEW",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color(0xFFBBD0E5),letterSpacing=1.sp)
-      }
-     }
-    }
-   }
    // CURRENT STOCK ONLY — server-authoritative balance
    item{
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
@@ -426,13 +400,13 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
       }else{
        Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
         Column(Modifier.weight(1f).background(Color(0xFFE5F0FF),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Good bottles",fontSize=9.sp,color=Muted);Text(totalGoodBottles.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+         Text("Total stock",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalGoodBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Bottles",fontSize=8.sp,color=Muted)
         }
         Column(Modifier.weight(1f).background(Color(0xFFE2F7ED),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Packed packs",fontSize=9.sp,color=Muted);Text(totalAvailablePacks.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+         Text("Full packs",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalAvailablePacks),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Ready packed",fontSize=8.sp,color=Muted)
         }
         Column(Modifier.weight(1f).background(Color(0xFFFFEBD2),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Unpacked",fontSize=9.sp,color=Muted);Text(totalUnpackedBottles.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+         Text("Loose bottles",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalUnpackedBottles+totalLooseBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Not full packs",fontSize=8.sp,color=Muted)
         }
        }
        Text("BOTTLE-WISE INVENTORY",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=0.8.sp)
@@ -440,7 +414,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
         Text("Product",Modifier.weight(1.55f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White)
         Text("Total",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
         Text("Packs",Modifier.weight(.65f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
-        Text("Unpack",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
+        Text("Loose btl.",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
        }
        cloudItems.forEachIndexed{index,stock->
         Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
@@ -451,15 +425,13 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
           }
           Text((stock.completePacks*stock.bottlesPerPack+stock.unpackedGoodBottles+stock.looseBottles).toString(),Modifier.weight(.75f),fontSize=11.sp,fontWeight=FontWeight.Medium,color=Navy,textAlign=TextAlign.End)
           Text(stock.completePacks.toString(),Modifier.weight(.65f),fontSize=11.sp,fontWeight=FontWeight.Bold,color=Navy,textAlign=TextAlign.End)
-          Text(stock.unpackedGoodBottles.toString(),Modifier.weight(.75f),fontSize=11.sp,color=Color(0xFF9B5B00),textAlign=TextAlign.End)
+          Text((stock.unpackedGoodBottles+stock.looseBottles).toString(),Modifier.weight(.75f),fontSize=11.sp,color=Color(0xFF9B5B00),textAlign=TextAlign.End)
          }
          if(index<cloudItems.lastIndex)HorizontalDivider(color=Border)
         }
        }
-       Text("Total packed bottles: $totalPackedBottles  ·  Loose: $totalLooseBottles",fontSize=10.sp,color=Muted)
-       Text("Server balance · ${cloudStockSnapshot?.serverTime?: "timestamp unavailable"}",fontSize=9.sp,color=Muted)
       }
-      TextButton(onClick={setTab(PageTab.STOCK)}){Text("Full stock ledger →")}
+      TextButton(onClick={setTab(PageTab.STOCK)}){Text("View detailed stock →")}
      }
     }
    }
@@ -467,7 +439,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
    item{
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-      Text("ORDER READINESS",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp)
+      Text("ORDER STOCK CHECK",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp)
       if(cloudItems.isEmpty())Text("Load server stock to check order availability.",fontSize=11.sp,color=Muted)
       else{
        Box{
@@ -493,7 +465,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
    item{
     Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){Text("TODAY AT A GLANCE",Modifier.weight(1f),fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp);TextButton(onClick={setTab(PageTab.REPORTS)}){Text("Reports →")}}
+      Row(verticalAlignment=Alignment.CenterVertically){Text("TODAY’S ACTIVITY",Modifier.weight(1f),fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp);TextButton(onClick={setTab(PageTab.REPORTS)}){Text("Reports →")}}
       Text("Production, packing and dispatch for today",fontSize=10.sp,color=Muted)
       Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
        Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Produced",fontSize=9.sp,color=Muted);Text(produced.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Good: $good",fontSize=9.sp,color=Muted)}
