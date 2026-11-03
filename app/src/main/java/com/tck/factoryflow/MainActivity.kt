@@ -360,8 +360,6 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
   val totalAvailablePacks=cloudItems.sumOf{it.completePacks}
   val totalPackedBottles=cloudItems.sumOf{it.completePacks*it.bottlesPerPack}
   val totalUnpackedBottles=cloudItems.sumOf{it.unpackedGoodBottles}
-  val totalLooseBottles=cloudItems.sumOf{it.looseBottles}
-  val totalGoodBottles=totalPackedBottles+totalUnpackedBottles+totalLooseBottles
   var quickOrderProductId by remember{mutableStateOf(cloudItems.firstOrNull()?.productId.orEmpty())}
   var quickOrderPacks by remember{mutableStateOf("1")}
   var quickOrderMenuExpanded by remember{mutableStateOf(false)}
@@ -400,21 +398,21 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
       }else{
        Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
         Column(Modifier.weight(1f).background(Color(0xFFE5F0FF),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Total stock",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalGoodBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Bottles",fontSize=8.sp,color=Muted)
+         Text("Packed bottles",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalPackedBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
         }
         Column(Modifier.weight(1f).background(Color(0xFFE2F7ED),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Full packs",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalAvailablePacks),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Ready packed",fontSize=8.sp,color=Muted)
+         Text("Pack count",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalAvailablePacks),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
         }
         Column(Modifier.weight(1f).background(Color(0xFFFFEBD2),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Loose bottles",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalUnpackedBottles+totalLooseBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Not full packs",fontSize=8.sp,color=Muted)
+         Text("Unpacked bottles",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalUnpackedBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
         }
        }
        Text("BOTTLE-WISE INVENTORY",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=0.8.sp)
        Row(Modifier.fillMaxWidth().background(Color(0xFF10243D),RoundedCornerShape(7.dp)).padding(horizontal=7.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
         Text("Product",Modifier.weight(1.55f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White)
-        Text("Total",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
-        Text("Packs",Modifier.weight(.65f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
-        Text("Loose btl.",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
+        Text("Packed btl.",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
+        Text("Packs",Modifier.weight(.55f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
+        Text("Unpacked",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
        }
        cloudItems.forEachIndexed{index,stock->
         Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
@@ -423,9 +421,9 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
            Text(stock.name,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Navy,maxLines=2)
            Text("${stock.sizeLabel} · ${stock.colour}",fontSize=9.sp,color=Muted,maxLines=1)
           }
-          Text((stock.completePacks*stock.bottlesPerPack+stock.unpackedGoodBottles+stock.looseBottles).toString(),Modifier.weight(.75f),fontSize=11.sp,fontWeight=FontWeight.Medium,color=Navy,textAlign=TextAlign.End)
-          Text(stock.completePacks.toString(),Modifier.weight(.65f),fontSize=11.sp,fontWeight=FontWeight.Bold,color=Navy,textAlign=TextAlign.End)
-          Text((stock.unpackedGoodBottles+stock.looseBottles).toString(),Modifier.weight(.75f),fontSize=11.sp,color=Color(0xFF9B5B00),textAlign=TextAlign.End)
+          Text((stock.completePacks*stock.bottlesPerPack).toString(),Modifier.weight(.75f),fontSize=11.sp,fontWeight=FontWeight.Medium,color=Navy,textAlign=TextAlign.End)
+          Text(stock.completePacks.toString(),Modifier.weight(.55f),fontSize=11.sp,fontWeight=FontWeight.Bold,color=Navy,textAlign=TextAlign.End)
+          Text(stock.unpackedGoodBottles.toString(),Modifier.weight(.75f),fontSize=11.sp,color=Color(0xFF9B5B00),textAlign=TextAlign.End)
          }
          if(index<cloudItems.lastIndex)HorizontalDivider(color=Border)
         }
