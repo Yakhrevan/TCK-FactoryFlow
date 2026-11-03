@@ -211,7 +211,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
    isCheckingSession=false
   }
   LaunchedEffect(session?.uid,tab){
-   if(tab in setOf(PageTab.STOCK,PageTab.PACKING,PageTab.PRODUCTION)&&session?.isCloud==true){
+   if(tab in setOf(PageTab.HOME,PageTab.STOCK,PageTab.PACKING,PageTab.PRODUCTION)&&session?.isCloud==true){
     cloudStockLoading=true
     cloudStockError=null
     runCatching{CloudInventoryRepository(context).fetchStock(session!!)}.onSuccess{snapshot->
@@ -306,7 +306,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
  Scaffold(topBar={TopAppBar(title={Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Surface(shape=RoundedCornerShape(10.dp),color=Color.White,border=androidx.compose.foundation.BorderStroke(1.dp,Border),modifier=Modifier.size(42.dp)){Box(contentAlignment=Alignment.Center,modifier=Modifier.padding(2.dp)){androidx.compose.foundation.Image(painter=androidx.compose.ui.res.painterResource(R.drawable.tck_brand),contentDescription="TCK Logo",modifier=Modifier.fillMaxSize())}};Column{Text("TCK Bottle Manufacturing",fontWeight=FontWeight.ExtraBold,color=Navy,fontSize=16.sp,maxLines=1);Text("MANUFACTURING OPERATIONS",fontSize=9.sp,color=Muted,letterSpacing=1.2.sp)} }},actions={
  Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
   Surface(
-   onClick={dialog="role_switcher"},
+   onClick={},
    shape=RoundedCornerShape(20.dp),
    color=when(session?.role?.lowercase()){"admin","owner"->Color(0xFFF3E8FF);"manager"->Color(0xFFE0F2FE);"production_staff","operator"->Color(0xFFDCFCE7);else->Color(0xFFEFF6FF)},
    border=androidx.compose.foundation.BorderStroke(1.dp,when(session?.role?.lowercase()){"admin","owner"->Color(0xFFC084FC);"manager"->Cyan;"production_staff","operator"->Color(0xFF86EFAC);else->Color(0xFFBFDBFE)})
@@ -315,12 +315,6 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
     Box(Modifier.size(7.dp).background(if(FirebaseApp.getApps(context).isNotEmpty())Color(0xFF16804A) else Color(0xFFEAB308),RoundedCornerShape(4.dp)))
     Text(session?.role?.uppercase()?:"ADMIN",fontSize=10.sp,fontWeight=FontWeight.ExtraBold,color=when(session?.role?.lowercase()){"admin","owner"->Color(0xFF6B21A8);"manager"->Color(0xFF0369A1);"production_staff","operator"->Color(0xFF15803D);else->Blue})
    }
-  }
-  IconButton(
-   onClick={showTools=true},
-   modifier=Modifier.size(38.dp).background(Color(0xFFEAF5FC),RoundedCornerShape(10.dp))
-  ){
-   Icon(Icons.Default.Menu,contentDescription="Full Slide Menu",tint=Navy,modifier=Modifier.size(20.dp))
   }
   IconButton(
    onClick={
@@ -333,122 +327,516 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
    Icon(Icons.Default.Logout,contentDescription="Sign Out",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
   }
  }
-},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.MACHINES,PageTab.DISPATCH,PageTab.STAFF).forEach{t->NavigationBarItem(selected=tab==t,onClick={setTab(t)},icon={Icon(when(t){PageTab.HOME->Icons.Default.Home;PageTab.PRODUCTION->Icons.Default.Build;PageTab.MACHINES->Icons.Default.PrecisionManufacturing;PageTab.DISPATCH->Icons.Default.LocalShipping;else->Icons.Default.People},null)},label={Text(when(t){PageTab.HOME->"Home";PageTab.PRODUCTION->"Production";PageTab.MACHINES->"Machinery";PageTab.DISPATCH->"Dispatch";else->"Staff"},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
+},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.PACKING,PageTab.STOCK,PageTab.DISPATCH,PageTab.REPORTS).forEach{t->NavigationBarItem(selected=tab==t,onClick={setTab(t)},icon={Icon(when(t){
+ PageTab.HOME->Icons.Default.Home
+ PageTab.PRODUCTION->Icons.Default.Build
+ PageTab.PACKING->Icons.Default.Inventory2
+ PageTab.STOCK->Icons.Default.Warehouse
+ PageTab.DISPATCH->Icons.Default.LocalShipping
+ else->Icons.Default.BarChart
+},null)},label={Text(when(t){
+ PageTab.HOME->"Home"
+ PageTab.PRODUCTION->"Production"
+ PageTab.PACKING->"Packing"
+ PageTab.STOCK->"Stock"
+ PageTab.DISPATCH->"Dispatch"
+ else->"Reports"
+},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
  Box(Modifier.fillMaxSize().padding(padding)){
  when(tab){
+
  PageTab.HOME->{
   val todayProduction=production.filter{it.productionDate==date}
   val todayPacking=packing.filter{it.packingDate==date}
   val todayMeters=meters.filter{it.readingDate==date&&it.status=="COMPLETED"}
+
   val produced=todayProduction.sumOf{it.producedBottles}
   val good=todayProduction.sumOf{it.goodBottles}
   val rejected=todayProduction.sumOf{it.rejectedBottles}
-  val rejectionRate=if(produced>0) rejected*100.0/produced else 0.0
-  val packed=todayPacking.sumOf{it.completePacks}
-  val dispatched=dispatches.filter{it.dispatchDate==date}.sumOf{it.packsDispatched}+dispatchLines.filter{line->line.batchId in dispatchBatches.filter{it.status=="POSTED"&&it.dispatchDate==date}.map{it.id}}.sumOf{it.packs}
-  val packedAll=packing.groupBy{it.productId}.mapValues{(_,entries)->entries.sumOf{it.completePacks}}
-  val legacyOut=dispatches.groupBy{it.productId}.mapValues{(_,entries)->entries.sumOf{it.packsDispatched}}
-  val postedBatchIds=dispatchBatches.filter{it.status=="POSTED"}.map{it.id}.toSet()
-  val batchOut=dispatchLines.filter{it.batchId in postedBatchIds}.groupBy{it.productId}.mapValues{(_,entries)->entries.sumOf{it.packs}}
-  val lowStock=active.filter{p->((packedAll[p.id]?:0)-(legacyOut[p.id]?:0)-(batchOut[p.id]?:0)).coerceAtLeast(0)<=5}
-  val availablePacks=active.sumOf{p->((packedAll[p.id]?:0)-(legacyOut[p.id]?:0)-(batchOut[p.id]?:0)).coerceAtLeast(0)}
-  LazyColumn(Modifier.fillMaxSize().background(Color(0xFFF3F7FC)),contentPadding=PaddingValues(start=16.dp,end=16.dp,top=14.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+  val packedToday=todayPacking.sumOf{it.completePacks}
+  val dispatchedToday=dispatches.filter{it.dispatchDate==date}.sumOf{it.packsDispatched}+
+   dispatchLines.filter{line->
+    line.batchId in dispatchBatches.filter{
+     it.status=="POSTED"&&it.dispatchDate==date
+    }.map{it.id}
+   }.sumOf{it.packs}
+
+  val cloudItems=cloudStockSnapshot?.items?.filter{it.active}.orEmpty()
+  val totalAvailablePacks=cloudItems.sumOf{it.completePacks}
+  val totalUnpackedBottles=cloudItems.sumOf{it.unpackedGoodBottles}
+  val totalLooseBottles=cloudItems.sumOf{it.looseBottles}
+  val pendingFullPacks=cloudItems.sumOf{
+   if(it.bottlesPerPack>0) it.unpackedGoodBottles/it.bottlesPerPack else 0
+  }
+
+  var quickOrderProductId by remember{
+   mutableStateOf(cloudItems.firstOrNull()?.productId.orEmpty())
+  }
+  var quickOrderPacks by remember{mutableStateOf("1")}
+  var quickOrderMenuExpanded by remember{mutableStateOf(false)}
+
+  val selectedOrderProduct=cloudItems.firstOrNull{
+   it.productId==quickOrderProductId
+  } ?: cloudItems.firstOrNull()
+
+  val requestedPacks=quickOrderPacks.toIntOrNull()?.coerceAtLeast(0)?:0
+  val selectedAvailablePacks=selectedOrderProduct?.completePacks?:0
+  val orderShortage=(requestedPacks-selectedAvailablePacks).coerceAtLeast(0)
+
+  val activeLinesCount=productionLines.count{it.status=="ACTIVE"}
+  val runningMachinesCount=machines.count{it.status=="RUNNING"}
+  val alertMachines=machines.filter{
+   it.status in setOf("STOPPED","DOWN","MAINTENANCE")
+  }
+
+  LazyColumn(
+   Modifier.fillMaxSize().background(Color(0xFFF3F7FC)),
+   contentPadding=PaddingValues(start=16.dp,end=16.dp,top=12.dp,bottom=24.dp),
+   verticalArrangement=Arrangement.spacedBy(12.dp)
+  ){
    item{
-    Surface(color=Color(0xFF0B1B31),shape=RoundedCornerShape(24.dp)){
-     Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+    Column(
+     Modifier.fillMaxWidth().padding(top=4.dp,bottom=2.dp),
+     verticalArrangement=Arrangement.spacedBy(3.dp)
+    ){
+     Text("Factory Dashboard",fontSize=24.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+     Text(
+      java.text.SimpleDateFormat("EEE, dd MMM yyyy",Locale.US).format(Date()),
+      fontSize=12.sp,color=Muted
+     )
+    }
+   }
+
+   // SERVER-AUTHORITATIVE INVENTORY
+   item{
+    Surface(
+     color=Color.White,
+     shape=RoundedCornerShape(20.dp),
+     border=androidx.compose.foundation.BorderStroke(1.dp,Border)
+    ){
+     Column(
+      Modifier.fillMaxWidth().padding(15.dp),
+      verticalArrangement=Arrangement.spacedBy(12.dp)
+     ){
       Row(verticalAlignment=Alignment.CenterVertically){
-       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
-        Text("TCK FACTORYFLOW",fontSize=10.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF62C9FF),letterSpacing=1.8.sp)
-        Text("Factory overview",fontSize=25.sp,fontWeight=FontWeight.ExtraBold,color=Color.White)
-        Text(java.text.SimpleDateFormat("EEE, dd MMM yyyy",Locale.US).format(Date())+" · Live factory records",fontSize=12.sp,color=Color(0xFFB9CBE0))
+       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
+        Text("Live inventory",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+        Text(
+         if(cloudStockSnapshot!=null)
+          "Server-confirmed stock · ${cloudItems.size} active products"
+         else if(cloudStockLoading)
+          "Fetching latest server stock…"
+         else if(session?.isCloud!=true)
+          "Sign in to view authoritative stock"
+         else
+          "Cloud stock is not currently available",
+         fontSize=11.sp,color=Muted
+        )
        }
-       Surface(color=Color(0xFF1B3858),shape=RoundedCornerShape(14.dp)){
-        Column(Modifier.padding(horizontal=12.dp,vertical=10.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){
-         Icon(Icons.Default.WbSunny,null,tint=Color(0xFFFFC857),modifier=Modifier.size(20.dp))
-         Text("DAY SHIFT",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White)
+       TextButton(
+        enabled=session?.isCloud==true&&!cloudStockLoading,
+        onClick={
+         cloudStockLoading=true
+         cloudStockError=null
+         scope.launch{
+          try{
+           cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)
+          }catch(e:Exception){
+           cloudStockError=e.message?: "Unable to refresh stock"
+          }finally{
+           cloudStockLoading=false
+          }
+         }
+        }
+       ){
+        Text(if(cloudStockLoading)"Loading…" else "Refresh")
+       }
+      }
+
+      if(cloudStockError!=null){
+       Text(
+        "Stock refresh failed: ${cloudStockError}",
+        color=Color(0xFFB42336),fontSize=11.sp
+       )
+      }
+
+      if(cloudStockSnapshot!=null){
+       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Column(
+         Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(12.dp)).padding(10.dp)
+        ){
+         Text("Packed & ready",fontSize=10.sp,color=Muted)
+         Text(totalAvailablePacks.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+         Text("Complete packs",fontSize=10.sp,color=Muted)
+        }
+        Column(
+         Modifier.weight(1f).background(Color(0xFFFFF2DF),RoundedCornerShape(12.dp)).padding(10.dp)
+        ){
+         Text("Awaiting packing",fontSize=10.sp,color=Muted)
+         Text(totalUnpackedBottles.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+         Text("$pendingFullPacks full packs possible",fontSize=10.sp,color=Muted)
+        }
+        Column(
+         Modifier.weight(1f).background(Color(0xFFF0EAFE),RoundedCornerShape(12.dp)).padding(10.dp)
+        ){
+         Text("Loose bottles",fontSize=10.sp,color=Muted)
+         Text(totalLooseBottles.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+         Text("Residual stock",fontSize=10.sp,color=Muted)
+        }
+       }
+
+       if(cloudItems.isEmpty()){
+        Text("No active products in the server inventory.",fontSize=12.sp,color=Muted)
+       }else{
+        Column(verticalArrangement=Arrangement.spacedBy(7.dp)){
+         cloudItems.take(8).forEach{stock->
+          Row(
+           Modifier.fillMaxWidth(),
+           verticalAlignment=Alignment.CenterVertically
+          ){
+           Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+            Text(stock.name,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
+            Text(
+             "${stock.sizeLabel} · ${stock.colour} · ${stock.bottlesPerPack} bottles/pack",
+             fontSize=10.sp,color=Muted
+            )
+            Text(
+             "${stock.unpackedGoodBottles} good bottles awaiting packing · ${stock.looseBottles} loose",
+             fontSize=10.sp,color=Color(0xFF8A5A12)
+            )
+           }
+           Text(
+            "${stock.completePacks} packs",
+            fontSize=13.sp,fontWeight=FontWeight.Bold,color=Navy
+           )
+          }
+         }
+        }
+       }
+
+       Text(
+        "Server snapshot: ${cloudStockSnapshot?.serverTime?: "timestamp unavailable"}",
+        fontSize=9.sp,color=Muted
+       )
+      }else{
+       Surface(color=Color(0xFFEAF3FF),shape=RoundedCornerShape(12.dp)){
+        Column(Modifier.fillMaxWidth().padding(12.dp)){
+         Text("Cloud inventory not loaded",fontWeight=FontWeight.SemiBold,color=Navy)
+         Text(
+          "Refresh stock after signing in to see server-confirmed packed, unpacked and loose quantities.",
+          fontSize=11.sp,color=Muted
+         )
         }
        }
       }
-      HorizontalDivider(color=Color(0xFF29435F))
-      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-       Icon(Icons.Default.Circle,null,tint=if(session!=null)Color(0xFF36D399) else Color(0xFFFFC857),modifier=Modifier.size(9.dp))
-       Text(if(session!=null)"Connected · "+session!!.role else "Local device mode · Sign in for staff access",fontSize=11.sp,color=Color(0xFFD9E7F5))
-       Spacer(Modifier.weight(1f))
-       TextButton(onClick={dialog="login"},contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)){Text(if(session!=null)"Account" else "Sign in",color=Color(0xFF75D2FF),fontSize=11.sp)}
+
+      TextButton(onClick={setTab(PageTab.STOCK)}){
+       Text("Open full stock ledger →")
       }
      }
     }
    }
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text("Today's performance",fontSize=19.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Actual saved totals · no sample values",fontSize=11.sp,color=Muted)};TextButton(onClick={setTab(PageTab.REPORTS)}){Text("Reports  →")}}}
+
+   // QUICK ORDER AVAILABILITY CHECK
    item{
-    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-     HomeKpiCard("Produced today",produced.toString(),"Bottles",Icons.Default.WaterDrop,Color(0xFF147DEB),Modifier.weight(1f))
-     HomeKpiCard("Good bottles",good.toString(),"Accepted output",Icons.Default.CheckCircle,Color(0xFF119B79),Modifier.weight(1f))
-    }
-   }
-   item{
-    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-     HomeKpiCard("Rejected",rejected.toString(),String.format(Locale.US,"%.1f%% reject rate",rejectionRate),Icons.Default.WarningAmber,Color(0xFFD94F70),Modifier.weight(1f))
-     HomeKpiCard("Packs completed",packed.toString(),"Today",Icons.Default.Inventory2,Color(0xFF7656D9),Modifier.weight(1f))
-    }
-   }
-   item{
-    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-     HomeKpiCard("Packs dispatched",dispatched.toString(),"Today's dispatches",Icons.Default.LocalShipping,Color(0xFFD98523),Modifier.weight(1f))
-     HomeKpiCard("Electricity",String.format(Locale.US,"%.1f",todayMeters.sumOf{it.consumption}),"Units today",Icons.Default.Bolt,Color(0xFF1689A8),Modifier.weight(1f))
-    }
-   }
-   item{
-    val activeLinesCount=productionLines.count{it.status=="ACTIVE"}
-    val runningMachinesCount=machines.count{it.status=="RUNNING"}
-    val alertMachines=machines.filter{it.status in setOf("STOPPED","DOWN","MAINTENANCE")}
-    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={setTab(PageTab.MACHINES)}){
-     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){
-       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
-        Text("Production lines & machinery",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
-        Text("Shop-floor operational status",fontSize=11.sp,color=Muted)
+    Surface(
+     color=Color.White,
+     shape=RoundedCornerShape(20.dp),
+     border=androidx.compose.foundation.BorderStroke(1.dp,Border)
+    ){
+     Column(
+      Modifier.fillMaxWidth().padding(15.dp),
+      verticalArrangement=Arrangement.spacedBy(10.dp)
+     ){
+      Text("Quick Order Check",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text(
+       "Check whether an order can be fulfilled from complete packed stock.",
+       fontSize=11.sp,color=Muted
+      )
+
+      if(cloudItems.isEmpty()){
+       Text(
+        "Load server inventory to select a product and calculate availability.",
+        fontSize=12.sp,color=Muted
+       )
+      }else{
+       Box{
+        OutlinedButton(
+         onClick={quickOrderMenuExpanded=true},
+         modifier=Modifier.fillMaxWidth()
+        ){
+         Text(
+          selectedOrderProduct?.let{
+           "${it.name} · ${it.sizeLabel} · ${it.colour}"
+          }?: "Select product",
+          modifier=Modifier.weight(1f),
+          color=Navy
+         )
+         Icon(Icons.Default.ArrowDropDown,null)
+        }
+        DropdownMenu(
+         expanded=quickOrderMenuExpanded,
+         onDismissRequest={quickOrderMenuExpanded=false}
+        ){
+         cloudItems.forEach{product->
+          DropdownMenuItem(
+           text={Text("${product.name} · ${product.sizeLabel} · ${product.colour}")},
+           onClick={
+            quickOrderProductId=product.productId
+            quickOrderMenuExpanded=false
+           }
+          )
+         }
+        }
        }
+
+       OutlinedTextField(
+        value=quickOrderPacks,
+        onValueChange={
+         quickOrderPacks=it.filter{ch->ch.isDigit()}.take(7)
+        },
+        modifier=Modifier.fillMaxWidth(),
+        label={Text("Customer order quantity (packs)")},
+        singleLine=true
+       )
+
+       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Column(
+         Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(12.dp)).padding(10.dp)
+        ){
+         Text("Available",fontSize=10.sp,color=Muted)
+         Text("$selectedAvailablePacks packs",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+        }
+        Column(
+         Modifier.weight(1f).background(Color(0xFFF0EAFE),RoundedCornerShape(12.dp)).padding(10.dp)
+        ){
+         Text("Order quantity",fontSize=10.sp,color=Muted)
+         Text("$requestedPacks packs",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+        }
+        Column(
+         Modifier.weight(1f).background(
+          if(orderShortage==0)Color(0xFFE5F5EC) else Color(0xFFFFF0DE),
+          RoundedCornerShape(12.dp)
+         ).padding(10.dp)
+        ){
+         Text("Shortage",fontSize=10.sp,color=Muted)
+         Text(
+          "$orderShortage packs",
+          fontSize=17.sp,fontWeight=FontWeight.Bold,
+          color=if(orderShortage==0)Color(0xFF16804A) else Color(0xFF9B5B00)
+         )
+        }
+       }
+
+       if(requestedPacks<=0){
+        Text("Enter an order quantity greater than zero.",fontSize=11.sp,color=Muted)
+       }else if(orderShortage==0){
+        Text(
+         "✓ Stock check passed — $requestedPacks packs are available for dispatch.",
+         fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF16804A)
+        )
+       }else{
+        Text(
+         "Production / packing required: $orderShortage additional packs needed.",
+         fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF9B5B00)
+        )
+       }
+      }
+
+      Text(
+       "This is a stock-only check. Open customer orders/reservations are not deducted here.",
+       fontSize=10.sp,color=Muted
+      )
+     }
+    }
+   }
+
+   // COMPACT DAILY PROGRESS
+   item{
+    Row(verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+      Text("Today at the factory",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Compact production & dispatch summary",fontSize=10.sp,color=Muted)
+     }
+     TextButton(onClick={setTab(PageTab.REPORTS)}){
+      Text("Reports →")
+     }
+    }
+   }
+
+   item{
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     Column(
+      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
+     ){
+      Text("Good bottles",fontSize=10.sp,color=Muted)
+      Text(good.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("of $produced produced",fontSize=9.sp,color=Muted)
+     }
+     Column(
+      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
+     ){
+      Text("Rejected",fontSize=10.sp,color=Muted)
+      Text(rejected.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Today",fontSize=9.sp,color=Muted)
+     }
+     Column(
+      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
+     ){
+      Text("Packed",fontSize=10.sp,color=Muted)
+      Text(packedToday.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Complete packs",fontSize=9.sp,color=Muted)
+     }
+    }
+   }
+
+   item{
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     Column(
+      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
+     ){
+      Text("Dispatched",fontSize=10.sp,color=Muted)
+      Text(dispatchedToday.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Packs today",fontSize=9.sp,color=Muted)
+     }
+     Column(
+      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
+     ){
+      Text("Electricity",fontSize=10.sp,color=Muted)
+      Text(String.format(Locale.US,"%.1f",todayMeters.sumOf{it.consumption}),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Units today",fontSize=9.sp,color=Muted)
+     }
+     Column(
+      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
+     ){
+      Text("Production",fontSize=10.sp,color=Muted)
+      Text(todayProduction.size.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Runs today",fontSize=9.sp,color=Muted)
+     }
+    }
+   }
+
+   // QUICK OPERATIONS
+   item{
+    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Text("Quick operations",Modifier.weight(1f),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
+       Icon(Icons.Default.Bolt,null,tint=Cyan)
+      }
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+       HomeActionTile("Production",Icons.Default.Build,Color(0xFF147DEB),{dialog="production"},Modifier.weight(1f))
+       HomeActionTile("Packing",Icons.Default.Inventory2,Color(0xFF7656D9),{dialog="packing"},Modifier.weight(1f))
+       HomeActionTile("Dispatch",Icons.Default.LocalShipping,Color(0xFFD98523),{dialog="dispatch"},Modifier.weight(1f))
+      }
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+       HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{setTab(PageTab.PRODUCTS)},Modifier.weight(1f))
+       HomeActionTile("Machinery",Icons.Default.Settings,Color(0xFF1E88E5),{tab=PageTab.MACHINES},Modifier.weight(1f))
+       HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{meterDialogMode="MORNING";selectedMeterReading=null;dialog="meter"},Modifier.weight(1f))
+      }
+     }
+    }
+   }
+
+   // MACHINE STATUS
+   item{
+    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={setTab(PageTab.MACHINES)}){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Text("Shop-floor status",Modifier.weight(1f),fontSize=15.sp,fontWeight=FontWeight.Bold,color=Navy)
        TextButton(onClick={setTab(PageTab.MACHINES)}){Text("Manage →")}
       }
       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-       Surface(Modifier.weight(1f),color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Active lines",fontSize=10.sp,color=Muted);Text(activeLinesCount.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy)}}
-       Surface(Modifier.weight(1f),color=Color(0xFFE8F7F0),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Running",fontSize=10.sp,color=Muted);Text(runningMachinesCount.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF16804A))}}
-       Surface(Modifier.weight(1f),color=if(alertMachines.isNotEmpty())Color(0xFFFFF3DE) else Color(0xFFE8F7F0),shape=RoundedCornerShape(12.dp)){Column(Modifier.padding(10.dp)){Text("Attention",fontSize=10.sp,color=Muted);Text(alertMachines.size.toString(),fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=if(alertMachines.isNotEmpty())Color(0xFF9B5B00) else Color(0xFF16804A))}}
+       Column(Modifier.weight(1f).background(Color(0xFFEAF5FC),RoundedCornerShape(10.dp)).padding(9.dp)){
+        Text("Active lines",fontSize=10.sp,color=Muted)
+        Text(activeLinesCount.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+       }
+       Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(10.dp)).padding(9.dp)){
+        Text("Running",fontSize=10.sp,color=Muted)
+        Text(runningMachinesCount.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Color(0xFF16804A))
+       }
+       Column(Modifier.weight(1f).background(
+        if(alertMachines.isNotEmpty())Color(0xFFFFF3DE) else Color(0xFFE8F7F0),
+        RoundedCornerShape(10.dp)
+       ).padding(9.dp)){
+        Text("Attention",fontSize=10.sp,color=Muted)
+        Text(alertMachines.size.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=if(alertMachines.isNotEmpty())Color(0xFF9B5B00) else Color(0xFF16804A))
+       }
       }
       if(alertMachines.isNotEmpty()){
-       Text("⚠️ Needs attention: "+alertMachines.take(3).joinToString{ "${it.name} (${it.status})" },fontSize=11.sp,color=Color(0xFF9B5B00),fontWeight=FontWeight.SemiBold)
+       Text(
+        "Needs attention: "+alertMachines.take(3).joinToString{ "${it.name} (${it.status})" },
+        fontSize=11.sp,color=Color(0xFF9B5B00),fontWeight=FontWeight.SemiBold
+       )
       }
      }
     }
    }
+
+   // PRODUCT MASTER
    item{
-    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
-     Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text("Quick operations",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Start a common factory task",fontSize=11.sp,color=Muted)};Icon(Icons.Default.Bolt,null,tint=Cyan)}
-      Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Production",Icons.Default.Build,Color(0xFF147DEB),{dialog="production"},Modifier.weight(1f));HomeActionTile("Packing",Icons.Default.Inventory2,Color(0xFF7656D9),{dialog="packing"},Modifier.weight(1f));HomeActionTile("Dispatch",Icons.Default.LocalShipping,Color(0xFFD98523),{dialog="dispatch"},Modifier.weight(1f))}
-      Row(horizontalArrangement=Arrangement.spacedBy(9.dp)){HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{setTab(PageTab.PRODUCTS)},Modifier.weight(1f));HomeActionTile("Machinery",Icons.Default.Settings,Color(0xFF1E88E5),{tab=PageTab.MACHINES},Modifier.weight(1f));HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{meterDialogMode="MORNING";selectedMeterReading=null;dialog="meter"},Modifier.weight(1f))}
+    Row(verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+      Text("Factory products",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Active bottle lines & pack sizes",fontSize=10.sp,color=Muted)
      }
+     TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage →")}
     }
    }
-   item{
-    Surface(color=if(lowStock.isEmpty())Color(0xFFE8F7F0) else Color(0xFFFFF3DE),shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(lowStock.isEmpty())Color(0xFFC5E9D8) else Color(0xFFF2D6A5))){
-     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
-       Surface(color=if(lowStock.isEmpty())Color(0xFFD1F1E1) else Color(0xFFFFE6B6),shape=RoundedCornerShape(12.dp)){Icon(if(lowStock.isEmpty())Icons.Default.CheckCircle else Icons.Default.WarningAmber,null,tint=if(lowStock.isEmpty())Color(0xFF16804A) else Color(0xFF9B5B00),modifier=Modifier.padding(10.dp))}
-       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text(if(lowStock.isEmpty())"Stock overview" else "Stock needs attention",fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp);Text(if(lowStock.isEmpty())active.size.toString()+" active products · "+availablePacks+" available packs" else lowStock.size.toString()+" product(s) at or below the 5-pack alert threshold",fontSize=11.sp,color=Muted)}
-       TextButton(onClick={setTab(PageTab.STOCK)}){Text("View stock")}
-      }
-      if(lowStock.isNotEmpty())lowStock.take(3).forEach{p->Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.WaterDrop,null,tint=Color(0xFFB7791F),modifier=Modifier.size(17.dp));Text(p.name,Modifier.weight(1f),fontSize=12.sp,color=Navy);Text(((packedAll[p.id]?:0)-(legacyOut[p.id]?:0)-(batchOut[p.id]?:0)).coerceAtLeast(0).toString()+" packs",fontSize=12.sp,fontWeight=FontWeight.Bold,color=Navy)}}
-     }
+
+   if(active.isEmpty()){
+    item{
+     EmptyDashboardState(
+      "No active products",
+      "Add the factory's bottle types to start recording operations.",
+      Icons.Default.WaterDrop
+     )
+    }
+   }else{
+    items(active.take(4),key={it.id}){product->
+     BottleProductCard(
+      name=product.name,
+      capacity=product.sizeLabel,
+      packSizeLabel=if(product.bottlesPerPack>0)
+       "${product.bottlesPerPack} bottles per pack" else "",
+      active=product.active,
+      bottleType="${product.sizeLabel} ${product.colour} ${product.name}",
+      iconName=product.iconName,
+      imageUri=product.imageUri,
+      colour=product.colour,
+      onClick={editingProduct=product;dialog="product"}
+     )
     }
    }
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Factory products",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Active bottle lines & pack counts",fontSize=11.sp,color=Muted)};TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage →")}}}
-   if(active.isEmpty())item{EmptyDashboardState("No active products","Add your factory's bottle types to start recording operations.",Icons.Default.WaterDrop)}
-   items(active.take(6),key={it.id}){p->BottleProductCard(name=p.name,capacity=p.sizeLabel,packSizeLabel=if(p.bottlesPerPack>0)"${p.bottlesPerPack} bottles per pack" else "",active=p.active,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",iconName=p.iconName,imageUri=p.imageUri,colour=p.colour,onClick={editingProduct=p;dialog="product"})}
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Recent production",fontSize=18.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Latest saved production entries",fontSize=11.sp,color=Muted)};TextButton(onClick={setTab(PageTab.PRODUCTION)}){Text("View all →")}}}
-   if(production.isEmpty())item{EmptyDashboardState("No production entries yet","Record the first production run to populate your dashboard.",Icons.Default.Build)}
-   else items(production.take(5),key={it.id}){e->Record(e.productNameSnapshot,e.goodBottles.toString()+" good · "+e.rejectedBottles+" rejected",e.productionDate)}
+
+   // RECENT PRODUCTION
+   item{
+    Row(verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+      Text("Recent production",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Text("Latest saved production entries",fontSize=10.sp,color=Muted)
+     }
+     TextButton(onClick={setTab(PageTab.PRODUCTION)}){Text("View all →")}
+    }
+   }
+
+   if(production.isEmpty()){
+    item{
+     EmptyDashboardState(
+      "No production entries yet",
+      "Record the first production run to populate this dashboard.",
+      Icons.Default.Build
+     )
+    }
+   }else{
+    items(production.take(4),key={it.id}){entry->
+     Record(
+      entry.productNameSnapshot,
+      "${entry.goodBottles} good · ${entry.rejectedBottles} rejected",
+      entry.productionDate
+     )
+    }
+   }
   }
  }
  PageTab.PRODUCTS->{
