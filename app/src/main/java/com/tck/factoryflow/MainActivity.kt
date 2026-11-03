@@ -449,7 +449,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
          Icon(Icons.Default.ArrowDropDown,null)
         }
         DropdownMenu(expanded=quickOrderMenuExpanded,onDismissRequest={quickOrderMenuExpanded=false}){
-         cloudItems.forEach{product->DropdownMenuItem(text={Text("${product.name} · ${product.sizeLabel} · ${product.colour")},onClick={quickOrderProductId=product.productId;quickOrderMenuExpanded=false})}
+         cloudItems.forEach{product->DropdownMenuItem(text={Text("${product.name} · ${product.sizeLabel} · ${product.colour}")},onClick={quickOrderProductId=product.productId;quickOrderMenuExpanded=false})}
         }
        }
        OutlinedTextField(value=quickOrderPacks,onValueChange={quickOrderPacks=it.filter{ch->ch.isDigit()}.take(7)},modifier=Modifier.fillMaxWidth(),label={Text("Order quantity (packs)")},singleLine=true)
