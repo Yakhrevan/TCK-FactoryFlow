@@ -349,496 +349,162 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
   val todayProduction=production.filter{it.productionDate==date}
   val todayPacking=packing.filter{it.packingDate==date}
   val todayMeters=meters.filter{it.readingDate==date&&it.status=="COMPLETED"}
-
   val produced=todayProduction.sumOf{it.producedBottles}
   val good=todayProduction.sumOf{it.goodBottles}
   val rejected=todayProduction.sumOf{it.rejectedBottles}
   val packedToday=todayPacking.sumOf{it.completePacks}
   val dispatchedToday=dispatches.filter{it.dispatchDate==date}.sumOf{it.packsDispatched}+
-   dispatchLines.filter{line->
-    line.batchId in dispatchBatches.filter{
-     it.status=="POSTED"&&it.dispatchDate==date
-    }.map{it.id}
-   }.sumOf{it.packs}
-
+   dispatchLines.filter{line->line.batchId in dispatchBatches.filter{it.status=="POSTED"&&it.dispatchDate==date}.map{it.id}}.sumOf{it.packs}
   val cloudItems=cloudStockSnapshot?.items?.filter{it.active}.orEmpty()
   val totalAvailablePacks=cloudItems.sumOf{it.completePacks}
+  val totalPackedBottles=cloudItems.sumOf{it.completePacks*it.bottlesPerPack}
   val totalUnpackedBottles=cloudItems.sumOf{it.unpackedGoodBottles}
   val totalLooseBottles=cloudItems.sumOf{it.looseBottles}
-  val pendingFullPacks=cloudItems.sumOf{
-   if(it.bottlesPerPack>0) it.unpackedGoodBottles/it.bottlesPerPack else 0
-  }
-
-  var quickOrderProductId by remember{
-   mutableStateOf(cloudItems.firstOrNull()?.productId.orEmpty())
-  }
+  val totalGoodBottles=totalPackedBottles+totalUnpackedBottles+totalLooseBottles
+  var quickOrderProductId by remember{mutableStateOf(cloudItems.firstOrNull()?.productId.orEmpty())}
   var quickOrderPacks by remember{mutableStateOf("1")}
   var quickOrderMenuExpanded by remember{mutableStateOf(false)}
-
-  val selectedOrderProduct=cloudItems.firstOrNull{
-   it.productId==quickOrderProductId
-  } ?: cloudItems.firstOrNull()
-
+  val selectedOrderProduct=cloudItems.firstOrNull{it.productId==quickOrderProductId}?:cloudItems.firstOrNull()
   val requestedPacks=quickOrderPacks.toIntOrNull()?.coerceAtLeast(0)?:0
   val selectedAvailablePacks=selectedOrderProduct?.completePacks?:0
   val orderShortage=(requestedPacks-selectedAvailablePacks).coerceAtLeast(0)
-
   val activeLinesCount=productionLines.count{it.status=="ACTIVE"}
   val runningMachinesCount=machines.count{it.status=="RUNNING"}
-  val alertMachines=machines.filter{
-   it.status in setOf("STOPPED","DOWN","MAINTENANCE")
-  }
-
+  val alertMachines=machines.filter{it.status in setOf("STOPPED","DOWN","MAINTENANCE")}
   LazyColumn(
    Modifier.fillMaxSize().background(Color(0xFFF3F7FC)),
    contentPadding=PaddingValues(start=16.dp,end=16.dp,top=12.dp,bottom=24.dp),
    verticalArrangement=Arrangement.spacedBy(12.dp)
   ){
    item{
-    Column(
-     Modifier.fillMaxWidth().padding(top=4.dp,bottom=2.dp),
-     verticalArrangement=Arrangement.spacedBy(3.dp)
-    ){
-     Text("Factory Dashboard",fontSize=24.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
-     Text(
-      java.text.SimpleDateFormat("EEE, dd MMM yyyy",Locale.US).format(Date()),
-      fontSize=12.sp,color=Muted
-     )
+    Row(Modifier.fillMaxWidth().padding(top=4.dp,bottom=2.dp),verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+      Text("Factory",fontSize=25.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+      Text(java.text.SimpleDateFormat("EEE, dd MMM yyyy",Locale.US).format(Date()),fontSize=11.sp,color=Muted)
+     }
+     TextButton(enabled=session?.isCloud==true&&!cloudStockLoading,onClick={
+      cloudStockLoading=true;cloudStockError=null
+      scope.launch{try{cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)}catch(e:Exception){cloudStockError=e.message?: "Stock refresh failed"}finally{cloudStockLoading=false}}
+     }){Text(if(cloudStockLoading)"Loading…" else "Refresh")}
     }
    }
-
-   // SERVER-AUTHORITATIVE INVENTORY
+   // CURRENT STOCK ONLY — server-authoritative balance
    item{
-    Surface(
-     color=Color.White,
-     shape=RoundedCornerShape(20.dp),
-     border=androidx.compose.foundation.BorderStroke(1.dp,Border)
-    ){
-     Column(
-      Modifier.fillMaxWidth().padding(15.dp),
-      verticalArrangement=Arrangement.spacedBy(12.dp)
-     ){
-      Row(verticalAlignment=Alignment.CenterVertically){
-       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){
-        Text("Live inventory",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-        Text(
-         if(cloudStockSnapshot!=null)
-          "Server-confirmed stock · ${cloudItems.size} active products"
-         else if(cloudStockLoading)
-          "Fetching latest server stock…"
-         else if(session?.isCloud!=true)
-          "Sign in to view authoritative stock"
-         else
-          "Cloud stock is not currently available",
-         fontSize=11.sp,color=Muted
-        )
-       }
-       TextButton(
-        enabled=session?.isCloud==true&&!cloudStockLoading,
-        onClick={
-         cloudStockLoading=true
-         cloudStockError=null
-         scope.launch{
-          try{
-           cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)
-          }catch(e:Exception){
-           cloudStockError=e.message?: "Unable to refresh stock"
-          }finally{
-           cloudStockLoading=false
-          }
-         }
-        }
-       ){
-        Text(if(cloudStockLoading)"Loading…" else "Refresh")
-       }
-      }
-
-      if(cloudStockError!=null){
-       Text(
-        "Stock refresh failed: ${cloudStockError}",
-        color=Color(0xFFB42336),fontSize=11.sp
-       )
-      }
-
-      if(cloudStockSnapshot!=null){
-       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-        Column(
-         Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(12.dp)).padding(10.dp)
-        ){
-         Text("Packed & ready",fontSize=10.sp,color=Muted)
-         Text(totalAvailablePacks.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
-         Text("Complete packs",fontSize=10.sp,color=Muted)
-        }
-        Column(
-         Modifier.weight(1f).background(Color(0xFFFFF2DF),RoundedCornerShape(12.dp)).padding(10.dp)
-        ){
-         Text("Awaiting packing",fontSize=10.sp,color=Muted)
-         Text(totalUnpackedBottles.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
-         Text("$pendingFullPacks full packs possible",fontSize=10.sp,color=Muted)
-        }
-        Column(
-         Modifier.weight(1f).background(Color(0xFFF0EAFE),RoundedCornerShape(12.dp)).padding(10.dp)
-        ){
-         Text("Loose bottles",fontSize=10.sp,color=Muted)
-         Text(totalLooseBottles.toString(),fontSize=21.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
-         Text("Residual stock",fontSize=10.sp,color=Muted)
-        }
-       }
-
-       if(cloudItems.isEmpty()){
-        Text("No active products in the server inventory.",fontSize=12.sp,color=Muted)
-       }else{
-        Column(verticalArrangement=Arrangement.spacedBy(7.dp)){
-         cloudItems.take(8).forEach{stock->
-          Row(
-           Modifier.fillMaxWidth(),
-           verticalAlignment=Alignment.CenterVertically
-          ){
-           Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-            Text(stock.name,fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Navy)
-            Text(
-             "${stock.sizeLabel} · ${stock.colour} · ${stock.bottlesPerPack} bottles/pack",
-             fontSize=10.sp,color=Muted
-            )
-            Text(
-             "${stock.unpackedGoodBottles} good bottles awaiting packing · ${stock.looseBottles} loose",
-             fontSize=10.sp,color=Color(0xFF8A5A12)
-            )
-           }
-           Text(
-            "${stock.completePacks} packs",
-            fontSize=13.sp,fontWeight=FontWeight.Bold,color=Navy
-           )
-          }
-         }
-        }
-       }
-
-       Text(
-        "Server snapshot: ${cloudStockSnapshot?.serverTime?: "timestamp unavailable"}",
-        fontSize=9.sp,color=Muted
-       )
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+      Text("Current Stock",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      if(cloudStockError!=null)Text("Refresh failed: $cloudStockError",fontSize=11.sp,color=Color(0xFFB42336))
+      if(cloudStockSnapshot==null){
+       Text(if(cloudStockLoading)"Loading server stock…" else if(session?.isCloud!=true)"Sign in to view live stock" else "Server stock unavailable",fontSize=12.sp,color=Muted)
       }else{
-       Surface(color=Color(0xFFEAF3FF),shape=RoundedCornerShape(12.dp)){
-        Column(Modifier.fillMaxWidth().padding(12.dp)){
-         Text("Cloud inventory not loaded",fontWeight=FontWeight.SemiBold,color=Navy)
-         Text(
-          "Refresh stock after signing in to see server-confirmed packed, unpacked and loose quantities.",
-          fontSize=11.sp,color=Muted
-         )
+       Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+        Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){
+         Text("Good bottles",fontSize=9.sp,color=Muted);Text(totalGoodBottles.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+        }
+        Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(10.dp)).padding(9.dp)){
+         Text("Packed packs",fontSize=9.sp,color=Muted);Text(totalAvailablePacks.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+        }
+        Column(Modifier.weight(1f).background(Color(0xFFFFF1DE),RoundedCornerShape(10.dp)).padding(9.dp)){
+         Text("Unpacked",fontSize=9.sp,color=Muted);Text(totalUnpackedBottles.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
         }
        }
+       Text("Bottle-wise stock",fontSize=13.sp,fontWeight=FontWeight.Bold,color=Navy)
+       Row(Modifier.fillMaxWidth().background(Color(0xFFF0F4FA),RoundedCornerShape(7.dp)).padding(horizontal=7.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
+        Text("Product",Modifier.weight(1.55f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted)
+        Text("Total",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
+        Text("Packs",Modifier.weight(.65f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
+        Text("Unpack",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Muted,textAlign=TextAlign.End)
+       }
+       cloudItems.forEachIndexed{index,stock->
+        Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
+         Row(Modifier.fillMaxWidth().padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){
+          Column(Modifier.weight(1.55f),verticalArrangement=Arrangement.spacedBy(1.dp)){
+           Text(stock.name,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Navy,maxLines=2)
+           Text("${stock.sizeLabel} · ${stock.colour}",fontSize=9.sp,color=Muted,maxLines=1)
+          }
+          Text((stock.completePacks*stock.bottlesPerPack+stock.unpackedGoodBottles+stock.looseBottles).toString(),Modifier.weight(.75f),fontSize=11.sp,fontWeight=FontWeight.Medium,color=Navy,textAlign=TextAlign.End)
+          Text(stock.completePacks.toString(),Modifier.weight(.65f),fontSize=11.sp,fontWeight=FontWeight.Bold,color=Navy,textAlign=TextAlign.End)
+          Text(stock.unpackedGoodBottles.toString(),Modifier.weight(.75f),fontSize=11.sp,color=Color(0xFF9B5B00),textAlign=TextAlign.End)
+         }
+         if(index<cloudItems.lastIndex)HorizontalDivider(color=Border)
+        }
+       }
+       Text("Total packed bottles: $totalPackedBottles  ·  Loose: $totalLooseBottles",fontSize=10.sp,color=Muted)
+       Text("Server balance · ${cloudStockSnapshot?.serverTime?: "timestamp unavailable"}",fontSize=9.sp,color=Muted)
       }
-
-      TextButton(onClick={setTab(PageTab.STOCK)}){
-       Text("Open full stock ledger →")
-      }
+      TextButton(onClick={setTab(PageTab.STOCK)}){Text("Full stock ledger →")}
      }
     }
    }
-
-   // QUICK ORDER AVAILABILITY CHECK
+   // ORDER CHECK (not daily progress)
    item{
-    Surface(
-     color=Color.White,
-     shape=RoundedCornerShape(20.dp),
-     border=androidx.compose.foundation.BorderStroke(1.dp,Border)
-    ){
-     Column(
-      Modifier.fillMaxWidth().padding(15.dp),
-      verticalArrangement=Arrangement.spacedBy(10.dp)
-     ){
-      Text("Quick Order Check",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text(
-       "Check whether an order can be fulfilled from complete packed stock.",
-       fontSize=11.sp,color=Muted
-      )
-
-      if(cloudItems.isEmpty()){
-       Text(
-        "Load server inventory to select a product and calculate availability.",
-        fontSize=12.sp,color=Muted
-       )
-      }else{
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+      Text("Order Check",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
+      if(cloudItems.isEmpty())Text("Load server stock to check order availability.",fontSize=11.sp,color=Muted)
+      else{
        Box{
-        OutlinedButton(
-         onClick={quickOrderMenuExpanded=true},
-         modifier=Modifier.fillMaxWidth()
-        ){
-         Text(
-          selectedOrderProduct?.let{
-           "${it.name} · ${it.sizeLabel} · ${it.colour}"
-          }?: "Select product",
-          modifier=Modifier.weight(1f),
-          color=Navy
-         )
+        OutlinedButton(onClick={quickOrderMenuExpanded=true},modifier=Modifier.fillMaxWidth()){
+         Text(selectedOrderProduct?.let{"${it.name} · ${it.sizeLabel} · ${it.colour}"}?: "Select product",Modifier.weight(1f),color=Navy,maxLines=1)
          Icon(Icons.Default.ArrowDropDown,null)
         }
-        DropdownMenu(
-         expanded=quickOrderMenuExpanded,
-         onDismissRequest={quickOrderMenuExpanded=false}
-        ){
-         cloudItems.forEach{product->
-          DropdownMenuItem(
-           text={Text("${product.name} · ${product.sizeLabel} · ${product.colour}")},
-           onClick={
-            quickOrderProductId=product.productId
-            quickOrderMenuExpanded=false
-           }
-          )
-         }
+        DropdownMenu(expanded=quickOrderMenuExpanded,onDismissRequest={quickOrderMenuExpanded=false}){
+         cloudItems.forEach{product->DropdownMenuItem(text={Text("${product.name} · ${product.sizeLabel} · ${product.colour")},onClick={quickOrderProductId=product.productId;quickOrderMenuExpanded=false})}
         }
        }
-
-       OutlinedTextField(
-        value=quickOrderPacks,
-        onValueChange={
-         quickOrderPacks=it.filter{ch->ch.isDigit()}.take(7)
-        },
-        modifier=Modifier.fillMaxWidth(),
-        label={Text("Customer order quantity (packs)")},
-        singleLine=true
-       )
-
-       Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-        Column(
-         Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(12.dp)).padding(10.dp)
-        ){
-         Text("Available",fontSize=10.sp,color=Muted)
-         Text("$selectedAvailablePacks packs",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
-        }
-        Column(
-         Modifier.weight(1f).background(Color(0xFFF0EAFE),RoundedCornerShape(12.dp)).padding(10.dp)
-        ){
-         Text("Order quantity",fontSize=10.sp,color=Muted)
-         Text("$requestedPacks packs",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
-        }
-        Column(
-         Modifier.weight(1f).background(
-          if(orderShortage==0)Color(0xFFE5F5EC) else Color(0xFFFFF0DE),
-          RoundedCornerShape(12.dp)
-         ).padding(10.dp)
-        ){
-         Text("Shortage",fontSize=10.sp,color=Muted)
-         Text(
-          "$orderShortage packs",
-          fontSize=17.sp,fontWeight=FontWeight.Bold,
-          color=if(orderShortage==0)Color(0xFF16804A) else Color(0xFF9B5B00)
-         )
-        }
+       OutlinedTextField(value=quickOrderPacks,onValueChange={quickOrderPacks=it.filter{ch->ch.isDigit()}.take(7)},modifier=Modifier.fillMaxWidth(),label={Text("Order quantity (packs)")},singleLine=true)
+       Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+        Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Available",fontSize=9.sp,color=Muted);Text("$selectedAvailablePacks",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)}
+        Column(Modifier.weight(1f).background(Color(0xFFFFF1DE),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Shortage",fontSize=9.sp,color=Muted);Text("$orderShortage packs",fontSize=17.sp,fontWeight=FontWeight.Bold,color=if(orderShortage==0)Color(0xFF16804A) else Color(0xFF9B5B00))}
        }
-
-       if(requestedPacks<=0){
-        Text("Enter an order quantity greater than zero.",fontSize=11.sp,color=Muted)
-       }else if(orderShortage==0){
-        Text(
-         "✓ Stock check passed — $requestedPacks packs are available for dispatch.",
-         fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF16804A)
-        )
-       }else{
-        Text(
-         "Production / packing required: $orderShortage additional packs needed.",
-         fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=Color(0xFF9B5B00)
-        )
-       }
-      }
-
-      Text(
-       "This is a stock-only check. Open customer orders/reservations are not deducted here.",
-       fontSize=10.sp,color=Muted
-      )
-     }
-    }
-   }
-
-   // COMPACT DAILY PROGRESS
-   item{
-    Row(verticalAlignment=Alignment.CenterVertically){
-     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-      Text("Today at the factory",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Compact production & dispatch summary",fontSize=10.sp,color=Muted)
-     }
-     TextButton(onClick={setTab(PageTab.REPORTS)}){
-      Text("Reports →")
-     }
-    }
-   }
-
-   item{
-    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-     Column(
-      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
-     ){
-      Text("Good bottles",fontSize=10.sp,color=Muted)
-      Text(good.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("of $produced produced",fontSize=9.sp,color=Muted)
-     }
-     Column(
-      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
-     ){
-      Text("Rejected",fontSize=10.sp,color=Muted)
-      Text(rejected.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Today",fontSize=9.sp,color=Muted)
-     }
-     Column(
-      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
-     ){
-      Text("Packed",fontSize=10.sp,color=Muted)
-      Text(packedToday.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Complete packs",fontSize=9.sp,color=Muted)
-     }
-    }
-   }
-
-   item{
-    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-     Column(
-      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
-     ){
-      Text("Dispatched",fontSize=10.sp,color=Muted)
-      Text(dispatchedToday.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Packs today",fontSize=9.sp,color=Muted)
-     }
-     Column(
-      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
-     ){
-      Text("Electricity",fontSize=10.sp,color=Muted)
-      Text(String.format(Locale.US,"%.1f",todayMeters.sumOf{it.consumption}),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Units today",fontSize=9.sp,color=Muted)
-     }
-     Column(
-      Modifier.weight(1f).background(Color.White,RoundedCornerShape(14.dp)).padding(11.dp)
-     ){
-      Text("Production",fontSize=10.sp,color=Muted)
-      Text(todayProduction.size.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Runs today",fontSize=9.sp,color=Muted)
-     }
-    }
-   }
-
-   // QUICK OPERATIONS
-   item{
-    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
-     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){
-       Text("Quick operations",Modifier.weight(1f),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
-       Icon(Icons.Default.Bolt,null,tint=Cyan)
-      }
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-       HomeActionTile("Production",Icons.Default.Build,Color(0xFF147DEB),{dialog="production"},Modifier.weight(1f))
-       HomeActionTile("Packing",Icons.Default.Inventory2,Color(0xFF7656D9),{dialog="packing"},Modifier.weight(1f))
-       HomeActionTile("Dispatch",Icons.Default.LocalShipping,Color(0xFFD98523),{dialog="dispatch"},Modifier.weight(1f))
-      }
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-       HomeActionTile("Products",Icons.Default.WaterDrop,Color(0xFF168B78),{setTab(PageTab.PRODUCTS)},Modifier.weight(1f))
-       HomeActionTile("Machinery",Icons.Default.Settings,Color(0xFF1E88E5),{tab=PageTab.MACHINES},Modifier.weight(1f))
-       HomeActionTile("Electricity",Icons.Default.Bolt,Color(0xFF1689A8),{meterDialogMode="MORNING";selectedMeterReading=null;dialog="meter"},Modifier.weight(1f))
+       Text(if(requestedPacks<=0)"Enter packs required." else if(orderShortage==0)"Ready to dispatch" else "Production / packing required",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(orderShortage==0)Color(0xFF16804A)else Color(0xFF9B5B00))
       }
      }
     }
    }
-
-   // MACHINE STATUS
+   // TODAY PROGRESS — today's activity only, separate from stock
    item{
-    Surface(color=Color.White,shape=RoundedCornerShape(20.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={setTab(PageTab.MACHINES)}){
-     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){
-       Text("Shop-floor status",Modifier.weight(1f),fontSize=15.sp,fontWeight=FontWeight.Bold,color=Navy)
-       TextButton(onClick={setTab(PageTab.MACHINES)}){Text("Manage →")}
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){Text("Today Progress",Modifier.weight(1f),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);TextButton(onClick={setTab(PageTab.REPORTS)}){Text("Reports →")}}
+      Text("Production, packing and dispatch for today",fontSize=10.sp,color=Muted)
+      Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+       Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Produced",fontSize=9.sp,color=Muted);Text(produced.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Good: $good",fontSize=9.sp,color=Muted)}
+       Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Packed",fontSize=9.sp,color=Muted);Text(packedToday.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Packs today",fontSize=9.sp,color=Muted)}
+       Column(Modifier.weight(1f).background(Color(0xFFF0EAFE),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Dispatched",fontSize=9.sp,color=Muted);Text(dispatchedToday.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Packs today",fontSize=9.sp,color=Muted)}
       }
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-       Column(Modifier.weight(1f).background(Color(0xFFEAF5FC),RoundedCornerShape(10.dp)).padding(9.dp)){
-        Text("Active lines",fontSize=10.sp,color=Muted)
-        Text(activeLinesCount.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)
-       }
-       Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(10.dp)).padding(9.dp)){
-        Text("Running",fontSize=10.sp,color=Muted)
-        Text(runningMachinesCount.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Color(0xFF16804A))
-       }
-       Column(Modifier.weight(1f).background(
-        if(alertMachines.isNotEmpty())Color(0xFFFFF3DE) else Color(0xFFE8F7F0),
-        RoundedCornerShape(10.dp)
-       ).padding(9.dp)){
-        Text("Attention",fontSize=10.sp,color=Muted)
-        Text(alertMachines.size.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=if(alertMachines.isNotEmpty())Color(0xFF9B5B00) else Color(0xFF16804A))
-       }
-      }
-      if(alertMachines.isNotEmpty()){
-       Text(
-        "Needs attention: "+alertMachines.take(3).joinToString{ "${it.name} (${it.status})" },
-        fontSize=11.sp,color=Color(0xFF9B5B00),fontWeight=FontWeight.SemiBold
-       )
+      Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+       Column(Modifier.weight(1f).background(Color(0xFFFFF1DE),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Rejected",fontSize=9.sp,color=Muted);Text(rejected.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}
+       Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Electricity",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%.1f",todayMeters.sumOf{it.consumption}),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Units",fontSize=9.sp,color=Muted)}
+       Column(Modifier.weight(1f).background(Color(0xFFF3F4F6),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Runs",fontSize=9.sp,color=Muted);Text(todayProduction.size.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}
       }
      }
     }
    }
-
-   // PRODUCT MASTER
+   // SHOP FLOOR
    item{
-    Row(verticalAlignment=Alignment.CenterVertically){
-     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-      Text("Factory products",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Active bottle lines & pack sizes",fontSize=10.sp,color=Muted)
+    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={setTab(PageTab.MACHINES)}){
+     Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){Text("Shop-floor status",Modifier.weight(1f),fontSize=15.sp,fontWeight=FontWeight.Bold,color=Navy);TextButton(onClick={setTab(PageTab.MACHINES)}){Text("Manage →")}}
+      Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+       Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(9.dp)).padding(8.dp)){Text("Active lines",fontSize=9.sp,color=Muted);Text(activeLinesCount.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}
+       Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(9.dp)).padding(8.dp)){Text("Running",fontSize=9.sp,color=Muted);Text(runningMachinesCount.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color(0xFF16804A))}
+       Column(Modifier.weight(1f).background(if(alertMachines.isNotEmpty())Color(0xFFFFF1DE)else Color(0xFFE8F7F0),RoundedCornerShape(9.dp)).padding(8.dp)){Text("Alerts",fontSize=9.sp,color=Muted);Text(alertMachines.size.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=if(alertMachines.isNotEmpty())Color(0xFF9B5B00)else Color(0xFF16804A))}
+      }
      }
-     TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage →")}
     }
    }
-
-   if(active.isEmpty()){
-    item{
-     EmptyDashboardState(
-      "No active products",
-      "Add the factory's bottle types to start recording operations.",
-      Icons.Default.WaterDrop
-     )
-    }
-   }else{
-    items(active.take(4),key={it.id}){product->
-     BottleProductCard(
-      name=product.name,
-      capacity=product.sizeLabel,
-      packSizeLabel=if(product.bottlesPerPack>0)
-       "${product.bottlesPerPack} bottles per pack" else "",
-      active=product.active,
-      bottleType="${product.sizeLabel} ${product.colour} ${product.name}",
-      iconName=product.iconName,
-      imageUri=product.imageUri,
-      colour=product.colour,
-      onClick={editingProduct=product;dialog="product"}
-     )
-    }
-   }
-
-   // RECENT PRODUCTION
+   // COMPLETE ACTIVE PRODUCT CATALOGUE
    item{
-    Row(verticalAlignment=Alignment.CenterVertically){
-     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-      Text("Recent production",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)
-      Text("Latest saved production entries",fontSize=10.sp,color=Muted)
-     }
-     TextButton(onClick={setTab(PageTab.PRODUCTION)}){Text("View all →")}
-    }
+    Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Factory Products",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy);Text("${active.size} active products",fontSize=10.sp,color=Muted)};TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage →")}}
    }
-
-   if(production.isEmpty()){
-    item{
-     EmptyDashboardState(
-      "No production entries yet",
-      "Record the first production run to populate this dashboard.",
-      Icons.Default.Build
-     )
-    }
-   }else{
-    items(production.take(4),key={it.id}){entry->
-     Record(
-      entry.productNameSnapshot,
-      "${entry.goodBottles} good · ${entry.rejectedBottles} rejected",
-      entry.productionDate
-     )
-    }
+   if(active.isEmpty())item{EmptyDashboardState("No active products","Add bottle products in Product Master.",Icons.Default.WaterDrop)}
+   else items(active,key={it.id}){product->
+    BottleProductCard(name=product.name,capacity=product.sizeLabel,packSizeLabel=if(product.bottlesPerPack>0)"${product.bottlesPerPack} bottles per pack"else"",active=product.active,bottleType="${product.sizeLabel} ${product.colour} ${product.name}",iconName=product.iconName,imageUri=product.imageUri,colour=product.colour,onClick={editingProduct=product;dialog="product"})
    }
   }
  }
+
  PageTab.PRODUCTS->{
   val filteredByStatus = when(productSubTab) {
    1 -> products.filter{it.active}
