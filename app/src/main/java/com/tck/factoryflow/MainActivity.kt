@@ -61,7 +61,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private val Blue=Color(0xFF0756A4); private val Cyan=Color(0xFF13A7D8); private val Navy=Color(0xFF102B4E); private val Page=Color(0xFFF1F7FC); private val Muted=Color(0xFF6B7E93); private val Border=Color(0xFFDCE7F1)
-private fun today()=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(Date())
+private fun today(): String = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
 private fun isServerOnline(context: android.content.Context): Boolean {
  val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
  val net = cm.activeNetwork ?: return false
