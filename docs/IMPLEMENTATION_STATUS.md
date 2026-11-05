@@ -165,3 +165,17 @@
 | Period Reports & Analytics | **COMPLETE AND VERIFIED** | `MainActivity.kt`, `ReportExport.kt` | `PageTab.REPORTS`, `totals()` | Produced, Good, Rejected, Rejection %, Packs, Electricity, Line breakdown. |
 | CSV Data Export | **COMPLETE AND VERIFIED** | `ReportExport.kt` | `csv()` | Generates RFC-compliant CSV with production, packing, dispatch, energy, quality. |
 | Cloud-Aggregated Report Query | **COMPLETE AND VERIFIED** | `index.js`, `CloudInventoryRepository.kt` | `/api/reports/query`, `queryCloudReport()` | Authoritative backend report aggregation. |
+
+---
+
+## 13. UI & Industrial Design System
+
+| Feature / Sub-Feature | Status | File Path(s) | Function / Component | Notes & Acceptance Criteria |
+|---|---|---|---|---|
+| Design Tokens (Theme, Colors, Typography) | **COMPLETE AND VERIFIED** | `ui/theme/*.kt` | `TCKColors`, `TCKTypography`, `TCKSpacing`, `TCKShapes` | Complete Material 3 tokenized palette with dark industrial navy accents and WCAG AA contrast. |
+| Reusable App Scaffold | **COMPLETE AND VERIFIED** | `ui/components/TCKAppScaffold.kt` | `TCKAppScaffold()` | Modern app bar with live status indicator, organization badge, and full drawer. |
+| Searchable Selection Bottom Sheet | **COMPLETE AND VERIFIED** | `ui/components/TCKSelectionBottomSheet.kt` | `TCKSelectionBottomSheet()` | Fast search and selection replacement for standard dropdowns. |
+| Touch Numeric Input & Stepper | **COMPLETE AND VERIFIED** | `ui/components/TCKNumericInput.kt` | `TCKNumericInput()` | Industrial touch steppers (+/-) with live remaining balance calculation and overdraft warnings. |
+| Clean Enterprise Login Screen | **COMPLETE AND VERIFIED** | `ui/components/StartupLoginScreen.kt` | `StartupLoginScreen()` | Distraction-free login, sanitized error codes (`sanitizeAuthError()`), offline banner. |
+| Technical Jargon Cleanup | **COMPLETE AND VERIFIED** | `MainActivity.kt`, `StartupLoginScreen.kt` | User-facing text strings | Stripped all "server confirmed", "local only", "Firebase", "Firestore", "Cloudflare", and raw exception dumps. |
+| 11-Point Finished Goods Inventory Breakdown | **COMPLETE AND VERIFIED** | `MainActivity.kt` | `PageTab.STOCK` | Single unified card per variant: Produced, Good, Rejected, Packed Boxes, Loose Bottles, Dispatched Units, Reserved, and Available balances. |

@@ -79,6 +79,14 @@ TCK FactoryFlow is an industrial IoT and MES/ERP application with strict data in
   - User-facing error responses return sanitized messages without stack traces or sensitive internal paths.
   - Production logging in Worker uses structured JSON without dumping request authentication headers.
 
+### 2.8 Client UI Error Sanitization & Information Leakage Prevention
+- **Result:** **PASSED**
+- **Findings:**
+  - `StartupLoginScreen.kt` maps all raw Firebase Authentication exceptions through `sanitizeAuthError()` to prevent disclosing backend user existence or internal network endpoints.
+  - Technical terms ("Firebase", "Firestore", "Cloudflare", "Worker", "server confirmed") have been stripped from user toasts and snackbars.
+  - Regular users cannot trigger or view internal sync retry logs; technical diagnostics are restricted to administrative diagnostic tabs (`PageTab.SYNC` and `PageTab.AUDIT`).
+  - Room database offline cache enforces read-only access for operational views; all data mutation flows require an authenticated cloud session and role-authorized token.
+
 ---
 
 ## 3. Vulnerability Remediation Summary

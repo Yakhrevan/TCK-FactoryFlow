@@ -363,7 +363,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
       FactoryAuthRepository(context).signIn(email, pass)
      }.onSuccess {
       session = it
-      message = "Signed in as ${it.role.uppercase()} · Live Cloud Connected"
+      message = "Signed in as ${it.role.uppercase()}"
       SyncScheduler.runNow(context)
      }.onFailure { err ->
       onError(err.message ?: "Sign-in failed. Please check credentials or network.")
@@ -713,13 +713,13 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
       Row(verticalAlignment=Alignment.CenterVertically){
        Column(Modifier.weight(1f)){
         Text("CURRENT WAREHOUSE STOCK",style=TCKTypography.labelSmall,color=TCKColors.TextMuted,letterSpacing=1.sp)
-        Text("Live Server Balances",style=TCKTypography.titleMedium,color=TCKColors.Navy)
+        Text("Live Inventory Balances",style=TCKTypography.titleMedium,color=TCKColors.Navy)
        }
        TextButton(onClick={setTab(PageTab.STOCK)}){Text("Full Stock →",fontSize=12.sp,fontWeight=FontWeight.Bold,color=TCKColors.Primary)}
       }
       if(cloudStockError!=null)Text("Refresh failed: $cloudStockError",fontSize=11.sp,color=TCKColors.Error)
       if(cloudStockSnapshot==null){
-       Text(if(cloudStockLoading)"Fetching server stock…" else if(session?.isCloud!=true)"Sign in to view live warehouse stock" else "Server stock unavailable",fontSize=12.sp,color=TCKColors.TextMuted)
+       Text(if(cloudStockLoading)"Updating inventory…" else if(session?.isCloud!=true)"Sign in to view warehouse stock" else "Inventory details unavailable",fontSize=12.sp,color=TCKColors.TextMuted)
       }else{
        Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
         Column(Modifier.weight(1f).background(TCKColors.PrimaryLight,TCKShapes.small).padding(9.dp)){
@@ -772,7 +772,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
        }
        Icon(Icons.Default.CheckCircle,contentDescription=null,tint=if(orderShortage==0&&requestedPacks>0)TCKColors.Success else TCKColors.TextMuted)
       }
-      if(cloudItems.isEmpty())Text("Load server stock to check order availability.",fontSize=11.sp,color=TCKColors.TextMuted)
+      if(cloudItems.isEmpty())Text("Select a product above to check order availability.",fontSize=11.sp,color=TCKColors.TextMuted)
       else{
        Box{
         OutlinedButton(onClick={quickOrderMenuExpanded=true},modifier=Modifier.fillMaxWidth(),shape=TCKShapes.small,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Border)){
@@ -1253,11 +1253,11 @@ if(archivedCustomers.isNotEmpty()){
                             entityId=archived.id.toString(),
                             beforeJson="archived",
                             afterJson="active",
-                            reason="Customer restored · server confirmed",
+                            reason="Customer restored",
                             actorId=cloudSession.uid
                         ))
                         SyncScheduler.runNow(context)
-                        message="Customer restored · server confirmed"
+                        message="Customer restored"
                     }.onFailure { message=it.message }
                 }
             }) { Text("Restore") }
@@ -1275,7 +1275,7 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
      Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
       Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(15.dp)){Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){Text(customer.name.trim().take(1).uppercase(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Blue)}}
       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text(customer.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp);Text(customer.phone.ifBlank{"Phone not provided"},fontSize=12.sp,color=Blue);if(customer.address.isNotBlank())Text(customer.address,fontSize=11.sp,color=Muted);if(customer.gstNumber.isNotBlank())Text("GST · "+customer.gstNumber,fontSize=10.sp,color=Muted)}
-      Column(horizontalAlignment=Alignment.End){TextButton(onClick={editingCustomer=customer;dialog="customerEdit"}){Icon(Icons.Default.Edit,null);Text("Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot archive customers"};val cloudSession=requireCloudSession(session);CloudInventoryRepository(context).archiveCustomer(cloudSession,"cust-${customer.id}");dao.updateCustomer(customer.id,customer.name,customer.phone,customer.address,customer.gstNumber,false);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_ARCHIVED",entityType="customer",entityId=customer.id.toString(),beforeJson="active",afterJson="archived",reason="Customer archived · server confirmed",actorId=cloudSession.uid));SyncScheduler.runNow(context);message="Customer archived · server confirmed"}.onFailure{message=it.message}}}){Text("Archive")};TextButton(onClick={dialog="dispatch"}){Text("Dispatch")}}
+      Column(horizontalAlignment=Alignment.End){TextButton(onClick={editingCustomer=customer;dialog="customerEdit"}){Icon(Icons.Default.Edit,null);Text("Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot archive customers"};val cloudSession=requireCloudSession(session);CloudInventoryRepository(context).archiveCustomer(cloudSession,"cust-${customer.id}");dao.updateCustomer(customer.id,customer.name,customer.phone,customer.address,customer.gstNumber,false);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_ARCHIVED",entityType="customer",entityId=customer.id.toString(),beforeJson="active",afterJson="archived",reason="Customer archived",actorId=cloudSession.uid));SyncScheduler.runNow(context);message="Customer archived"}.onFailure{message=it.message}}}){Text("Archive")};TextButton(onClick={dialog="dispatch"}){Text("Dispatch")}}
      }
     }
    }
@@ -1372,89 +1372,198 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
      }
     }
    }else{
-   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Text("INVENTORY CONTROL",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Finished stock",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Complete packs and loose bottles ready for dispatch",fontSize=12.sp,color=Muted)}
-   if(session?.isCloud==true&&roleAllows(session,FactoryAction.ADJUST_STOCK)){
-    item{
-     Button(onClick={
-      stockAdjustmentProduct=active.firstOrNull()
-      stockAdjustmentMode="ADD"
-      stockAdjustmentUnit="PACK"
-      stockAdjustmentQuantity="1"
-      stockAdjustmentReason=""
-      dialog="stockAdjustment"
-     },modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(12.dp)){
-      Icon(Icons.Default.Edit,null);Spacer(Modifier.width(8.dp));Text("Adjust server stock")
-     }
-    }
+   val displayAvailablePacks = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.completePacks} else totalAvailable
+   val displayLooseBottles = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.looseBottles} else totalLooseAvailable
+   val displayUnpackedBottles = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.unpackedGoodBottles} else active.sumOf{p->
+    val good = production.filter{it.productId==p.id}.sumOf{it.goodBottles}
+    val consumed = packing.filter{it.productId==p.id}.sumOf{it.bottlesConsumed}
+    (good - consumed).coerceAtLeast(0)
    }
 
-   if(session?.isCloud==true){
+   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
     item{
-     Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF9CCFEB))){
-      Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
-       Text("AUTHORITATIVE CLOUD INVENTORY",fontWeight=FontWeight.ExtraBold,color=Navy,fontSize=12.sp)
-       Text(if(cloudStockSnapshot!=null)"Server snapshot · "+cloudStockSnapshot!!.serverTime else if(cloudStockLoading)"Loading server stock…" else "No confirmed server snapshot loaded. Local figures below are history only.",fontSize=11.sp,color=Muted)
-       if(cloudStockError!=null)Text(cloudStockError!!,fontSize=11.sp,color=Color(0xFFB42318))
-       Button(enabled=!cloudStockLoading,onClick={scope.launch{cloudStockLoading=true;cloudStockError=null;try{cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)}catch(e:Exception){cloudStockError=e.message?:"Unable to load server stock"}finally{cloudStockLoading=false}}},shape=RoundedCornerShape(10.dp)){Icon(Icons.Default.CloudSync,null,modifier=Modifier.size(16.dp));Spacer(Modifier.width(5.dp));Text(if(cloudStockLoading)"Refreshing…" else "Refresh server stock")}
+     Row(verticalAlignment=Alignment.CenterVertically){
+      Column(Modifier.weight(1f)){
+       Text("INVENTORY MANAGEMENT",style=TCKTypography.labelSmall,color=TCKColors.Primary,letterSpacing=1.4.sp)
+       Text("Finished Goods Stock",style=TCKTypography.headlineLarge,color=TCKColors.Navy)
+       Text("Live warehouse stock, packed boxes and unpacked bottle balances",style=TCKTypography.bodySmall,color=TCKColors.TextMuted)
       }
-     }
-    }
-    val authoritativeItems=cloudStockSnapshot?.items?.filter{it.active&& (it.name+" "+it.sizeLabel+" "+it.colour).contains(stockSearch,true)}.orEmpty()
-    if(authoritativeItems.isEmpty()){
-     item{EmptyDashboardState(if(cloudStockLoading)"Loading server inventory" else "No server stock records",if(cloudStockError!=null)"Refresh failed. Check connectivity and factory membership." else "Provision products and post confirmed production/packing transactions to populate shared inventory.",Icons.Default.CloudQueue)}
-    }else{
-     item{Text("Server-confirmed stock by product",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)}
-     items(authoritativeItems,key={"cloud-"+it.productId}){item->
-      Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF9CCFEB))){
-       Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Row(verticalAlignment=Alignment.CenterVertically){
-         Column(Modifier.weight(1f)){Text(item.name,fontWeight=FontWeight.Bold,color=Navy);Text(item.sizeLabel+" · "+item.colour+" · "+if(item.bottlesPerPack>0)"${item.bottlesPerPack} bottles/pack" else "Pack size not configured",fontSize=10.sp,color=Muted)}
-         Column(horizontalAlignment=Alignment.End){Text(item.completePacks.toString(),fontSize=22.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("packs",fontSize=9.sp,color=Muted)}
-        }
-        Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){StockMiniMetric("Unpacked bottles",item.unpackedGoodBottles,Modifier.weight(1f));StockMiniMetric("Loose bottles",item.looseBottles,Modifier.weight(1f))}
+      if(roleAllows(session,FactoryAction.ADJUST_STOCK)){
+       Button(
+        onClick={
+         stockAdjustmentProduct=active.firstOrNull()
+         stockAdjustmentMode="ADD"
+         stockAdjustmentUnit="PACK"
+         stockAdjustmentQuantity="1"
+         stockAdjustmentReason=""
+         dialog="stockAdjustment"
+        },
+        shape=TCKShapes.small,
+        colors=ButtonDefaults.buttonColors(containerColor=TCKColors.Primary)
+       ){
+        Icon(Icons.Default.Edit,null,modifier=Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("Adjust",fontSize=12.sp,fontWeight=FontWeight.Bold)
        }
       }
      }
     }
-    item{Text("Local device history · not authoritative",fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color(0xFF9B5B00))}
-   }
-   item{Surface(color=Navy,shape=RoundedCornerShape(22.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(if(session?.isCloud==true)"SERVER AVAILABLE PACKS" else "TOTAL AVAILABLE PACKS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Cyan,letterSpacing=1.2.sp);Text(if(session?.isCloud==true)cloudStockSnapshot?.items?.sumOf{it.completePacks}?.toString()?: "—" else totalAvailable.toString(),fontSize=36.sp,fontWeight=FontWeight.ExtraBold,color=Color.White);Text(if(session?.isCloud==true)cloudStockSnapshot?.items?.count{it.active}?.toString()?.plus(" active server product types")?:"Server snapshot unavailable" else active.size.toString()+" active product types",fontSize=12.sp,color=Color(0xFFD4E2F0))}}}
-   item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Metric(if(session?.isCloud==true)"Server loose bottles" else "Available loose bottles",if(session?.isCloud==true)cloudStockSnapshot?.items?.sumOf{it.looseBottles}?.toString()?: "—" else totalLooseAvailable.toString(),Modifier.weight(1f));Metric(if(session?.isCloud==true)"Unpacked good bottles" else "Dispatched packs",if(session?.isCloud==true)cloudStockSnapshot?.items?.sumOf{it.unpackedGoodBottles}?.toString()?: "—" else (legacyDispatched.values.sum()+batchedDispatched.values.sum()).toString(),Modifier.weight(1f))}}
-   item{
-    val configuredCount=active.count{it.bottlesPerPack>0}
-    val lowCount=active.count{p->((totalPacked[p.id]?:0)-(legacyDispatched[p.id]?:0)-(batchedDispatched[p.id]?:0)).coerceAtLeast(0)<=5}
-    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-     Surface(Modifier.weight(1f),color=Color(0xFFE8F7F0),shape=RoundedCornerShape(14.dp)){Column(Modifier.padding(12.dp)){Text("Configured products",fontSize=10.sp,color=Muted);Text(configuredCount.toString()+" / "+active.size,fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF16804A))}}
-     Surface(Modifier.weight(1f),color=if(lowCount>0)Color(0xFFFFF3DE) else Color(0xFFE8F7F0),shape=RoundedCornerShape(14.dp)){Column(Modifier.padding(12.dp)){Text("Low-stock alerts",fontSize=10.sp,color=Muted);Text(lowCount.toString(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=if(lowCount>0)Color(0xFF9B5B00) else Color(0xFF16804A))}}
-    }
-   }
-   item{OutlinedTextField(stockSearch,{stockSearch=it},modifier=Modifier.fillMaxWidth(),singleLine=true,shape=RoundedCornerShape(15.dp),leadingIcon={Icon(Icons.Default.Search,null)},placeholder={Text("Search product or bottle colour")},label={Text("Find stock")})}
-   item{Text(if(session?.isCloud==true)"Local device history (not authoritative)" else "Stock by product",fontSize=19.sp,fontWeight=FontWeight.Bold,color=if(session?.isCloud==true)Color(0xFF9B5B00) else Navy)}
-   val shownStock=active.filter{(it.name+" "+it.sizeLabel+" "+it.colour).contains(stockSearch,true)}
-   if(shownStock.isEmpty())item{EmptyDashboardState("No matching stock","Try another product name, size or colour.",Icons.Default.Search)}
-   items(shownStock,key={it.id}){p->
-    val packedCount=totalPacked[p.id]?:0
-    val sent=(legacyDispatched[p.id]?:0)+(batchedDispatched[p.id]?:0)
-    val available=(packedCount-sent).coerceAtLeast(0)
-    val looseSent=looseDispatched[p.id]?:0
-    val looseAvailable=((loosePacked[p.id]?:0)-looseSent).coerceAtLeast(0)
-    val configured=p.bottlesPerPack>0
-    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
-     Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(11.dp)){
-       Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(13.dp)){Icon(Icons.Default.WaterDrop,null,tint=Cyan,modifier=Modifier.padding(11.dp).size(24.dp))}
-       Column(Modifier.weight(1f)){Text(p.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=16.sp);Text(if(configured)p.bottlesPerPack.toString()+" bottles per pack" else "Pack size not configured",fontSize=11.sp,color=if(configured)Muted else Color(0xFF9B5B00))}
-       Column(horizontalAlignment=Alignment.End){Text(available.toString(),fontSize=24.sp,fontWeight=FontWeight.ExtraBold,color=if(available<=5)Color(0xFFB45309) else Navy);Text("available packs",fontSize=9.sp,color=Muted)}
+
+    // Top Summary Card
+    item{
+     Surface(color=TCKColors.Navy,shape=TCKShapes.medium){
+      Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+       Text("TOTAL WAREHOUSE FINISHED GOODS",style=TCKTypography.labelSmall,color=TCKColors.PrimaryLight,letterSpacing=1.sp)
+       Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Bottom,horizontalArrangement=Arrangement.SpaceBetween){
+        Column{
+         Text(String.format(Locale.US,"%,d",displayAvailablePacks),style=TCKTypography.displayMetric,color=Color.White)
+         Text("Available Finished Boxes / Packs",style=TCKTypography.bodySmall,color=Color(0xFFD4E2F0))
+        }
+        Surface(shape=TCKShapes.pill,color=TCKColors.SuccessLight){
+         Text("${active.size} Product Lines",style=TCKTypography.badgeText,color=TCKColors.Success,modifier=Modifier.padding(horizontal=10.dp,vertical=5.dp))
+        }
+       }
+       HorizontalDivider(color=Color(0xFF26456E))
+       Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()){
+        Column(Modifier.weight(1f).background(Color(0xFF162D4A),TCKShapes.small).padding(8.dp)){
+         Text("Packed Bottles",fontSize=10.sp,color=Color(0xFFB5CCE5))
+         val totalBottlesPacked = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.completePacks * it.bottlesPerPack} else active.sumOf{p->
+          val pk = (totalPacked[p.id]?:0)-(legacyDispatched[p.id]?:0)-(batchedDispatched[p.id]?:0)
+          pk.coerceAtLeast(0) * (if(p.bottlesPerPack>0) p.bottlesPerPack else 24)
+         }
+         Text(String.format(Locale.US,"%,d",totalBottlesPacked),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color.White)
+        }
+        Column(Modifier.weight(1f).background(Color(0xFF162D4A),TCKShapes.small).padding(8.dp)){
+         Text("Loose Bottles",fontSize=10.sp,color=Color(0xFFB5CCE5))
+         Text(String.format(Locale.US,"%,d",displayLooseBottles),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color(0xFF62C9FF))
+        }
+        Column(Modifier.weight(1f).background(Color(0xFF162D4A),TCKShapes.small).padding(8.dp)){
+         Text("Unpacked Bottles",fontSize=10.sp,color=Color(0xFFB5CCE5))
+         Text(String.format(Locale.US,"%,d",displayUnpackedBottles),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color(0xFFFFC857))
+        }
+       }
       }
-      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Packed",packedCount,Modifier.weight(1f));StockMiniMetric("Dispatched",sent,Modifier.weight(1f));StockMiniMetric("Loose available",looseAvailable,Modifier.weight(1f))}
-      if(looseSent>0)Text("Loose bottles dispatched: $looseSent",fontSize=10.sp,color=Muted)
-      if(!configured)Text("Configure pack size in Products before posting packing or dispatch.",fontSize=11.sp,color=Color(0xFF9B5B00))
+     }
+    }
+
+    // Search bar
+    item{
+     OutlinedTextField(
+      value=stockSearch,
+      onValueChange={stockSearch=it},
+      modifier=Modifier.fillMaxWidth(),
+      singleLine=true,
+      shape=TCKShapes.small,
+      leadingIcon={Icon(Icons.Default.Search,null,tint=TCKColors.TextMuted)},
+      placeholder={Text("Search by product, size or colour...")},
+      label={Text("Filter Inventory")}
+     )
+    }
+
+    // Product-Wise Finished Goods Breakdown
+    val shownStock=active.filter{(it.name+" "+it.sizeLabel+" "+it.colour).contains(stockSearch,true)}
+    if(shownStock.isEmpty()){
+     item{
+      TCKEmptyState(
+       title="No matching products",
+       description="No inventory records matched your search query.",
+       icon=Icons.Default.Inventory2
+      )
+     }
+    } else {
+     items(shownStock,key={it.id}){p->
+      val packSize=if(p.bottlesPerPack>0) p.bottlesPerPack else 24
+      val prodEntries=production.filter{it.productId==p.id}
+      val totalProduced=prodEntries.sumOf{it.producedBottles}
+      val totalAcceptedGood=prodEntries.sumOf{it.goodBottles}
+      val totalRejected=prodEntries.sumOf{it.rejectedBottles}
+
+      val packEntries=packing.filter{it.productId==p.id}
+      val totalPackedPacks=packEntries.sumOf{it.completePacks}
+      val totalBottlesPacked=totalPackedPacks * packSize
+      val totalLooseBottles=packEntries.sumOf{it.looseBottles}
+      val unpackedBottles=(totalAcceptedGood - packEntries.sumOf{it.bottlesConsumed}).coerceAtLeast(0)
+
+      val dispatchedPacksLegacy=dispatches.filter{it.productId==p.id}.sumOf{it.packsDispatched}
+      val validLines=dispatchLines.filter{it.productId==p.id && it.batchId in validBatchIds}
+      val dispatchedPacksBatched=validLines.sumOf{it.packs}
+      val totalDispatchedPacks=dispatchedPacksLegacy + dispatchedPacksBatched
+      val dispatchedLoose=validLines.sumOf{(it.bottles - it.packs * it.packSizeSnapshot).coerceAtLeast(0)}
+      val totalDispatchedBottles=(totalDispatchedPacks * packSize) + dispatchedLoose
+
+      val openOrderLines=orderLines.filter{line->line.productId==p.id && openOrders.any{o->o.id==line.orderId}}
+      val pendingOrderPacks=openOrderLines.sumOf{(it.packsOrdered - it.packsDispatched).coerceAtLeast(0)}
+
+      val availableBoxes=(totalPackedPacks - totalDispatchedPacks).coerceAtLeast(0)
+      val availableLoose=(totalLooseBottles - dispatchedLoose).coerceAtLeast(0)
+      val availableBottles=(availableBoxes * packSize) + unpackedBottles + availableLoose
+
+      Surface(
+       color=Color.White,
+       shape=TCKShapes.medium,
+       border=androidx.compose.foundation.BorderStroke(1.dp,if(availableBoxes<=5) TCKColors.Warning.copy(alpha=0.5f) else TCKColors.Border)
+      ){
+       Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+        // Card Header
+        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+         Surface(shape=TCKShapes.small,color=TCKColors.PrimaryLight,modifier=Modifier.size(40.dp)){
+          Box(contentAlignment=Alignment.Center){
+           Icon(Icons.Default.WaterDrop,null,tint=TCKColors.Primary,modifier=Modifier.size(22.dp))
+          }
+         }
+         Column(Modifier.weight(1f)){
+          Text(p.name,style=TCKTypography.titleMedium,color=TCKColors.Navy)
+          Text("${p.sizeLabel} · ${p.colour} · $packSize btl/box",style=TCKTypography.bodySmall,color=TCKColors.TextMuted)
+         }
+         Column(horizontalAlignment=Alignment.End){
+          Text(String.format(Locale.US,"%,d",availableBoxes),style=TCKTypography.metricLarge,color=if(availableBoxes<=5) TCKColors.Warning else TCKColors.Navy)
+          Text("available boxes",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         }
+        }
+
+        // Detailed Breakdown Grid
+        HorizontalDivider(color=TCKColors.Border)
+        Row(horizontalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.fillMaxWidth()){
+         Column(Modifier.weight(1f).background(TCKColors.Background,TCKShapes.small).padding(8.dp)){
+          Text("Total Available",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",availableBottles)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=TCKColors.Navy)
+          Text("$availableBoxes boxes",style=TCKTypography.labelSmall,color=TCKColors.Primary)
+         }
+         Column(Modifier.weight(1f).background(TCKColors.Background,TCKShapes.small).padding(8.dp)){
+          Text("Packed in Boxes",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",totalBottlesPacked)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=TCKColors.Navy)
+          Text("$totalPackedPacks boxes",style=TCKTypography.labelSmall,color=TCKColors.TextSecondary)
+         }
+         Column(Modifier.weight(1f).background(TCKColors.Background,TCKShapes.small).padding(8.dp)){
+          Text("Loose & Unpacked",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",unpackedBottles)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=if(unpackedBottles>0) TCKColors.Warning else TCKColors.Navy)
+          Text("$availableLoose loose btl",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         }
+        }
+
+        // Production & Dispatch Lifecycle Row
+        Row(horizontalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.fillMaxWidth()){
+         Column(Modifier.weight(1f).background(TCKColors.SuccessLight,TCKShapes.small).padding(8.dp)){
+          Text("Production Output",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",totalAcceptedGood)+" good",style=TCKTypography.bodySmall,fontWeight=FontWeight.Bold,color=TCKColors.Success)
+          Text("$totalRejected rejected",style=TCKTypography.labelSmall,color=TCKColors.Error)
+         }
+         Column(Modifier.weight(1f).background(TCKColors.WarningLight,TCKShapes.small).padding(8.dp)){
+          Text("Dispatched",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",totalDispatchedPacks)+" boxes",style=TCKTypography.bodySmall,fontWeight=FontWeight.Bold,color=TCKColors.Warning)
+          Text(String.format(Locale.US,"%,d",totalDispatchedBottles)+" btl total",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         }
+         Column(Modifier.weight(1f).background(Color(0xFFEDE9FE),TCKShapes.small).padding(8.dp)){
+          Text("Order Allocation",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text("$pendingOrderPacks reserved",style=TCKTypography.bodySmall,fontWeight=FontWeight.Bold,color=TCKColors.RoleAdmin)
+          Text(if(availableBoxes>=pendingOrderPacks)"✓ Stock ready" else "⚠️ Shortage",style=TCKTypography.labelSmall,color=if(availableBoxes>=pendingOrderPacks) TCKColors.Success else TCKColors.Error)
+         }
+        }
+       }
+      }
      }
     }
    }
-  }
-
    }
   }
   }
@@ -1834,14 +1943,14 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
    item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("DAILY OPERATIONS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp);Text("Production planning",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Targets by date, shift and machine",fontSize=12.sp,color=Muted)};Button(onClick={dialog="plan"},shape=RoundedCornerShape(13.dp)){Icon(Icons.Default.Add,null);Text(" Plan")}}}
    item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("Today's target",target.toString(),Modifier.weight(1f));Metric("Produced today",actual.toString(),Modifier.weight(1f));Metric("Gap",(target-actual).coerceAtLeast(0).toString(),Modifier.weight(1f))}}
    if(plans.isEmpty())item{EmptyDashboardState("No production plans","Set bottle targets for each shift and product.",Icons.Default.EventNote)}
-   items(plans,key={it.id}){p->val done=production.filter{it.productionDate==p.planDate&&it.productId==p.productId}.sumOf{it.producedBottles};Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(p.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(p.planDate+" · "+p.shift,fontSize=11.sp,color=Muted)};Text(p.status,fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue)};Row(verticalAlignment=Alignment.CenterVertically){Text("Target "+p.targetBottles,Modifier.weight(1f),fontSize=12.sp,color=Muted);Text("Actual "+done,fontSize=12.sp,fontWeight=FontWeight.Bold,color=Navy)};LinearProgressIndicator(progress={if(p.targetBottles>0)(done.toFloat()/p.targetBottles).coerceIn(0f,1f) else 0f},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF16804A),trackColor=Page);if(p.status=="PLANNED")Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){if(done==0)TextButton(onClick={editingPlan=p;dialog="editPlan"}){Icon(Icons.Default.Edit,null);Text(" Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot update plans"};if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","IN_PROGRESS")};dao.updateProductionPlanStatus(p.id,"IN_PROGRESS");dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_STARTED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="IN_PROGRESS",reason="Production plan started · server confirmed",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Plan marked in progress" }.onFailure{message=it.message}}}){Text("Start plan")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot cancel plans"};require(dao.productionCountForPlan(p.productId,p.planDate)==0){"Production already recorded for this product/date; cancellation blocked"};require(dao.cancelPlannedProduction(p.id)==1){"Only planned items can be cancelled"};if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","CANCELLED")};dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_CANCELLED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="CANCELLED",reason="Production plan cancelled before production · server confirmed",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Production plan cancelled · server confirmed" }.onFailure{message=it.message}}}){Text("Cancel")}};if(p.status=="IN_PROGRESS")TextButton(onClick={scope.launch{runCatching{
+   items(plans,key={it.id}){p->val done=production.filter{it.productionDate==p.planDate&&it.productId==p.productId}.sumOf{it.producedBottles};Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(p.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(p.planDate+" · "+p.shift,fontSize=11.sp,color=Muted)};Text(p.status,fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue)};Row(verticalAlignment=Alignment.CenterVertically){Text("Target "+p.targetBottles,Modifier.weight(1f),fontSize=12.sp,color=Muted);Text("Actual "+done,fontSize=12.sp,fontWeight=FontWeight.Bold,color=Navy)};LinearProgressIndicator(progress={if(p.targetBottles>0)(done.toFloat()/p.targetBottles).coerceIn(0f,1f) else 0f},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF16804A),trackColor=Page);if(p.status=="PLANNED")Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){if(done==0)TextButton(onClick={editingPlan=p;dialog="editPlan"}){Icon(Icons.Default.Edit,null);Text(" Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot update plans"};if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","IN_PROGRESS")};dao.updateProductionPlanStatus(p.id,"IN_PROGRESS");dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_STARTED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="IN_PROGRESS",reason="Production plan started",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Plan marked in progress" }.onFailure{message=it.message}}}){Text("Start plan")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot cancel plans"};require(dao.productionCountForPlan(p.productId,p.planDate)==0){"Production already recorded for this product/date; cancellation blocked"};require(dao.cancelPlannedProduction(p.id)==1){"Only planned items can be cancelled"};if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","CANCELLED")};dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_CANCELLED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="CANCELLED",reason="Production plan cancelled before production",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Production plan cancelled" }.onFailure{message=it.message}}}){Text("Cancel")}};if(p.status=="IN_PROGRESS")TextButton(onClick={scope.launch{runCatching{
 require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot complete production plans"}
 require(p.status=="IN_PROGRESS"){"Only in-progress plans can be completed"}
 if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","COMPLETED")}
 dao.updateProductionPlanStatus(p.id,"COMPLETED")
-dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_COMPLETED",entityType="production_plan",entityId=p.id.toString(),beforeJson="IN_PROGRESS",afterJson="COMPLETED",reason="Production plan marked completed · server confirmed",actorId=session?.uid?:"local"))
+dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_COMPLETED",entityType="production_plan",entityId=p.id.toString(),beforeJson="IN_PROGRESS",afterJson="COMPLETED",reason="Production plan marked completed",actorId=session?.uid?:"local"))
 SyncScheduler.runNow(context)
-message="Plan completed · server confirmed"
+message="Plan completed"
 }.onFailure{message=it.message}}}){Text("Mark completed")}}}}
   }
  }
@@ -1907,12 +2016,12 @@ message="Plan completed · server confirmed"
               entityId = o.id.toString(),
               beforeJson = o.status,
               afterJson = "CANCELLED",
-              reason = "Sales order cancelled before dispatch · server confirmed",
+              reason = "Sales order cancelled before dispatch",
               actorId = session?.uid ?: "local"
              )
             )
             SyncScheduler.runNow(context)
-            message = "Sales order cancelled · server confirmed"
+            message = "Sales order cancelled"
            }.onFailure { message = it.message }
           }
          }) {
@@ -1935,7 +2044,7 @@ message="Plan completed · server confirmed"
  }
  PageTab.SYNC->{
   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("CONNECTIVITY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.3.sp);Text("Offline sync",fontSize=27.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Queue state, retries and organisation conflicts",fontSize=12.sp,color=Muted)};Button(onClick={SyncScheduler.runNow(context);message="Sync worker queued"},shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Sync,null);Text(" Retry")}}}
+   item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("CONNECTIVITY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.3.sp);Text("Sync Queue",fontSize=27.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Queue state, retries and sync status",fontSize=12.sp,color=Muted)};Button(onClick={SyncScheduler.runNow(context);message="Sync scheduled"},shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.Sync,null);Text(" Retry")}}}
    item{Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("Pending",syncEvents.count{it.status=="PENDING"}.toString(),Modifier.weight(1f));Metric("Synced",syncEvents.count{it.status=="SYNCED"}.toString(),Modifier.weight(1f));Metric("Review",syncEvents.count{it.status=="NEEDS_REVIEW"}.toString(),Modifier.weight(1f))}}
    item{Text("Events marked NEEDS_REVIEW are intentionally not retried automatically. They need an administrator to verify the organisation assignment or resolve an idempotency conflict.",fontSize=11.sp,color=Color(0xFF9B5B00))}
    if(syncEvents.isEmpty())item{EmptyDashboardState("No sync events","New offline-capable operations will appear here.",Icons.Default.Sync)}
@@ -2314,7 +2423,7 @@ message="Plan completed · server confirmed"
    message = "Signed out"
   }
  )
- if(dialog=="reverse"&&reversalBatchId!=null)ReverseDispatchForm({dialog="";reversalBatchId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"};if(session?.isCloud==true){val b=dispatchBatches.firstOrNull{it.id==reversalBatchId};if(b!=null){CloudInventoryRepository(context).reverseDispatch(session!!,b.idempotencyKey,reason)}};dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Dispatch reversed"+if(session?.isCloud==true)" · server confirmed" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalBatchId=null}
+ if(dialog=="reverse"&&reversalBatchId!=null)ReverseDispatchForm({dialog="";reversalBatchId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"};if(session?.isCloud==true){val b=dispatchBatches.firstOrNull{it.id==reversalBatchId};if(b!=null){CloudInventoryRepository(context).reverseDispatch(session!!,b.idempotencyKey,reason)}};dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Dispatch reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalBatchId=null}
  if(dialog=="reverseProduction"&&reversalProductionId!=null)ReverseProductionForm({dialog="";reversalProductionId=null}){reason->scope.launch{runCatching{
  require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse production records"}
  if(session?.isCloud==true){
@@ -2326,7 +2435,7 @@ message="Plan completed · server confirmed"
  val corrected=dao.correctProduction(reversalProductionId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org")
  require(corrected){"Production record already reversed or unavailable"}
  SyncScheduler.runNow(context)
- "Production entry reversed"+if(session?.isCloud==true)" · server confirmed" else ""
+ "Production entry reversed"
 }.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalProductionId=null}
 
  if(dialog=="stockAdjustment"&&session?.isCloud==true){
@@ -2345,7 +2454,7 @@ message="Plan completed · server confirmed"
    dialog=""
   }
  }
- if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};if(session?.isCloud==true){val pk=packing.firstOrNull{it.id==reversalPackingId};if(pk!=null&&pk.cloudOperationKey.isNotBlank()){CloudInventoryRepository(context).reversePacking(session!!,pk.cloudOperationKey,reason)}};dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Packing entry reversed"+if(session?.isCloud==true)" · server confirmed" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
+ if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};if(session?.isCloud==true){val pk=packing.firstOrNull{it.id==reversalPackingId};if(pk!=null&&pk.cloudOperationKey.isNotBlank()){CloudInventoryRepository(context).reversePacking(session!!,pk.cloudOperationKey,reason)}};dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Packing entry reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
 
   if(dialog=="line")LineForm(editingLine,{dialog="";editingLine=null}){code,name,desc,cap,unit,status->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot manage production lines"};val existing=editingLine;val lineEntity=ProductionLineEntity(id=existing?.id?:0,lineCode=code,name=name,description=desc,targetCapacity=cap,capacityUnit=unit,status=status);if(session?.isCloud==true){CloudInventoryRepository(context).upsertProductionLine(session!!,lineEntity)};if(existing==null){val id=dao.insertProductionLine(lineEntity);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-register:$id",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_REGISTERED",payloadJson=JSONObject().put("lineId",id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_REGISTERED",entityType="production_line",entityId=code,afterJson=name,reason="Production line created",actorId=session?.uid?:"local"));message="Production line $name registered"}else{check(dao.updateProductionLine(existing.id,name,desc,cap,unit,status)==1){"Production line update failed"};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-update:${existing.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_UPDATED",payloadJson=JSONObject().put("lineId",existing.id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_UPDATED",entityType="production_line",entityId=existing.id.toString(),beforeJson=existing.name,afterJson=name,reason="Line configuration updated",actorId=session?.uid?:"local"));message="Production line $name updated"}}.onFailure{message=it.message}};dialog="";editingLine=null}
   if(dialog=="assignLine"&&assigningMachine!=null){val machine=assigningMachine!!;AssignMachineLineForm(machine,productionLines,{dialog="";assigningMachine=null}){selectedLineId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot reassign machines"};val lineCode=productionLines.firstOrNull{it.id==selectedLineId}?.lineCode?:"";if(session?.isCloud==true){CloudInventoryRepository(context).assignMachineLine(session!!,machine.machineCode,lineCode)};check(dao.assignMachineToLine(machine.id,selectedLineId)==1){"Machine line assignment failed"};val lineName=productionLines.firstOrNull{it.id==selectedLineId}?.name?:"Unassigned";dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-assign:${machine.id}:$selectedLineId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_LINE_ASSIGNED",payloadJson=JSONObject().put("machineId",machine.id).put("lineId",selectedLineId).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_LINE_ASSIGNED",entityType="machine",entityId=machine.id.toString(),beforeJson=machine.lineId?.toString()?:"none",afterJson=selectedLineId?.toString()?:"none",reason="Reassigned to $lineName",actorId=session?.uid?:"local"));message="${machine.name} assigned to $lineName"}.onFailure{message=it.message}};dialog="";assigningMachine=null}}
@@ -2376,7 +2485,7 @@ message="Plan completed · server confirmed"
       }else{
        dao.updateRawMaterial(existing.id,name,cat,unit,reorder,existing.active)
       }
-      "Raw material $name saved · server confirmed"
+      "Raw material $name saved"
      }.onSuccess{message=it}.onFailure{message=it.message}
     }
     dialog="";editingRawMaterial=null
@@ -2403,7 +2512,7 @@ message="Plan completed · server confirmed"
       CloudInventoryRepository(context).postRawMaterialReceipt(cloudSession,receipt)
       dao.insertRawMaterialReceipt(receipt)
       dao.adjustRawMaterialStock(material.materialCode,qty)
-      "Received $qty ${material.unit} of ${material.name} · server confirmed"
+      "Received $qty ${material.unit} of ${material.name}"
      }.onSuccess{message=it}.onFailure{message=it.message}
     }
     dialog=""
@@ -2418,7 +2527,7 @@ message="Plan completed · server confirmed"
       require(material.currentStock>=qty){"Insufficient stock. Available: ${material.currentStock} ${material.unit}"}
       CloudInventoryRepository(context).postRawMaterialIssue(cloudSession,material.materialCode,qty,reason,issuedTo,notes)
       dao.adjustRawMaterialStock(material.materialCode,-qty)
-      "Issued $qty ${material.unit} of ${material.name} for $reason · server confirmed"
+      "Issued $qty ${material.unit} of ${material.name} for $reason"
      }.onSuccess{message=it}.onFailure{message=it.message}
     }
     dialog="";issuingRawMaterial=null
@@ -2517,15 +2626,15 @@ message="Plan completed · server confirmed"
   dialog="";editingOrder=null
  },initial=existing,initialLines=originalLines)
  }
- if(dialog=="order")SalesOrderForm(customers=customers,products=active,close={dialog=""},save={customer,number,d,due,lines,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ORDERS)){"Your role cannot create sales orders"};require(lines.isNotEmpty()){"Add at least one product"};val id=dao.insertSalesOrder(SalesOrderEntity(orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"));val lineEntities=lines.map{pair->val product=pair.first;val packs=pair.second;SalesOrderLineEntity(orderId=id,productId=product.id,productNameSnapshot=product.name,packsOrdered=packs,packSizeSnapshot=product.bottlesPerPack)};dao.insertSalesOrderLines(lineEntities);if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).createSalesOrder(session!!,SalesOrderEntity(id=id,orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"),lineEntities)}.getOrElse{error("Order saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="sales-order:"+id,organisationId=session?.organisationId?:"local-org",eventType="SALES_ORDER_CREATED",payloadJson=JSONObject().put("orderId",id).put("orderNumber",number).put("customerId",customer.id).put("lines",JSONArray().apply{lines.forEach{pair->val product=pair.first;val packs=pair.second;put(JSONObject().put("productId",product.id).put("productName",product.name).put("packs",packs))}}).toString()));dao.insertAudit(AuditEventEntity(eventType="SALES_ORDER_CREATED",entityType="sales_order",entityId=id.toString(),afterJson="order created with ${lines.size} lines",reason="Sales order created",actorId=session?.uid?:"local"));message="Sales order created · ${lines.size} product line(s)"+if(session?.isCloud==true)" · cloud synced" else ""}.onFailure{message=it.message}};dialog=""})
+ if(dialog=="order")SalesOrderForm(customers=customers,products=active,close={dialog=""},save={customer,number,d,due,lines,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_ORDERS)){"Your role cannot create sales orders"};require(lines.isNotEmpty()){"Add at least one product"};val id=dao.insertSalesOrder(SalesOrderEntity(orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"));val lineEntities=lines.map{pair->val product=pair.first;val packs=pair.second;SalesOrderLineEntity(orderId=id,productId=product.id,productNameSnapshot=product.name,packsOrdered=packs,packSizeSnapshot=product.bottlesPerPack)};dao.insertSalesOrderLines(lineEntities);if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).createSalesOrder(session!!,SalesOrderEntity(id=id,orderNumber=number,customerId=customer.id,customerNameSnapshot=customer.name,orderDate=d,dueDate=due,notes=notes,createdBy=session?.uid?:"local"),lineEntities)}.getOrElse{error("Order saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="sales-order:"+id,organisationId=session?.organisationId?:"local-org",eventType="SALES_ORDER_CREATED",payloadJson=JSONObject().put("orderId",id).put("orderNumber",number).put("customerId",customer.id).put("lines",JSONArray().apply{lines.forEach{pair->val product=pair.first;val packs=pair.second;put(JSONObject().put("productId",product.id).put("productName",product.name).put("packs",packs))}}).toString()));dao.insertAudit(AuditEventEntity(eventType="SALES_ORDER_CREATED",entityType="sales_order",entityId=id.toString(),afterJson="order created with ${lines.size} lines",reason="Sales order created",actorId=session?.uid?:"local"));message="Sales order created · ${lines.size} product line(s)"}.onFailure{message=it.message}};dialog=""})
   // DISABLED: Fulfilment must happen through actual dispatch posting.
-  if(dialog=="login"||dialog=="role_switcher")StaffAccountDialog(onDismiss={dialog=""},firebaseConfigured=isServerOnline(context)&&FirebaseApp.getApps(context).isNotEmpty(),onFirebaseSignIn={email,password->if(!isServerOnline(context)){message="Cloud server not reachable. Check your connection."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed."}}},onSyncNow={SyncScheduler.runNow(context);message="Cloud sync triggered"},onSignOut={FactoryAuthRepository(context).signOut();session=null;dialog="";message="Signed out"})
-  if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p,icon,img->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};val localId=if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p,iconName=icon,imageUri=img)) else {dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org",iconName=icon,imageUri=img);existing.id};val saved=dao.productById(localId)?:error("Product was saved but could not be reloaded");if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).upsertProduct(session!!,saved)}.getOrElse{error("Product saved locally, but cloud catalog sync failed: "+(it.message?:"unknown error"))}};SyncScheduler.runNow(context);message=if(p>0)"${n.trim()} saved · $p bottles per pack"+if(session?.isCloud==true)" · cloud catalog synced" else "" else "${n.trim()} saved"+if(session?.isCloud==true)" · cloud catalog synced" else ""}.onFailure{message=it.message}};dialog="";editingProduct=null}
-   if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};requireCloudSession(session);ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val entry=ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val cloudKey=cloudRepo.postProduction(cloudSession,p,entry);val id=dao.recordCloudProduction(entry.copy(cloudOperationKey=cloudKey),cloudSession.uid);cloudRepo.acknowledgeProduction(entry,p,cloudSession);SyncScheduler.runNow(context);message="Production run #$id saved · $total bottles · server confirmed"}.onFailure{message=it.message}};dialog=""}
-   if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};require(p.bottlesPerPack>0){"Pack size is not configured for ${p.name}. Please set bottles per pack in Product Master first."};requireCloudSession(session);val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val result=cloudRepo.postPacking(cloudSession,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,cloudSession.uid);cloudRepo.acknowledgePacking(entry,p,cloudSession);SyncScheduler.runNow(context);"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles · server confirmed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
-   if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cloudSession=requireCloudSession(session);val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=cloudSession.uid,salesOrderId=orderId);val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};val targetOrder=openOrders.firstOrNull{it.id==orderId};cloudRepo.postDispatch(cloudSession,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks,salesOrderId=targetOrder?.orderNumber);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid) else dao.postMultiLineDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid);SyncScheduler.runNow(context);"Dispatch saved · server confirmed"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
- if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};val cloudSession=requireCloudSession(session);val customerEntity=CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,customerEntity);val existing=dao.customerByName(name);val customerId=if(existing!=null){dao.updateCustomer(existing.id,name,phone,address,gst,true);existing.id}else{dao.insertCustomer(customerEntity)};dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_CREATED",entityType="customer",entityId=customerId.toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer created · server confirmed",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer saved · server confirmed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
- if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};require(existing!=null);val cloudSession=requireCloudSession(session);val oldCustomer=existing!!;val updated=oldCustomer.copy(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,updated);dao.updateCustomer(oldCustomer.id,name,phone,address,gst,oldCustomer.active);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_UPDATED",entityType="customer",entityId=oldCustomer.id.toString(),beforeJson=JSONObject().put("name",oldCustomer.name).put("phone",oldCustomer.phone).toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer details edited · server confirmed",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer details updated · server confirmed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";editingCustomer=null}
+  if(dialog=="login"||dialog=="role_switcher")StaffAccountDialog(onDismiss={dialog=""},firebaseConfigured=isServerOnline(context)&&FirebaseApp.getApps(context).isNotEmpty(),onFirebaseSignIn={email,password->if(!isServerOnline(context)){message="Network connection unavailable."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed."}}},onSyncNow={SyncScheduler.runNow(context);message="Sync scheduled"},onSignOut={FactoryAuthRepository(context).signOut();session=null;dialog="";message="Signed out"})
+  if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p,icon,img->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};val localId=if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p,iconName=icon,imageUri=img)) else {dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org",iconName=icon,imageUri=img);existing.id};val saved=dao.productById(localId)?:error("Product was saved but could not be reloaded");if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).upsertProduct(session!!,saved)}.getOrElse{error("Product saved locally, but cloud catalog sync failed: "+(it.message?:"unknown error"))}};SyncScheduler.runNow(context);message=if(p>0)"${n.trim()} saved · $p bottles per pack" else "${n.trim()} saved"}.onFailure{message=it.message}};dialog="";editingProduct=null}
+   if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};requireCloudSession(session);ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val entry=ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val cloudKey=cloudRepo.postProduction(cloudSession,p,entry);val id=dao.recordCloudProduction(entry.copy(cloudOperationKey=cloudKey),cloudSession.uid);cloudRepo.acknowledgeProduction(entry,p,cloudSession);SyncScheduler.runNow(context);message="Production run #$id saved · $total bottles"}.onFailure{message=it.message}};dialog=""}
+   if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};require(p.bottlesPerPack>0){"Pack size is not configured for ${p.name}. Please set bottles per pack in Product Master first."};requireCloudSession(session);val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val result=cloudRepo.postPacking(cloudSession,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,cloudSession.uid);cloudRepo.acknowledgePacking(entry,p,cloudSession);SyncScheduler.runNow(context);"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+   if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cloudSession=requireCloudSession(session);val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=cloudSession.uid,salesOrderId=orderId);val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};val targetOrder=openOrders.firstOrNull{it.id==orderId};cloudRepo.postDispatch(cloudSession,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks,salesOrderId=targetOrder?.orderNumber);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid) else dao.postMultiLineDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid);SyncScheduler.runNow(context);"Dispatch saved"+if(orderId!=null)" · order fulfilled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
+ if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};val cloudSession=requireCloudSession(session);val customerEntity=CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,customerEntity);val existing=dao.customerByName(name);val customerId=if(existing!=null){dao.updateCustomer(existing.id,name,phone,address,gst,true);existing.id}else{dao.insertCustomer(customerEntity)};dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_CREATED",entityType="customer",entityId=customerId.toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer created",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer saved"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};require(existing!=null);val cloudSession=requireCloudSession(session);val oldCustomer=existing!!;val updated=oldCustomer.copy(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,updated);dao.updateCustomer(oldCustomer.id,name,phone,address,gst,oldCustomer.active);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_UPDATED",entityType="customer",entityId=oldCustomer.id.toString(),beforeJson=JSONObject().put("name",oldCustomer.name).put("phone",oldCustomer.phone).toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer details edited",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer details updated"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";editingCustomer=null}
   if(dialog=="meter"){
    val pending=selectedMeterReading?:meters.firstOrNull{it.status=="PENDING"}
    MeterForm(
@@ -2545,7 +2654,7 @@ message="Plan completed · server confirmed"
         runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,finalEntity)}.getOrElse{error("Morning reading saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}
        }
        SyncScheduler.runNow(context)
-       "☀️ Morning reading recorded: $s kWh for $d. Day in progress."+if(session?.isCloud==true)" · server confirmed" else ""
+       "☀️ Morning reading recorded: $s kWh for $d. Day in progress."
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2563,7 +2672,7 @@ message="Plan completed · server confirmed"
         runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,finalEntity)}.getOrElse{error("Evening reading saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}
        }
        SyncScheduler.runNow(context)
-       "🌙 Day completed! Consumed: $used units ($s -> $e kWh)"+if(session?.isCloud==true)" · server confirmed" else ""
+       "🌙 Day completed! Consumed: $used units ($s -> $e kWh)"
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2581,7 +2690,7 @@ message="Plan completed · server confirmed"
         runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,finalEntity)}.getOrElse{error("Reading saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}
        }
        SyncScheduler.runNow(context)
-       "⚡ Reading saved: $used units ($s -> $e kWh)"+if(session?.isCloud==true)" · server confirmed" else ""
+       "⚡ Reading saved: $used units ($s -> $e kWh)"
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2604,7 +2713,7 @@ message="Plan completed · server confirmed"
         runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,todayFinal)}
        }
        SyncScheduler.runNow(context)
-       "✅ Yesterday closed ($used units) & Today started at $currentReading kWh!"+if(session?.isCloud==true)" · server confirmed" else ""
+       "✅ Yesterday closed ($used units) & Today started at $currentReading kWh!"
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2710,7 +2819,7 @@ message="Plan completed · server confirmed"
        Text("Code: ${m.machineCode} · Type: ${m.machineType} · ${m.location}",fontSize=11.sp,color=Muted)
       }
      }
-     Text("This will remove the machine from schedules, lines and sync to the server.",fontSize=11.sp,color=Muted)
+     Text("This will deactivate the machine from active lines and schedules.",fontSize=11.sp,color=Muted)
     }
    },
    confirmButton={
@@ -3798,7 +3907,7 @@ message="Plan completed · server confirmed"
     Column{Text("Packing details",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp);Text("Product · Date · Quantity",fontSize=11.sp,color=Muted)}
    }
    ProductPicker(products,p){p=it;bottles=""}
-   p?.let{Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Icon(Icons.Default.WaterDrop,null,tint=Blue,modifier=Modifier.size(24.dp));Column(Modifier.weight(1f)){Text(it.name,fontWeight=FontWeight.Bold,color=Navy);Text(if(it.bottlesPerPack>0)"Pack size: "+it.bottlesPerPack+" bottles" else "Pack size not configured",fontSize=11.sp,color=Muted)};Column(horizontalAlignment=Alignment.End){Text(available.toString(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(serverAvailable!=null)"server-available bottles" else "local available bottles",fontSize=9.sp,color=Muted)}}}}
+   p?.let{Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Icon(Icons.Default.WaterDrop,null,tint=Blue,modifier=Modifier.size(24.dp));Column(Modifier.weight(1f)){Text(it.name,fontWeight=FontWeight.Bold,color=Navy);Text(if(it.bottlesPerPack>0)"Pack size: "+it.bottlesPerPack+" bottles" else "Pack size not configured",fontSize=11.sp,color=Muted)};Column(horizontalAlignment=Alignment.End){Text(available.toString(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("available bottles",fontSize=9.sp,color=Muted)}}}}
    DateField(d){d=it}
    if(!dateValid)Text("Enter a valid date in YYYY-MM-DD format.",fontSize=11.sp,color=Color(0xFFB42318))
    TCKNumericInput(
@@ -4491,8 +4600,8 @@ private fun MeterForm(
    Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.Top,horizontalArrangement=Arrangement.spacedBy(8.dp)){
     Icon(if(firebaseConfigured)Icons.Default.CloudDone else Icons.Default.CloudOff,null,tint=if(firebaseConfigured)Color(0xFF16804A) else Color(0xFF9B5B00))
     Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
-     Text(if(firebaseConfigured)"Server Connected" else "Offline Mode · Local Storage",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
-     Text(if(firebaseConfigured)"Sign in with staff email/ID and password to synchronize with the cloud server." else "App is currently in offline mode. Local records remain safe on this device and upload once connection is restored.",fontSize=11.sp,color=Muted)
+     Text(if(firebaseConfigured)"System Online" else "Offline Mode · Local Storage",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
+     Text(if(firebaseConfigured)"Sign in with staff email and password to access factory operations." else "App is currently in offline mode. Local records remain safe on this device and synchronize once connection is restored.",fontSize=11.sp,color=Muted)
     }
    }
   }
@@ -4552,10 +4661,10 @@ private fun StockAdjustmentForm(
 
     AlertDialog(
         onDismissRequest = close,
-        title = { Text("Adjust server stock") },
+        title = { Text("Adjust Inventory") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("This adjustment updates authoritative cloud inventory and creates a stock ledger entry.", fontSize = 12.sp, color = Blue)
+                Text("This adjustment updates warehouse inventory and creates an audit movement entry.", fontSize = 12.sp, color = Blue)
 
                 if (products.none { it.active }) {
                     Text("No active products available. Create or activate a product first.", color = Color.Red, fontSize = 12.sp)
@@ -4796,7 +4905,7 @@ private fun FullSlideMenuScreen(
      }
 
      item {
-      Text("DATA, CLOUD & GOVERNANCE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.4.sp)
+      Text("DATA & SYSTEM GOVERNANCE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.4.sp)
       Spacer(Modifier.height(8.dp))
       Surface(color = Color.White, shape = RoundedCornerShape(16.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
        Column {
@@ -4806,7 +4915,7 @@ private fun FullSlideMenuScreen(
         HorizontalDivider(color = Border)
         MenuNavigationRow("Security Audit Trail", "Log of admin actions, reversals and updates", Icons.Default.Security, Color(0xFF4338CA), currentTab == PageTab.AUDIT) { onClose(); onSelectTab(PageTab.AUDIT) }
         HorizontalDivider(color = Border)
-        MenuNavigationRow("Cloud Sync Outbox", "Cloud sync queue & pending server uploads", Icons.Default.Sync, Color(0xFF0284C7), currentTab == PageTab.SYNC) { onClose(); onSelectTab(PageTab.SYNC) }
+        MenuNavigationRow("Sync Queue", "Pending operational queue and sync status", Icons.Default.Sync, Color(0xFF0284C7), currentTab == PageTab.SYNC) { onClose(); onSelectTab(PageTab.SYNC) }
        }
       }
      }
@@ -4820,8 +4929,8 @@ private fun FullSlideMenuScreen(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
          Icon(Icons.Default.CloudQueue, null, tint = Color(0xFF62C9FF), modifier = Modifier.size(22.dp))
          Column {
-          Text("CLOUD & BACKUP TOOLS", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 12.sp)
-          Text(if (firebaseConfigured) "Server Connected" else "Offline Mode · Local Storage", fontSize = 10.sp, color = Color(0xFFB9CBE0))
+          Text("SYSTEM & BACKUP TOOLS", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 12.sp)
+          Text(if (firebaseConfigured) "System Online" else "Offline Mode · Local Storage", fontSize = 10.sp, color = Color(0xFFB9CBE0))
          }
         }
         HorizontalDivider(color = Color(0xFF26456E))
@@ -4915,7 +5024,7 @@ private fun StaffAccountDialog(
      if (firebaseConfigured)
       "Staff roles and permissions are managed by the factory administrator."
      else
-      "Cloud authentication is unavailable. Check the connection and Firebase configuration."
+      "Authentication is currently unavailable. Please check your network connection."
     )
     OutlinedTextField(
      value = email,
