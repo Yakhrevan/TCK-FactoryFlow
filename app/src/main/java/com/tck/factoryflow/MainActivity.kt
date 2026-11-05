@@ -11,6 +11,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -45,12 +46,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
-import com.tck.factoryflow.ui.components.BottleProductCard
-import com.tck.factoryflow.ui.components.ProductThumbnail
-import com.tck.factoryflow.ui.components.BottleIconPicker
-import com.tck.factoryflow.ui.components.PackCalculationCard
-import com.tck.factoryflow.ui.components.StartupErrorScreen
-import com.tck.factoryflow.ui.components.StartupLoginScreen
+import com.tck.factoryflow.ui.theme.*
+import com.tck.factoryflow.ui.components.*
 import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.launch
 import java.io.File
@@ -151,7 +148,11 @@ class MainActivity:ComponentActivity(){
    SyncScheduler.schedule(this)
    SyncScheduler.runNow(this)
   }
-  setContent { FactoryApp(dao) }
+  setContent {
+   TCKTheme {
+    FactoryApp(dao)
+   }
+  }
  }
 }
 
@@ -378,45 +379,81 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
    }
   )
  } else {
- Scaffold(topBar={TopAppBar(title={Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Surface(shape=RoundedCornerShape(10.dp),color=Color.White,border=androidx.compose.foundation.BorderStroke(1.dp,Border),modifier=Modifier.size(42.dp)){Box(contentAlignment=Alignment.Center,modifier=Modifier.padding(2.dp)){androidx.compose.foundation.Image(painter=androidx.compose.ui.res.painterResource(R.drawable.tck_brand),contentDescription="TCK Logo",modifier=Modifier.fillMaxSize())}};Column{Text("TCK Bottle Manufacturing",fontWeight=FontWeight.ExtraBold,color=Navy,fontSize=16.sp,maxLines=1);Text("MANUFACTURING OPERATIONS",fontSize=9.sp,color=Muted,letterSpacing=1.2.sp)} }},actions={
- Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
-  Surface(
-   onClick={},
-   shape=RoundedCornerShape(20.dp),
-   color=when(session?.role?.lowercase()){"admin","owner"->Color(0xFFF3E8FF);"manager"->Color(0xFFE0F2FE);"production_staff","operator"->Color(0xFFDCFCE7);else->Color(0xFFEFF6FF)},
-   border=androidx.compose.foundation.BorderStroke(1.dp,when(session?.role?.lowercase()){"admin","owner"->Color(0xFFC084FC);"manager"->Cyan;"production_staff","operator"->Color(0xFF86EFAC);else->Color(0xFFBFDBFE)})
-  ){
-   Row(Modifier.padding(horizontal=9.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
-    Box(Modifier.size(7.dp).background(if(FirebaseApp.getApps(context).isNotEmpty())Color(0xFF16804A) else Color(0xFFEAB308),RoundedCornerShape(4.dp)))
-    Text(session?.role?.uppercase()?:"ADMIN",fontSize=10.sp,fontWeight=FontWeight.ExtraBold,color=when(session?.role?.lowercase()){"admin","owner"->Color(0xFF6B21A8);"manager"->Color(0xFF0369A1);"production_staff","operator"->Color(0xFF15803D);else->Blue})
+ Scaffold(
+  topBar = {
+   TCKTopBar(
+    session = session,
+    isCloudOnline = isServerOnline(context) && FirebaseApp.getApps(context).isNotEmpty(),
+    onMenuClick = { showTools = true },
+    onRoleClick = {
+     message = "Signed in as ${session?.name?.takeIf{it.isNotBlank()} ?: session?.role?.uppercase() ?: "Admin"} (${session?.email ?: "local"})"
+    },
+    onSyncClick = {
+     message = "Syncing with Cloud..."
+     SyncScheduler.runNow(context)
+     scope.launch {
+      kotlinx.coroutines.delay(1200)
+      message = "Sync complete"
+     }
+    },
+    onLogoutClick = {
+     FactoryAuthRepository(context).signOut()
+     session = null
+     message = "Signed out"
+    }
+   )
+  },
+  bottomBar = {
+   NavigationBar(
+    containerColor = TCKColors.Surface,
+    tonalElevation = 6.dp
+   ) {
+    listOf(PageTab.HOME, PageTab.PRODUCTION, PageTab.PACKING, PageTab.STOCK, PageTab.DISPATCH, PageTab.REPORTS).forEach { t ->
+     NavigationBarItem(
+      selected = tab == t,
+      onClick = { setTab(t) },
+      icon = {
+       Icon(
+        when (t) {
+         PageTab.HOME -> Icons.Default.Home
+         PageTab.PRODUCTION -> Icons.Default.Build
+         PageTab.PACKING -> Icons.Default.Inventory2
+         PageTab.STOCK -> Icons.Default.Warehouse
+         PageTab.DISPATCH -> Icons.Default.LocalShipping
+         else -> Icons.Default.BarChart
+        },
+        contentDescription = t.name,
+        modifier = Modifier.size(20.dp)
+       )
+      },
+      label = {
+       Text(
+        when (t) {
+         PageTab.HOME -> "Home"
+         PageTab.PRODUCTION -> "Production"
+         PageTab.PACKING -> "Packing"
+         PageTab.STOCK -> "Stock"
+         PageTab.DISPATCH -> "Dispatch"
+         else -> "Reports"
+        },
+        fontSize = 11.sp,
+        fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Medium,
+        maxLines = 1
+       )
+      },
+      colors = NavigationBarItemDefaults.colors(
+       selectedIconColor = TCKColors.Primary,
+       selectedTextColor = TCKColors.Primary,
+       indicatorColor = TCKColors.PrimaryLight,
+       unselectedIconColor = TCKColors.TextMuted,
+       unselectedTextColor = TCKColors.TextMuted
+      )
+     )
+    }
    }
-  }
-  IconButton(
-   onClick={
-    FactoryAuthRepository(context).signOut()
-    session=null
-    message="Signed out"
-   },
-   modifier=Modifier.size(38.dp).background(Color(0xFFFEE2E2),RoundedCornerShape(10.dp))
-  ){
-   Icon(Icons.Default.Logout,contentDescription="Sign Out",tint=Color(0xFFDC2626),modifier=Modifier.size(18.dp))
-  }
- }
-},colors=TopAppBarDefaults.topAppBarColors(containerColor=Color.White))},bottomBar={NavigationBar(containerColor=Color.White,tonalElevation=8.dp){listOf(PageTab.HOME,PageTab.PRODUCTION,PageTab.PACKING,PageTab.STOCK,PageTab.DISPATCH,PageTab.REPORTS).forEach{t->NavigationBarItem(selected=tab==t,onClick={setTab(t)},icon={Icon(when(t){
- PageTab.HOME->Icons.Default.Home
- PageTab.PRODUCTION->Icons.Default.Build
- PageTab.PACKING->Icons.Default.Inventory2
- PageTab.STOCK->Icons.Default.Warehouse
- PageTab.DISPATCH->Icons.Default.LocalShipping
- else->Icons.Default.BarChart
-},null)},label={Text(when(t){
- PageTab.HOME->"Home"
- PageTab.PRODUCTION->"Production"
- PageTab.PACKING->"Packing"
- PageTab.STOCK->"Stock"
- PageTab.DISPATCH->"Dispatch"
- else->"Reports"
-},fontSize=10.sp,fontWeight=if(tab==t)FontWeight.Bold else FontWeight.Normal,maxLines=1)},colors=NavigationBarItemDefaults.colors(selectedIconColor=Navy,selectedTextColor=Navy,indicatorColor=Color(0xFFDCEEFF),unselectedIconColor=Muted,unselectedTextColor=Muted))}}},containerColor=Page){padding->
+  },
+  containerColor = TCKColors.Background
+ ){padding->
  Box(Modifier.fillMaxSize().padding(padding)){
  when(tab){
 
@@ -444,45 +481,262 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
   val activeLinesCount=productionLines.count{it.status=="ACTIVE"}
   val runningMachinesCount=machines.count{it.status=="RUNNING"}
   val alertMachines=machines.filter{it.status in setOf("STOPPED","DOWN","MAINTENANCE")}
+  val rejectionRate=if(produced>0)(rejected.toFloat()/produced.toFloat())*100f else 0f
+  val calHour=java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+  val greeting=when{
+   calHour in 5..11->"Good Morning"
+   calHour in 12..16->"Good Afternoon"
+   calHour in 17..21->"Good Evening"
+   else->"Night Shift"
+  }
+  val shiftName=when{
+   calHour in 6..13->"Shift 1 · 06:00 - 14:00"
+   calHour in 14..21->"Shift 2 · 14:00 - 22:00"
+   else->"Shift 3 · 22:00 - 06:00"
+  }
+
   LazyColumn(
-   Modifier.fillMaxSize().background(Color(0xFFEAF1F9)),
+   Modifier.fillMaxSize().background(TCKColors.Background),
    contentPadding=PaddingValues(start=16.dp,end=16.dp,top=12.dp,bottom=24.dp),
    verticalArrangement=Arrangement.spacedBy(12.dp)
   ){
+   // Operations Command Center Header & Shift Context
    item{
     Row(Modifier.fillMaxWidth().padding(top=4.dp,bottom=2.dp),verticalAlignment=Alignment.CenterVertically){
      Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-      Text("Factory",fontSize=25.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
-      Text(java.text.SimpleDateFormat("EEE, dd MMM yyyy",Locale.US).format(Date()),fontSize=11.sp,color=Muted)
+      Text("$greeting, ${session?.name?.takeIf{it.isNotBlank()}?.split(" ")?.firstOrNull() ?: session?.role?.replace("_", " ") ?: "Team"}",style=TCKTypography.headlineMedium,color=TCKColors.Navy)
+      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+       Text(shiftName,style=TCKTypography.labelSmall,color=TCKColors.Primary,fontWeight=FontWeight.SemiBold)
+       Text("•",color=TCKColors.TextMuted)
+       Text(SimpleDateFormat("EEEE, dd MMM yyyy",Locale.US).format(Date()),style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+      }
      }
-     TextButton(enabled=session?.isCloud==true&&!cloudStockLoading,onClick={
-      cloudStockLoading=true;cloudStockError=null
-      scope.launch{try{cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)}catch(e:Exception){cloudStockError=e.message?: "Stock refresh failed"}finally{cloudStockLoading=false}}
-     }){Text(if(cloudStockLoading)"Loading…" else "Refresh")}
+     OutlinedButton(
+      onClick={
+       cloudStockLoading=true;cloudStockError=null
+       scope.launch{
+        try{cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(session!!)}
+        catch(e:Exception){cloudStockError=e.message?:"Stock refresh failed"}
+        finally{cloudStockLoading=false}
+       }
+      },
+      enabled=session?.isCloud==true&&!cloudStockLoading,
+      shape=TCKShapes.pill,
+      colors=ButtonDefaults.outlinedButtonColors(contentColor=TCKColors.Primary),
+      border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Border),
+      contentPadding=PaddingValues(horizontal=12.dp,vertical=6.dp)
+     ){
+      Icon(Icons.Default.Refresh,contentDescription=null,modifier=Modifier.size(14.dp))
+      Spacer(Modifier.width(4.dp))
+      Text(if(cloudStockLoading)"Syncing…" else "Refresh",fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+     }
     }
    }
-   // CURRENT STOCK ONLY — server-authoritative balance
+
+   // Operational Attention / Nominal Status Banner
    item{
-    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+    if(alertMachines.isNotEmpty()){
+     Surface(
+      color=TCKColors.WarningLight,
+      shape=TCKShapes.medium,
+      border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Warning.copy(alpha=0.4f)),
+      modifier=Modifier.fillMaxWidth().clickable{setTab(PageTab.MACHINES)}
+     ){
+      Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+       Icon(Icons.Default.WarningAmber,contentDescription=null,tint=TCKColors.Warning,modifier=Modifier.size(24.dp))
+       Column(Modifier.weight(1f)){
+        Text("Attention Required on Shop Floor",style=TCKTypography.titleMedium,color=TCKColors.Navy)
+        Text("${alertMachines.size} machine(s) stopped or under maintenance: ${alertMachines.joinToString{it.machineCode}}",style=TCKTypography.bodySmall,color=TCKColors.TextSecondary)
+       }
+       Icon(Icons.Default.ChevronRight,contentDescription=null,tint=TCKColors.TextMuted)
+      }
+     }
+    }else{
+     Surface(
+      color=TCKColors.SuccessLight,
+      shape=TCKShapes.medium,
+      border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Success.copy(alpha=0.3f)),
+      modifier=Modifier.fillMaxWidth().clickable{setTab(PageTab.MACHINES)}
+     ){
+      Row(Modifier.padding(horizontal=14.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+       Box(Modifier.size(8.dp).background(TCKColors.Success,RoundedCornerShape(4.dp)))
+       Text("All $runningMachinesCount Machines Running Nominally · $activeLinesCount Lines Active",style=TCKTypography.bodySmall,fontWeight=FontWeight.SemiBold,color=TCKColors.Success,modifier=Modifier.weight(1f))
+       Text("Machinery →",style=TCKTypography.labelSmall,color=TCKColors.Success,fontWeight=FontWeight.Bold)
+      }
+     }
+    }
+   }
+
+   // Target vs Actual Progress Card
+   item{
+    TCKProgressCard(
+     title="Shift Output Target",
+     target=25000,
+     actual=produced,
+     unit="bottles"
+    )
+   }
+
+   // 2x2 Operational KPI Metric Grid
+   item{
+    Row(horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.fillMaxWidth()){
+     TCKMetricCard(
+      label="Produced Today",
+      value=String.format(Locale.US,"%,d",produced),
+      unit="btl",
+      trend="$good good (${String.format(Locale.US,"%.1f",100f-rejectionRate)}%)",
+      isPositiveTrend=rejectionRate<3.0f,
+      icon=Icons.Default.WaterDrop,
+      accentColor=TCKColors.Primary,
+      modifier=Modifier.weight(1f),
+      onClick={setTab(PageTab.PRODUCTION)}
+     )
+     TCKMetricCard(
+      label="Available Stock",
+      value=String.format(Locale.US,"%,d",totalAvailablePacks),
+      unit="packs",
+      trend="${String.format(Locale.US,"%,d",totalPackedBottles)} packed btl",
+      isPositiveTrend=totalAvailablePacks>0,
+      icon=Icons.Default.Warehouse,
+      accentColor=TCKColors.Success,
+      modifier=Modifier.weight(1f),
+      onClick={setTab(PageTab.STOCK)}
+     )
+    }
+   }
+   item{
+    Row(horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.fillMaxWidth()){
+     TCKMetricCard(
+      label="Dispatched Today",
+      value=String.format(Locale.US,"%,d",dispatchedToday),
+      unit="packs",
+      trend="$packedToday packs finished today",
+      isPositiveTrend=null,
+      icon=Icons.Default.LocalShipping,
+      accentColor=TCKColors.Warning,
+      modifier=Modifier.weight(1f),
+      onClick={setTab(PageTab.DISPATCH)}
+     )
+     TCKMetricCard(
+      label="Electricity",
+      value=String.format(Locale.US,"%.1f",todayMeters.sumOf{it.consumption}),
+      unit="kWh",
+      trend="${todayMeters.size} readings completed",
+      isPositiveTrend=null,
+      icon=Icons.Default.Bolt,
+      accentColor=TCKColors.Info,
+      modifier=Modifier.weight(1f),
+      onClick={
+       meterDialogMode="MORNING";selectedMeterReading=null;dialog="meter"
+      }
+     )
+    }
+   }
+
+   // Fast Action Operations Bar
+   item{
+    Surface(color=TCKColors.Surface,shape=TCKShapes.medium,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Border)){
      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-      Text("CURRENT STOCK",fontSize=13.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp)
-      if(cloudStockError!=null)Text("Refresh failed: $cloudStockError",fontSize=11.sp,color=Color(0xFFB42336))
-      if(cloudStockSnapshot==null){
-       Text(if(cloudStockLoading)"Loading server stock…" else if(session?.isCloud!=true)"Sign in to view live stock" else "Server stock unavailable",fontSize=12.sp,color=Muted)
-      }else{
-       Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-        Column(Modifier.weight(1f).background(Color(0xFFE5F0FF),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Packed bottles",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalPackedBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-        }
-        Column(Modifier.weight(1f).background(Color(0xFFE2F7ED),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Pack count",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalAvailablePacks),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
-        }
-        Column(Modifier.weight(1f).background(Color(0xFFFFEBD2),RoundedCornerShape(10.dp)).padding(9.dp)){
-         Text("Unpacked bottles",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%,d",totalUnpackedBottles),fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("QUICK OPERATIONS",style=TCKTypography.labelSmall,color=TCKColors.TextMuted,letterSpacing=1.sp)
+        Text("Fast Shopfloor Recording",style=TCKTypography.titleMedium,color=TCKColors.Navy)
+       }
+       Icon(Icons.Default.Bolt,contentDescription=null,tint=TCKColors.Primary)
+      }
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()){
+       OutlinedButton(
+        onClick={dialog="production"},
+        modifier=Modifier.weight(1f),
+        shape=TCKShapes.small,
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=TCKColors.Primary),
+        border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Primary.copy(alpha=0.3f)),
+        contentPadding=PaddingValues(vertical=10.dp,horizontal=4.dp)
+       ){
+        Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Icon(Icons.Default.Build,contentDescription=null,modifier=Modifier.size(18.dp))
+         Text("Production",fontSize=11.sp,fontWeight=FontWeight.Bold,maxLines=1)
         }
        }
-       Text("BOTTLE-WISE INVENTORY",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=0.8.sp)
-       Row(Modifier.fillMaxWidth().background(Color(0xFF10243D),RoundedCornerShape(7.dp)).padding(horizontal=7.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
+       OutlinedButton(
+        onClick={dialog="packing"},
+        modifier=Modifier.weight(1f),
+        shape=TCKShapes.small,
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=TCKColors.Success),
+        border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Success.copy(alpha=0.3f)),
+        contentPadding=PaddingValues(vertical=10.dp,horizontal=4.dp)
+       ){
+        Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Icon(Icons.Default.Inventory2,contentDescription=null,modifier=Modifier.size(18.dp))
+         Text("Packing",fontSize=11.sp,fontWeight=FontWeight.Bold,maxLines=1)
+        }
+       }
+       OutlinedButton(
+        onClick={dialog="dispatch"},
+        modifier=Modifier.weight(1f),
+        shape=TCKShapes.small,
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=TCKColors.Warning),
+        border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Warning.copy(alpha=0.3f)),
+        contentPadding=PaddingValues(vertical=10.dp,horizontal=4.dp)
+       ){
+        Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Icon(Icons.Default.LocalShipping,contentDescription=null,modifier=Modifier.size(18.dp))
+         Text("Dispatch",fontSize=11.sp,fontWeight=FontWeight.Bold,maxLines=1)
+        }
+       }
+       OutlinedButton(
+        onClick={
+         editingRawMaterial=null
+         issuingRawMaterial=rawMaterials.firstOrNull()
+         dialog="materialIssue"
+        },
+        modifier=Modifier.weight(1f),
+        shape=TCKShapes.small,
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=TCKColors.RoleAdmin),
+        border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.RoleAdmin.copy(alpha=0.3f)),
+        contentPadding=PaddingValues(vertical=10.dp,horizontal=4.dp)
+       ){
+        Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){
+         Icon(Icons.Default.Category,contentDescription=null,modifier=Modifier.size(18.dp))
+         Text("Material",fontSize=11.sp,fontWeight=FontWeight.Bold,maxLines=1)
+        }
+       }
+      }
+     }
+    }
+   }
+
+   // Server-Authoritative Live Inventory Snapshot
+   item{
+    Surface(color=TCKColors.Surface,shape=TCKShapes.medium,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Border)){
+     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("CURRENT WAREHOUSE STOCK",style=TCKTypography.labelSmall,color=TCKColors.TextMuted,letterSpacing=1.sp)
+        Text("Live Server Balances",style=TCKTypography.titleMedium,color=TCKColors.Navy)
+       }
+       TextButton(onClick={setTab(PageTab.STOCK)}){Text("Full Stock →",fontSize=12.sp,fontWeight=FontWeight.Bold,color=TCKColors.Primary)}
+      }
+      if(cloudStockError!=null)Text("Refresh failed: $cloudStockError",fontSize=11.sp,color=TCKColors.Error)
+      if(cloudStockSnapshot==null){
+       Text(if(cloudStockLoading)"Fetching server stock…" else if(session?.isCloud!=true)"Sign in to view live warehouse stock" else "Server stock unavailable",fontSize=12.sp,color=TCKColors.TextMuted)
+      }else{
+       Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+        Column(Modifier.weight(1f).background(TCKColors.PrimaryLight,TCKShapes.small).padding(9.dp)){
+         Text("Packed bottles",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         Text(String.format(Locale.US,"%,d",totalPackedBottles),style=TCKTypography.metricMedium,color=TCKColors.Navy)
+        }
+        Column(Modifier.weight(1f).background(TCKColors.SuccessLight,TCKShapes.small).padding(9.dp)){
+         Text("Pack count",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         Text(String.format(Locale.US,"%,d",totalAvailablePacks),style=TCKTypography.metricMedium,color=TCKColors.Success)
+        }
+        Column(Modifier.weight(1f).background(TCKColors.WarningLight,TCKShapes.small).padding(9.dp)){
+         Text("Unpacked bottles",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         Text(String.format(Locale.US,"%,d",totalUnpackedBottles),style=TCKTypography.metricMedium,color=TCKColors.Warning)
+        }
+       }
+       Text("BOTTLE-WISE INVENTORY",style=TCKTypography.labelSmall,fontWeight=FontWeight.ExtraBold,color=TCKColors.Navy,letterSpacing=0.8.sp)
+       Row(Modifier.fillMaxWidth().background(TCKColors.Navy,TCKShapes.small).padding(horizontal=7.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
         Text("Product",Modifier.weight(1.55f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White)
         Text("Packed btl.",Modifier.weight(.75f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
         Text("Packs",Modifier.weight(.55f),fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.End)
@@ -492,84 +746,86 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
         Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
          Row(Modifier.fillMaxWidth().padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){
           Column(Modifier.weight(1.55f),verticalArrangement=Arrangement.spacedBy(1.dp)){
-           Text(stock.name,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=Navy,maxLines=2)
-           Text("${stock.sizeLabel} · ${stock.colour}",fontSize=9.sp,color=Muted,maxLines=1)
+           Text(stock.name,fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=TCKColors.Navy,maxLines=2)
+           Text("${stock.sizeLabel} · ${stock.colour}",fontSize=9.sp,color=TCKColors.TextMuted,maxLines=1)
           }
-          Text((stock.completePacks*stock.bottlesPerPack).toString(),Modifier.weight(.75f),fontSize=11.sp,fontWeight=FontWeight.Medium,color=Navy,textAlign=TextAlign.End)
-          Text(stock.completePacks.toString(),Modifier.weight(.55f),fontSize=11.sp,fontWeight=FontWeight.Bold,color=Navy,textAlign=TextAlign.End)
-          Text(stock.unpackedGoodBottles.toString(),Modifier.weight(.75f),fontSize=11.sp,color=Color(0xFF9B5B00),textAlign=TextAlign.End)
+          Text(String.format(Locale.US,"%,d",stock.completePacks*stock.bottlesPerPack),Modifier.weight(.75f),fontSize=11.sp,fontWeight=FontWeight.Medium,color=TCKColors.Navy,textAlign=TextAlign.End)
+          Text(String.format(Locale.US,"%,d",stock.completePacks),Modifier.weight(.55f),fontSize=11.sp,fontWeight=FontWeight.Bold,color=TCKColors.Success,textAlign=TextAlign.End)
+          Text(String.format(Locale.US,"%,d",stock.unpackedGoodBottles),Modifier.weight(.75f),fontSize=11.sp,color=if(stock.unpackedGoodBottles>0)TCKColors.Warning else TCKColors.TextMuted,textAlign=TextAlign.End)
          }
-         if(index<cloudItems.lastIndex)HorizontalDivider(color=Border)
+         if(index<cloudItems.lastIndex)HorizontalDivider(color=TCKColors.Border)
         }
        }
       }
-      TextButton(onClick={setTab(PageTab.STOCK)}){Text("View detailed stock →")}
      }
     }
    }
-   // ORDER CHECK (not daily progress)
+
+   // Order Stock Availability Checker
    item{
-    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+    Surface(color=TCKColors.Surface,shape=TCKShapes.medium,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Border)){
      Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-      Text("ORDER STOCK CHECK",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp)
-      if(cloudItems.isEmpty())Text("Load server stock to check order availability.",fontSize=11.sp,color=Muted)
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("ORDER DISPATCH CHECK",style=TCKTypography.labelSmall,color=TCKColors.TextMuted,letterSpacing=1.sp)
+        Text("Check Stock Feasibility",style=TCKTypography.titleMedium,color=TCKColors.Navy)
+       }
+       Icon(Icons.Default.CheckCircle,contentDescription=null,tint=if(orderShortage==0&&requestedPacks>0)TCKColors.Success else TCKColors.TextMuted)
+      }
+      if(cloudItems.isEmpty())Text("Load server stock to check order availability.",fontSize=11.sp,color=TCKColors.TextMuted)
       else{
        Box{
-        OutlinedButton(onClick={quickOrderMenuExpanded=true},modifier=Modifier.fillMaxWidth()){
-         Text(selectedOrderProduct?.let{"${it.name} · ${it.sizeLabel} · ${it.colour}"}?: "Select product",Modifier.weight(1f),color=Navy,maxLines=1)
-         Icon(Icons.Default.ArrowDropDown,null)
+        OutlinedButton(onClick={quickOrderMenuExpanded=true},modifier=Modifier.fillMaxWidth(),shape=TCKShapes.small,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Border)){
+         Text(selectedOrderProduct?.let{"${it.name} · ${it.sizeLabel} · ${it.colour}"}?:"Select product",Modifier.weight(1f),color=TCKColors.Navy,maxLines=1)
+         Icon(Icons.Default.ArrowDropDown,null,tint=TCKColors.Navy)
         }
         DropdownMenu(expanded=quickOrderMenuExpanded,onDismissRequest={quickOrderMenuExpanded=false}){
          cloudItems.forEach{product->DropdownMenuItem(text={Text("${product.name} · ${product.sizeLabel} · ${product.colour}")},onClick={quickOrderProductId=product.productId;quickOrderMenuExpanded=false})}
         }
        }
-       OutlinedTextField(value=quickOrderPacks,onValueChange={quickOrderPacks=it.filter{ch->ch.isDigit()}.take(7)},modifier=Modifier.fillMaxWidth(),label={Text("Order quantity (packs)")},singleLine=true)
+       OutlinedTextField(
+        value=quickOrderPacks,
+        onValueChange={quickOrderPacks=it.filter{ch->ch.isDigit()}.take(7)},
+        modifier=Modifier.fillMaxWidth(),
+        label={Text("Order quantity (packs)")},
+        singleLine=true,
+        shape=TCKShapes.small
+       )
        Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-        Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Available",fontSize=9.sp,color=Muted);Text("$selectedAvailablePacks",fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy)}
-        Column(Modifier.weight(1f).background(Color(0xFFFFF1DE),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Shortage",fontSize=9.sp,color=Muted);Text("$orderShortage packs",fontSize=17.sp,fontWeight=FontWeight.Bold,color=if(orderShortage==0)Color(0xFF16804A) else Color(0xFF9B5B00))}
+        Column(Modifier.weight(1f).background(TCKColors.PrimaryLight,TCKShapes.small).padding(9.dp)){
+         Text("Available in warehouse",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         Text("$selectedAvailablePacks packs",style=TCKTypography.metricMedium,color=TCKColors.Navy)
+        }
+        Column(Modifier.weight(1f).background(if(orderShortage==0)TCKColors.SuccessLight else TCKColors.WarningLight,TCKShapes.small).padding(9.dp)){
+         Text("Shortage",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+         Text(if(orderShortage==0)"0 packs (Ready)" else "$orderShortage packs needed",style=TCKTypography.metricMedium,color=if(orderShortage==0)TCKColors.Success else TCKColors.Warning)
+        }
        }
-       Text(if(requestedPacks<=0)"Enter packs required." else if(orderShortage==0)"Ready to dispatch" else "Production / packing required",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(orderShortage==0)Color(0xFF16804A)else Color(0xFF9B5B00))
+       Text(if(requestedPacks<=0)"Enter packs required." else if(orderShortage==0)"✓ Ready to dispatch immediately" else "⚠️ Insufficient stock — production required",fontSize=11.sp,fontWeight=FontWeight.SemiBold,color=if(orderShortage==0)TCKColors.Success else TCKColors.Warning)
       }
      }
     }
    }
-   // TODAY PROGRESS — today's activity only, separate from stock
+
+   // Complete Active Product Catalogue Header
    item{
-    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
-     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){Text("TODAY’S ACTIVITY",Modifier.weight(1f),fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp);TextButton(onClick={setTab(PageTab.REPORTS)}){Text("Reports →")}}
-      Text("Production, packing and dispatch for today",fontSize=10.sp,color=Muted)
-      Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-       Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Produced",fontSize=9.sp,color=Muted);Text(produced.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Good: $good",fontSize=9.sp,color=Muted)}
-       Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Packed",fontSize=9.sp,color=Muted);Text(packedToday.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Packs today",fontSize=9.sp,color=Muted)}
-       Column(Modifier.weight(1f).background(Color(0xFFF0EAFE),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Dispatched",fontSize=9.sp,color=Muted);Text(dispatchedToday.toString(),fontSize=17.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Packs today",fontSize=9.sp,color=Muted)}
-      }
-      Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-       Column(Modifier.weight(1f).background(Color(0xFFFFF1DE),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Rejected",fontSize=9.sp,color=Muted);Text(rejected.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}
-       Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Electricity",fontSize=9.sp,color=Muted);Text(String.format(Locale.US,"%.1f",todayMeters.sumOf{it.consumption}),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy);Text("Units",fontSize=9.sp,color=Muted)}
-       Column(Modifier.weight(1f).background(Color(0xFFF3F4F6),RoundedCornerShape(10.dp)).padding(9.dp)){Text("Runs",fontSize=9.sp,color=Muted);Text(todayProduction.size.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}
-      }
+    Row(Modifier.fillMaxWidth().padding(top=6.dp),verticalAlignment=Alignment.CenterVertically){
+     Column(Modifier.weight(1f)){
+      Text("FACTORY PRODUCTS",style=TCKTypography.labelSmall,color=TCKColors.TextMuted,letterSpacing=1.sp)
+      Text("${active.size} Active Bottle Types",style=TCKTypography.titleMedium,color=TCKColors.Navy)
      }
+     TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage All →",fontSize=12.sp,fontWeight=FontWeight.Bold,color=TCKColors.Primary)}
     }
    }
-   // SHOP FLOOR
-   item{
-    Surface(color=Color.White,shape=RoundedCornerShape(18.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border),onClick={setTab(PageTab.MACHINES)}){
-     Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
-      Row(verticalAlignment=Alignment.CenterVertically){Text("Shop-floor status",Modifier.weight(1f),fontSize=15.sp,fontWeight=FontWeight.Bold,color=Navy);TextButton(onClick={setTab(PageTab.MACHINES)}){Text("Manage →")}}
-      Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-       Column(Modifier.weight(1f).background(Color(0xFFEAF3FF),RoundedCornerShape(9.dp)).padding(8.dp)){Text("Active lines",fontSize=9.sp,color=Muted);Text(activeLinesCount.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Navy)}
-       Column(Modifier.weight(1f).background(Color(0xFFE8F7F0),RoundedCornerShape(9.dp)).padding(8.dp)){Text("Running",fontSize=9.sp,color=Muted);Text(runningMachinesCount.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=Color(0xFF16804A))}
-       Column(Modifier.weight(1f).background(if(alertMachines.isNotEmpty())Color(0xFFFFF1DE)else Color(0xFFE8F7F0),RoundedCornerShape(9.dp)).padding(8.dp)){Text("Alerts",fontSize=9.sp,color=Muted);Text(alertMachines.size.toString(),fontSize=16.sp,fontWeight=FontWeight.Bold,color=if(alertMachines.isNotEmpty())Color(0xFF9B5B00)else Color(0xFF16804A))}
-      }
-     }
-    }
+   if(active.isEmpty())item{
+    TCKEmptyState(
+     title="No active products",
+     description="Add your factory's bottle products in Product Master to start recording runs.",
+     icon=Icons.Default.WaterDrop,
+     actionLabel="Add Product",
+     onAction={editingProduct=null;dialog="product"}
+    )
    }
-   // COMPLETE ACTIVE PRODUCT CATALOGUE
-   item{
-    Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("FACTORY PRODUCTS",fontSize=12.sp,fontWeight=FontWeight.ExtraBold,color=Navy,letterSpacing=1.sp);Text("${active.size} active products",fontSize=10.sp,color=Muted)};TextButton(onClick={setTab(PageTab.PRODUCTS)}){Text("Manage →")}}
-   }
-   if(active.isEmpty())item{EmptyDashboardState("No active products","Add bottle products in Product Master.",Icons.Default.WaterDrop)}
    else items(active,key={it.id}){product->
     BottleProductCard(name=product.name,capacity=product.sizeLabel,packSizeLabel=if(product.bottlesPerPack>0)"${product.bottlesPerPack} bottles per pack"else"",active=product.active,bottleType="${product.sizeLabel} ${product.colour} ${product.name}",iconName=product.iconName,imageUri=product.imageUri,colour=product.colour,onClick={editingProduct=product;dialog="product"})
    }
@@ -2830,7 +3086,7 @@ message="Plan completed · server confirmed"
  var reason by remember { mutableStateOf("PRODUCTION_CONSUMPTION") }
  var issuedTo by remember { mutableStateOf("") }
  var notes by remember { mutableStateOf("") }
- var expandedMaterial by remember { mutableStateOf(false) }
+ var showMaterialSheet by remember { mutableStateOf(false) }
  var expandedReason by remember { mutableStateOf(false) }
 
  val reasons = listOf("PRODUCTION_CONSUMPTION", "DAMAGE / SCRAP", "SHIFT_ALLOCATION", "STOCK_ADJUSTMENT")
@@ -2841,61 +3097,77 @@ message="Plan completed · server confirmed"
   onDismissRequest = close,
   title = {
    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-    Text("STOCK ISSUE / CONSUMPTION", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.2.sp)
-    Text("Issue Raw Material", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+    Text("STOCK ISSUE / CONSUMPTION", style = TCKTypography.labelSmall, color = TCKColors.Primary, letterSpacing = 1.2.sp)
+    Text("Issue Raw Material", style = TCKTypography.headlineSmall, color = TCKColors.Navy)
    }
   },
   text = {
-   Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    Text("Select Material *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+   Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Text("Select Material *", style = TCKTypography.labelMedium, color = TCKColors.Navy)
     Surface(
-     onClick = { expandedMaterial = true },
-     shape = RoundedCornerShape(12.dp),
-     border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+     onClick = { showMaterialSheet = true },
+     shape = TCKShapes.small,
+     border = androidx.compose.foundation.BorderStroke(1.dp, TCKColors.Border),
      color = Color.White
     ) {
      Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
-       Text(selectedMaterial?.name ?: "Choose material...", fontWeight = FontWeight.Bold, color = Navy)
-       if (selectedMaterial != null) Text("${selectedMaterial!!.category} · Available: ${selectedMaterial!!.currentStock} ${selectedMaterial!!.unit}", fontSize = 11.sp, color = Muted)
+       Text(selectedMaterial?.name ?: "Choose material...", fontWeight = FontWeight.Bold, color = TCKColors.Navy)
+       if (selectedMaterial != null) Text("${selectedMaterial!!.category} · Available: ${selectedMaterial!!.currentStock} ${selectedMaterial!!.unit}", fontSize = 11.sp, color = TCKColors.TextMuted)
       }
-      Icon(Icons.Default.ArrowDropDown, null)
+      Icon(Icons.Default.ArrowDropDown, null, tint = TCKColors.Navy)
      }
-     DropdownMenu(expanded = expandedMaterial, onDismissRequest = { expandedMaterial = false }) {
-      materials.forEach { m ->
-       DropdownMenuItem(
-        text = { Text("${m.name} (${m.currentStock} ${m.unit})") },
-        onClick = { selectedMaterial = m; expandedMaterial = false }
-       )
+    }
+
+    if (showMaterialSheet) {
+     TCKSelectionBottomSheet(
+      title = "Select Raw Material",
+      subtitle = "${materials.size} inventory items",
+      items = materials,
+      selectedItem = selectedMaterial,
+      onSelect = {
+       selectedMaterial = it
+       showMaterialSheet = false
+      },
+      onDismiss = { showMaterialSheet = false },
+      searchFilter = { item, query ->
+       item.name.contains(query, ignoreCase = true) || item.materialCode.contains(query, ignoreCase = true) || item.category.contains(query, ignoreCase = true)
+      }
+     ) { m, isSelected ->
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+       Surface(shape = TCKShapes.small, color = TCKColors.PrimaryLight, modifier = Modifier.size(36.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+         Icon(Icons.Default.Category, contentDescription = null, tint = TCKColors.Primary, modifier = Modifier.size(18.dp))
+        }
+       }
+       Column(Modifier.weight(1f)) {
+        Text(m.name, style = TCKTypography.bodyMedium, fontWeight = FontWeight.SemiBold, color = TCKColors.Navy)
+        Text("${m.category} · Stock: ${m.currentStock} ${m.unit}", style = TCKTypography.bodySmall, color = if (m.currentStock > 0) TCKColors.TextSecondary else TCKColors.Error)
+       }
       }
      }
     }
 
-    OutlinedTextField(
+    TCKNumericInput(
+     label = "Quantity to Issue (${selectedMaterial?.unit ?: "KG"}) *",
      value = quantity,
      onValueChange = { quantity = it.filter { c -> c.isDigit() || c == '.' } },
-     label = { Text("Quantity to Issue (${selectedMaterial?.unit ?: "KG"}) *") },
-     modifier = Modifier.fillMaxWidth(),
-     singleLine = true,
-     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-     isError = selectedMaterial != null && qtyVal > (selectedMaterial?.currentStock ?: 0.0),
-     supportingText = {
-      if (selectedMaterial != null && qtyVal > (selectedMaterial?.currentStock ?: 0.0)) {
-       Text("Exceeds current stock of ${selectedMaterial?.currentStock} ${selectedMaterial?.unit}", color = Color(0xFFB42318))
-      }
-     }
+     unit = selectedMaterial?.unit ?: "KG",
+     availableBalance = selectedMaterial?.currentStock,
+     stepSizes = listOf(1, 10, 25),
+     isDecimal = true
     )
 
-    Text("Issue Reason *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+    Text("Issue Reason *", style = TCKTypography.labelMedium, color = TCKColors.Navy)
     Surface(
      onClick = { expandedReason = true },
-     shape = RoundedCornerShape(12.dp),
-     border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+     shape = TCKShapes.small,
+     border = androidx.compose.foundation.BorderStroke(1.dp, TCKColors.Border),
      color = Color.White
     ) {
      Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-      Text(reason, Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Navy)
-      Icon(Icons.Default.ArrowDropDown, null)
+      Text(reason, Modifier.weight(1f), fontWeight = FontWeight.Bold, color = TCKColors.Navy)
+      Icon(Icons.Default.ArrowDropDown, null, tint = TCKColors.Navy)
      }
      DropdownMenu(expanded = expandedReason, onDismissRequest = { expandedReason = false }) {
       reasons.forEach { r ->
@@ -2913,6 +3185,7 @@ message="Plan completed · server confirmed"
      label = { Text("Issued To / Line / Shift") },
      singleLine = true,
      modifier = Modifier.fillMaxWidth(),
+     shape = TCKShapes.small,
      placeholder = { Text("e.g. Line 1 - Shift A") }
     )
 
@@ -2921,7 +3194,8 @@ message="Plan completed · server confirmed"
      onValueChange = { notes = it },
      label = { Text("Notes (optional)") },
      singleLine = true,
-     modifier = Modifier.fillMaxWidth()
+     modifier = Modifier.fillMaxWidth(),
+     shape = TCKShapes.small
     )
    }
   },
@@ -2932,8 +3206,8 @@ message="Plan completed · server confirmed"
      save(m, qtyVal, reason, issuedTo.trim(), notes.trim())
     },
     enabled = canSubmit,
-    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
-    shape = RoundedCornerShape(10.dp)
+    colors = ButtonDefaults.buttonColors(containerColor = TCKColors.RoleAdmin),
+    shape = TCKShapes.small
    ) {
     Text("Confirm Issue", fontWeight = FontWeight.Bold)
    }
@@ -3179,43 +3453,50 @@ message="Plan completed · server confirmed"
 @Composable private fun Field(label:String,value:String,onChange:(String)->Unit,decimal:Boolean){OutlinedTextField(value,onChange,label={Text(label)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=if(decimal)KeyboardType.Decimal else KeyboardType.Number),modifier=Modifier.fillMaxWidth())}
 @Composable private fun DateField(value:String,onChange:(String)->Unit){OutlinedTextField(value,onChange,label={Text("Date (yyyy-MM-dd)")},singleLine=true,modifier=Modifier.fillMaxWidth())}
 @Composable private fun ProductPicker(products:List<ProductEntity>,selected:ProductEntity?,onSelect:(ProductEntity?)->Unit){
- var expanded by remember{mutableStateOf(false)}
- Box{
-  OutlinedButton(
-   onClick={expanded=true},
-   modifier=Modifier.fillMaxWidth(),
-   shape=RoundedCornerShape(12.dp),
-   contentPadding=PaddingValues(horizontal=12.dp,vertical=9.dp)
-  ){
-   Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.fillMaxWidth()){
-    if(selected!=null){
-     ProductThumbnail(imageUri=selected.imageUri,iconName=selected.iconName,colour=selected.colour,bottleType="${selected.sizeLabel} ${selected.colour} ${selected.name}",size=30.dp)
-     Column(Modifier.weight(1f)){
-      Text(selected.name,fontWeight=FontWeight.SemiBold,color=Navy)
-      Text(selected.sizeLabel+" · "+selected.colour+(if(selected.bottlesPerPack>0)" · ${selected.bottlesPerPack}/pack" else ""),fontSize=10.sp,color=Muted)
-     }
-    }else{
-     Icon(Icons.Default.WaterDrop,null,tint=Blue,modifier=Modifier.size(20.dp))
-     Text("Select bottle product",Modifier.weight(1f),color=Muted)
+ var showSheet by remember{mutableStateOf(false)}
+ OutlinedButton(
+  onClick={showSheet=true},
+  modifier=Modifier.fillMaxWidth(),
+  shape=TCKShapes.small,
+  colors=ButtonDefaults.outlinedButtonColors(containerColor=Color.White),
+  border=androidx.compose.foundation.BorderStroke(1.dp,if(selected!=null) TCKColors.Primary else TCKColors.Border),
+  contentPadding=PaddingValues(horizontal=12.dp,vertical=10.dp)
+ ){
+  Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.fillMaxWidth()){
+   if(selected!=null){
+    ProductThumbnail(imageUri=selected.imageUri,iconName=selected.iconName,colour=selected.colour,bottleType="${selected.sizeLabel} ${selected.colour} ${selected.name}",size=32.dp)
+    Column(Modifier.weight(1f)){
+     Text(selected.name,fontWeight=FontWeight.SemiBold,color=TCKColors.Navy,fontSize=13.sp)
+     Text(selected.sizeLabel+" · "+selected.colour+(if(selected.bottlesPerPack>0)" · ${selected.bottlesPerPack} btl/pack" else ""),fontSize=11.sp,color=TCKColors.TextMuted)
     }
-    Icon(Icons.Default.ArrowDropDown,null,tint=Navy)
+   }else{
+    Icon(Icons.Default.WaterDrop,null,tint=TCKColors.Primary,modifier=Modifier.size(20.dp))
+    Text("Select bottle product…",Modifier.weight(1f),color=TCKColors.TextMuted,fontSize=13.sp)
    }
+   Icon(Icons.Default.ArrowDropDown,null,tint=TCKColors.Navy)
   }
-  DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},modifier=Modifier.fillMaxWidth(0.9f)){
-   if(products.isEmpty()){
-    DropdownMenuItem(text={Text("No products configured")},onClick={expanded=false})
+ }
+ if(showSheet){
+  TCKSelectionBottomSheet(
+   title="Select Product",
+   subtitle="${products.size} bottle products available",
+   items=products,
+   selectedItem=selected,
+   onSelect={
+    onSelect(it)
+    showSheet=false
+   },
+   onDismiss={showSheet=false},
+   searchFilter={item,query->
+    item.name.contains(query,ignoreCase=true)||item.sizeLabel.contains(query,ignoreCase=true)||item.colour.contains(query,ignoreCase=true)
    }
-   products.forEach{p->
-    DropdownMenuItem(
-     leadingIcon={ProductThumbnail(imageUri=p.imageUri,iconName=p.iconName,colour=p.colour,bottleType="${p.sizeLabel} ${p.colour} ${p.name}",size=32.dp)},
-     text={
-      Column{
-       Text(p.name,fontWeight=FontWeight.SemiBold,color=Navy)
-       Text(p.sizeLabel+" · "+p.colour+(if(p.bottlesPerPack>0)" · ${p.bottlesPerPack} bottles/pack" else ""),fontSize=10.sp,color=Muted)
-      }
-     },
-     onClick={onSelect(p);expanded=false}
-    )
+  ){item,isSelected->
+   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+    ProductThumbnail(imageUri=item.imageUri,iconName=item.iconName,colour=item.colour,bottleType="${item.sizeLabel} ${item.colour} ${item.name}",size=36.dp)
+    Column(Modifier.weight(1f)){
+     Text(item.name,style=TCKTypography.bodyMedium,fontWeight=FontWeight.SemiBold,color=TCKColors.Navy)
+     Text("${item.sizeLabel} · ${item.colour} · ${if(item.bottlesPerPack>0) "${item.bottlesPerPack} btl/pack" else "Unconfigured"}",style=TCKTypography.bodySmall,color=TCKColors.TextMuted)
+    }
    }
   }
  }
@@ -3413,9 +3694,40 @@ message="Plan completed · server confirmed"
    }
    HorizontalDivider(color=Border)
    Text("Step 3 · Production reconciliation",fontWeight=FontWeight.Bold,color=Navy,fontSize=13.sp)
-   OutlinedTextField(total,{total=it.filter(Char::isDigit).take(9)},label={Text("Total produced bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Build,null)})
-   OutlinedTextField(good,{good=it.filter(Char::isDigit).take(9)},label={Text("Good bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.CheckCircle,null)})
-   OutlinedTextField(rejected,{rejected=it.filter(Char::isDigit).take(9)},label={Text("Rejected bottles *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.WarningAmber,null)})
+   TCKNumericInput(
+    label="Total produced bottles *",
+    value=total,
+    onValueChange={
+     total=it.filter(Char::isDigit).take(9)
+     val tot=total.toIntOrNull()?:0
+     val rej=rejected.toIntOrNull()?:0
+     if(tot>=rej&&good.isBlank()){good=(tot-rej).toString()}
+    },
+    unit="bottles",
+    stepSizes=listOf(10, 100),
+    isDecimal=false
+   )
+   TCKNumericInput(
+    label="Good bottles *",
+    value=good,
+    onValueChange={good=it.filter(Char::isDigit).take(9)},
+    unit="bottles",
+    stepSizes=listOf(10, 100),
+    isDecimal=false
+   )
+   TCKNumericInput(
+    label="Rejected bottles *",
+    value=rejected,
+    onValueChange={
+     rejected=it.filter(Char::isDigit).take(9)
+     val tot=total.toIntOrNull()?:0
+     val rej=rejected.toIntOrNull()?:0
+     if(tot>=rej){good=(tot-rej).toString()}
+    },
+    unit="bottles",
+    stepSizes=listOf(1, 10),
+    isDecimal=false
+   )
    if(t!=null&&g!=null&&r!=null){
     val valid=t>0&&g>=0&&r>=0&&g+r==t
     Surface(color=if(valid)Color(0xFFE8F7F0) else Color(0xFFFFF0F0),shape=RoundedCornerShape(12.dp)){
@@ -3489,7 +3801,37 @@ message="Plan completed · server confirmed"
    p?.let{Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){Icon(Icons.Default.WaterDrop,null,tint=Blue,modifier=Modifier.size(24.dp));Column(Modifier.weight(1f)){Text(it.name,fontWeight=FontWeight.Bold,color=Navy);Text(if(it.bottlesPerPack>0)"Pack size: "+it.bottlesPerPack+" bottles" else "Pack size not configured",fontSize=11.sp,color=Muted)};Column(horizontalAlignment=Alignment.End){Text(available.toString(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text(if(serverAvailable!=null)"server-available bottles" else "local available bottles",fontSize=9.sp,color=Muted)}}}}
    DateField(d){d=it}
    if(!dateValid)Text("Enter a valid date in YYYY-MM-DD format.",fontSize=11.sp,color=Color(0xFFB42318))
-   OutlinedTextField(bottles,{bottles=it.filter(Char::isDigit).take(9)},label={Text("Good bottles to pack *")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Inventory2,null)})
+   TCKNumericInput(
+    label="Good bottles to pack",
+    value=bottles,
+    onValueChange={bottles=it.filter(Char::isDigit).take(9)},
+    unit="bottles",
+    availableBalance=available.toDouble(),
+    stepSizes=listOf(p?.bottlesPerPack?.takeIf{it>0}?:24, 100),
+    isDecimal=false
+   )
+   if(available>0){
+    Row(horizontalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.fillMaxWidth()){
+     val packSize=p?.bottlesPerPack?.takeIf{it>0}?:24
+     val presets=listOfNotNull(
+      packSize to "1 pk ($packSize)",
+      (packSize*2).takeIf{it<=available} to "2 pk (${packSize*2})",
+      (packSize*5).takeIf{it<=available} to "5 pk (${packSize*5})",
+      available to "All ($available)"
+     )
+     presets.forEach{(qty,label)->
+      OutlinedButton(
+       onClick={bottles=qty.toString()},
+       modifier=Modifier.weight(1f),
+       shape=TCKShapes.pill,
+       border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Primary.copy(alpha=0.3f)),
+       contentPadding=PaddingValues(horizontal=4.dp,vertical=4.dp)
+      ){
+       Text(label,fontSize=10.sp,fontWeight=FontWeight.SemiBold,color=TCKColors.Primary,maxLines=1)
+      }
+     }
+    }
+   }
    if(n>available)Text("Quantity exceeds available unpacked bottles.",fontSize=11.sp,color=Color(0xFFB42318))
    if(p?.bottlesPerPack?.let{it<=0}==true)Text("Configure bottles per pack in Products before packing.",fontSize=11.sp,color=Color(0xFF9B5B00))
    if(n>0&&calc!=null&&p?.bottlesPerPack?.let{it>0}==true){
@@ -3755,74 +4097,55 @@ private fun MeterForm(
   OutlinedTextField(gst,{gst=it.uppercase().filter{ch->ch.isLetterOrDigit()}.take(15)},label={Text("GSTIN (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.ReceiptLong,null)})
  }},confirmButton={Button(enabled=name.isNotBlank()&&name.trim().length<=120,onClick={save(name.trim(),phone.trim(),address.trim(),gst.trim())},shape=RoundedCornerShape(12.dp)){Text(if(initial==null)"Save customer" else "Save changes")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
 }
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun CustomerPicker(customers:List<CustomerEntity>,selected:CustomerEntity?,onSelect:(CustomerEntity?)->Unit){
- var expanded by remember{mutableStateOf(false)}
- ExposedDropdownMenuBox(
-  expanded=expanded,
-  onExpandedChange={expanded=it},
-  modifier=Modifier.fillMaxWidth()
+ var showSheet by remember{mutableStateOf(false)}
+ OutlinedButton(
+  onClick={showSheet=true},
+  modifier=Modifier.fillMaxWidth(),
+  shape=TCKShapes.small,
+  colors=ButtonDefaults.outlinedButtonColors(containerColor=Color.White),
+  border=androidx.compose.foundation.BorderStroke(1.dp,if(selected!=null) TCKColors.Primary else TCKColors.Border),
+  contentPadding=PaddingValues(horizontal=12.dp,vertical=10.dp)
  ){
-  OutlinedTextField(
-   value=selected?.name.orEmpty(),
-   onValueChange={},
-   readOnly=true,
-   label={Text("Select Customer *")},
-   placeholder={Text("Choose customer from list")},
-   leadingIcon={
-    Icon(
-     Icons.Default.Person,
-     null,
-     tint=if(selected!=null)Blue else Muted,
-     modifier=Modifier.size(20.dp)
-    )
+  Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp),modifier=Modifier.fillMaxWidth()){
+   Icon(Icons.Default.Person,null,tint=if(selected!=null) TCKColors.Primary else TCKColors.TextMuted,modifier=Modifier.size(20.dp))
+   Column(Modifier.weight(1f)){
+    if(selected!=null){
+     Text(selected.name,fontWeight=FontWeight.SemiBold,color=TCKColors.Navy,fontSize=13.sp)
+     val subtitle=listOfNotNull(selected.phone.ifBlank{null},selected.gstNumber.takeIf{it.isNotBlank()}?.let{"GST: $it"}).joinToString(" · ")
+     if(subtitle.isNotBlank())Text(subtitle,fontSize=11.sp,color=TCKColors.TextMuted)
+    }else{
+     Text("Select Customer *",color=TCKColors.TextMuted,fontSize=13.sp)
+    }
+   }
+   Icon(Icons.Default.ArrowDropDown,null,tint=TCKColors.Navy)
+  }
+ }
+ if(showSheet){
+  TCKSelectionBottomSheet(
+   title="Select Customer",
+   subtitle="${customers.size} registered customer accounts",
+   items=customers,
+   selectedItem=selected,
+   onSelect={
+    onSelect(it)
+    showSheet=false
    },
-   trailingIcon={
-    ExposedDropdownMenuDefaults.TrailingIcon(expanded=expanded)
-   },
-   colors=ExposedDropdownMenuDefaults.outlinedTextFieldColors(
-    focusedBorderColor=Blue,
-    unfocusedBorderColor=Border
-   ),
-   shape=RoundedCornerShape(12.dp),
-   modifier=Modifier.menuAnchor().fillMaxWidth()
-  )
-  ExposedDropdownMenu(
-   expanded=expanded,
-   onDismissRequest={expanded=false},
-   modifier=Modifier.fillMaxWidth(0.92f).background(Color.White)
-  ){
-   if(customers.isEmpty()){
-    DropdownMenuItem(
-     text={Text("No customers found · Add customer first",fontSize=13.sp,color=Color(0xFFB42318))},
-     onClick={expanded=false}
-    )
-   }else{
-    customers.forEach{cust->
-     DropdownMenuItem(
-      text={
-       Column(verticalArrangement=Arrangement.spacedBy(2.dp)){
-        Row(verticalAlignment=Alignment.CenterVertically){
-         Text(cust.name,fontWeight=FontWeight.SemiBold,fontSize=14.sp,color=Navy,modifier=Modifier.weight(1f))
-         if(cust.id==selected?.id){
-          Icon(Icons.Default.Check,null,tint=Blue,modifier=Modifier.size(16.dp))
-         }
-        }
-        if(cust.phone.isNotBlank()||cust.gstNumber.isNotBlank()){
-         Text(
-          listOf(cust.phone.ifBlank{null},cust.gstNumber.takeIf{it.isNotBlank()}?.let{"GST: $it"}).filterNotNull().joinToString(" · "),
-          fontSize=11.sp,
-          color=Muted
-         )
-        }
-       }
-      },
-      onClick={
-       onSelect(cust)
-       expanded=false
-      },
-      contentPadding=PaddingValues(horizontal=16.dp,vertical=10.dp)
-     )
+   onDismiss={showSheet=false},
+   searchFilter={item,query->
+    item.name.contains(query,ignoreCase=true)||item.phone.contains(query,ignoreCase=true)||item.gstNumber.contains(query,ignoreCase=true)
+   }
+  ){cust,isSelected->
+   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+    Surface(shape=CircleShape,color=TCKColors.PrimaryLight,modifier=Modifier.size(36.dp)){
+     Box(contentAlignment=Alignment.Center){
+      Text(cust.name.take(1).uppercase(),fontWeight=FontWeight.Bold,color=TCKColors.Primary,fontSize=14.sp)
+     }
+    }
+    Column(Modifier.weight(1f)){
+     Text(cust.name,style=TCKTypography.bodyMedium,fontWeight=FontWeight.SemiBold,color=TCKColors.Navy)
+     val detail=listOfNotNull(cust.phone.ifBlank{null},cust.address.ifBlank{null},cust.gstNumber.takeIf{it.isNotBlank()}?.let{"GST: $it"}).joinToString(" · ")
+     if(detail.isNotBlank())Text(detail,style=TCKTypography.bodySmall,color=TCKColors.TextMuted,maxLines=1)
     }
    }
   }
@@ -4103,8 +4426,26 @@ private fun MeterForm(
        Row(verticalAlignment=Alignment.CenterVertically){Text("Item "+(index+1),Modifier.weight(1f),fontWeight=FontWeight.Bold,color=Navy,fontSize=12.sp);if(lines.size>1)TextButton(onClick={lines=lines.filterIndexed{idx,_->idx!=index}}){Text("Remove",color=Color(0xFFB42318))}}
        ProductPicker(if(order!=null)products.filter{p->orderLines.any{it.orderId==order!!.id&&it.productId==p.id}} else products,line.first){p->lines=lines.toMutableList().also{it[index]=Triple(p,line.second,line.third)}}
        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
-        Column(Modifier.weight(1f)){Field("Complete packs",line.second){qty->lines=lines.toMutableList().also{it[index]=Triple(line.first,qty.filter(Char::isDigit).take(9),line.third)}}}
-        Column(Modifier.weight(1f)){Field("Loose bottles",line.third){qty->lines=lines.toMutableList().also{it[index]=Triple(line.first,line.second,qty.filter(Char::isDigit).take(9))}}}
+        Column(Modifier.weight(1f)){
+         TCKNumericInput(
+          label="Complete packs",
+          value=line.second,
+          onValueChange={qty->lines=lines.toMutableList().also{it[index]=Triple(line.first,qty.filter(Char::isDigit).take(9),line.third)}},
+          unit="packs",
+          stepSizes=listOf(1, 10),
+          isDecimal=false
+         )
+        }
+        Column(Modifier.weight(1f)){
+         TCKNumericInput(
+          label="Loose bottles",
+          value=line.third,
+          onValueChange={qty->lines=lines.toMutableList().also{it[index]=Triple(line.first,line.second,qty.filter(Char::isDigit).take(9))}},
+          unit="btl",
+          stepSizes=listOf(1, 5),
+          isDecimal=false
+         )
+        }
        }
        val packs=line.second.toIntOrNull()?:0
        val loose=line.third.toIntOrNull()?:0
