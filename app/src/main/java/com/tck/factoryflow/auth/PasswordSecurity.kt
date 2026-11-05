@@ -42,7 +42,7 @@ object PasswordSecurity {
 
     fun normalizeEmail(email: String): String {
         val clean = email.lowercase().trim()
-        return if (clean == "admin@tck-factoryflow.com") ADMIN_EMAIL else clean
+        return if (clean == "admin@tck-factoryflow.com" || clean == "admin@tck-factory.com") ADMIN_EMAIL else clean
     }
 
     fun saveCredential(context: Context, email: String, password: String) {

@@ -11,6 +11,19 @@ class FactoryPermissionsTest {
   assertEquals(FactoryRole.PRODUCTION_STAFF,FactoryPermissions.fromClaim("production_operator"))
   assertEquals(FactoryRole.PACKING_STAFF,FactoryPermissions.fromClaim("packing"))
   assertEquals(FactoryRole.DISPATCH_STAFF,FactoryPermissions.fromClaim("dispatch"))
+  assertEquals(FactoryRole.SUPERVISOR,FactoryPermissions.fromClaim("supervisor"))
+  assertEquals(FactoryRole.QUALITY_INSPECTOR,FactoryPermissions.fromClaim("quality_inspector"))
+  assertEquals(FactoryRole.QUALITY_INSPECTOR,FactoryPermissions.fromClaim("quality"))
+  assertEquals(FactoryRole.STOREKEEPER,FactoryPermissions.fromClaim("inventory_manager"))
+ }
+ @Test fun supervisorAndQualityPermissions() {
+  assertTrue(FactoryPermissions.allows(FactoryRole.SUPERVISOR, FactoryAction.CREATE_PRODUCTION))
+  assertTrue(FactoryPermissions.allows(FactoryRole.SUPERVISOR, FactoryAction.MANAGE_MACHINES))
+  assertTrue(FactoryPermissions.allows(FactoryRole.SUPERVISOR, FactoryAction.MANAGE_QUALITY))
+  assertFalse(FactoryPermissions.allows(FactoryRole.SUPERVISOR, FactoryAction.MANAGE_STAFF))
+  assertTrue(FactoryPermissions.allows(FactoryRole.QUALITY_INSPECTOR, FactoryAction.MANAGE_QUALITY))
+  assertFalse(FactoryPermissions.allows(FactoryRole.QUALITY_INSPECTOR, FactoryAction.CREATE_PRODUCTION))
+  assertFalse(FactoryPermissions.allows(FactoryRole.QUALITY_INSPECTOR, FactoryAction.POST_DISPATCH))
  }
  @Test fun unknownClaimDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.fromClaim("superuser")}}
  @Test fun blankOrganisationDenied(){assertThrows(IllegalArgumentException::class.java){FactoryPermissions.requireOrganisation("","factory-a")}}

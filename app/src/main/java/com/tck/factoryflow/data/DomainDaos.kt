@@ -56,6 +56,12 @@ interface CustomerDao {
     @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE")
     suspend fun activeCustomers(): List<CustomerEntity>
 
+    @Query("SELECT * FROM customers WHERE name=:name COLLATE NOCASE LIMIT 1")
+    suspend fun customerByName(name: String): CustomerEntity?
+
+    @Query("SELECT * FROM customers ORDER BY name COLLATE NOCASE")
+    suspend fun allCustomers(): List<CustomerEntity>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCustomer(c: CustomerEntity): Long
 
@@ -109,4 +115,37 @@ interface StaffDao {
 
     @Query("DELETE FROM staff_members WHERE id=:id")
     suspend fun deleteStaffMember(id: Long): Int
+}
+
+@Dao
+interface RawMaterialDao {
+    @Query("SELECT * FROM raw_materials ORDER BY active DESC, name COLLATE NOCASE")
+    fun observeRawMaterials(): Flow<List<RawMaterialEntity>>
+
+    @Query("SELECT * FROM raw_materials WHERE active=1 ORDER BY name COLLATE NOCASE")
+    suspend fun activeRawMaterials(): List<RawMaterialEntity>
+
+    @Query("SELECT * FROM raw_materials WHERE id=:id LIMIT 1")
+    suspend fun rawMaterialById(id: Long): RawMaterialEntity?
+
+    @Query("SELECT * FROM raw_materials WHERE materialCode=:code LIMIT 1")
+    suspend fun rawMaterialByCode(code: String): RawMaterialEntity?
+
+    @Query("SELECT * FROM raw_materials WHERE name=:name COLLATE NOCASE LIMIT 1")
+    suspend fun rawMaterialByName(name: String): RawMaterialEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertRawMaterial(m: RawMaterialEntity): Long
+
+    @Query("UPDATE raw_materials SET name=:name,category=:category,unit=:unit,reorderLevel=:reorderLevel,active=:active,updatedAt=:at WHERE id=:id")
+    suspend fun updateRawMaterial(id: Long, name: String, category: String, unit: String, reorderLevel: Double, active: Boolean, at: Long = System.currentTimeMillis()): Int
+
+    @Query("UPDATE raw_materials SET currentStock=currentStock+:delta,updatedAt=:at WHERE materialCode=:code")
+    suspend fun adjustRawMaterialStock(code: String, delta: Double, at: Long = System.currentTimeMillis()): Int
+
+    @Query("SELECT * FROM raw_material_receipts ORDER BY receiptDate DESC, createdAt DESC")
+    fun observeRawMaterialReceipts(): Flow<List<RawMaterialReceiptEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertRawMaterialReceipt(r: RawMaterialReceiptEntity): Long
 }

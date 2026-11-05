@@ -1,6 +1,6 @@
 package com.tck.factoryflow.auth
 
-enum class FactoryRole { OWNER, ADMIN, MANAGER, PRODUCTION_STAFF, PACKING_STAFF, STOREKEEPER, DISPATCH_STAFF, VIEWER }
+enum class FactoryRole { OWNER, ADMIN, MANAGER, SUPERVISOR, PRODUCTION_STAFF, QUALITY_INSPECTOR, PACKING_STAFF, STOREKEEPER, DISPATCH_STAFF, VIEWER }
 enum class FactoryAction { VIEW, CREATE_PRODUCTION, CREATE_PACKING, ADJUST_STOCK, POST_DISPATCH, REVERSE_DISPATCH, MANAGE_PRODUCTS, MANAGE_STAFF, EXPORT_REPORTS, CORRECT_RECORDS, MANAGE_MACHINES, MANAGE_QUALITY, MANAGE_ORDERS, MANAGE_ELECTRICITY, MANAGE_CUSTOMERS }
 
 object FactoryPermissions {
@@ -8,7 +8,9 @@ object FactoryPermissions {
   FactoryRole.OWNER -> true
   FactoryRole.ADMIN -> true
   FactoryRole.MANAGER -> action !in setOf(FactoryAction.MANAGE_STAFF)
+  FactoryRole.SUPERVISOR -> action in setOf(FactoryAction.VIEW, FactoryAction.CREATE_PRODUCTION, FactoryAction.MANAGE_MACHINES, FactoryAction.MANAGE_QUALITY, FactoryAction.EXPORT_REPORTS, FactoryAction.MANAGE_PRODUCTS)
   FactoryRole.PRODUCTION_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PRODUCTION)
+  FactoryRole.QUALITY_INSPECTOR -> action in setOf(FactoryAction.VIEW, FactoryAction.MANAGE_QUALITY, FactoryAction.EXPORT_REPORTS)
   FactoryRole.PACKING_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.CREATE_PACKING)
   FactoryRole.STOREKEEPER -> action in setOf(FactoryAction.VIEW,FactoryAction.ADJUST_STOCK,FactoryAction.MANAGE_PRODUCTS,FactoryAction.EXPORT_REPORTS)
   FactoryRole.DISPATCH_STAFF -> action in setOf(FactoryAction.VIEW,FactoryAction.POST_DISPATCH,FactoryAction.MANAGE_ORDERS)
@@ -18,9 +20,11 @@ object FactoryPermissions {
   "owner" -> FactoryRole.OWNER
   "admin" -> FactoryRole.ADMIN
   "manager" -> FactoryRole.MANAGER
+  "supervisor" -> FactoryRole.SUPERVISOR
+  "quality_inspector", "quality-inspector", "quality", "inspector" -> FactoryRole.QUALITY_INSPECTOR
   "production_staff", "production-staff", "operator", "production", "production_operator" -> FactoryRole.PRODUCTION_STAFF
   "packing_staff", "packing-staff", "packing" -> FactoryRole.PACKING_STAFF
-  "storekeeper", "inventory" -> FactoryRole.STOREKEEPER
+  "storekeeper", "inventory", "inventory_manager", "inventory-manager" -> FactoryRole.STOREKEEPER
   "dispatch_staff", "dispatch-staff", "dispatch" -> FactoryRole.DISPATCH_STAFF
   "viewer" -> FactoryRole.VIEWER
   else -> throw IllegalArgumentException("Unknown or unassigned staff role: $claim")

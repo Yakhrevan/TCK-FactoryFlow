@@ -64,7 +64,7 @@ class FactoryAuthRepository(private val context: Context) {
 
         if (response is CloudResult.Error) {
             val cleanEmail = email?.lowercase()?.trim().orEmpty()
-            val eligibleAdmin = cleanEmail == "admin@tck-factory.com"
+            val eligibleAdmin = cleanEmail == "admin@tck-factory.com" || cleanEmail == "admin@tckfactory.com"
 
             android.util.Log.e(
                 "FactoryAuth",
@@ -132,9 +132,10 @@ class FactoryAuthRepository(private val context: Context) {
         }
 
         val allowedRoles = setOf(
-            "owner", "admin", "manager", "production_staff", "packing_staff",
-            "storekeeper", "dispatch_staff", "viewer", "operator",
-            "production", "packing", "dispatch", "production_operator"
+            "owner", "admin", "manager", "supervisor", "production_staff", "packing_staff",
+            "storekeeper", "inventory_manager", "dispatch_staff", "viewer", "operator",
+            "production", "packing", "dispatch", "production_operator",
+            "quality_inspector", "inspector"
         )
 
         if (role !in allowedRoles) {

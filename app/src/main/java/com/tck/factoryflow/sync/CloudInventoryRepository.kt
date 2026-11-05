@@ -14,6 +14,8 @@ import com.tck.factoryflow.data.MachineEntity
 import com.tck.factoryflow.data.MachineEventEntity
 import com.tck.factoryflow.data.QualityInspectionEntity
 import com.tck.factoryflow.data.MeterReadingEntity
+import com.tck.factoryflow.data.RawMaterialEntity
+import com.tck.factoryflow.data.RawMaterialReceiptEntity
 import com.tck.factoryflow.cloud.CloudflareApiClient
 import com.tck.factoryflow.cloud.CloudResult
 import org.json.JSONArray
@@ -40,6 +42,11 @@ data class CloudStockSnapshot(
     val factoryId: String,
     val serverTime: String,
     val items: List<CloudStockItem>
+)
+
+data class CloudSalesOrder(
+    val order: SalesOrderEntity,
+    val lines: List<SalesOrderLineEntity>
 )
 
 /**
@@ -243,10 +250,13 @@ class CloudInventoryRepository(context: Context) {
         customerId: String,
         customerName: String,
         lines: List<Map<String, Any>>,
-        remarks: String
+        remarks: String,
+        salesOrderId: String? = null,
+        vehicleNumber: String = "",
+        driverName: String = ""
     ): String {
         val scope = scope(session)
-        val payload = mapOf(
+        val payload = linkedMapOf<String, Any>(
             "organisationId" to scope.getValue("organisationId"),
             "factoryId" to scope.getValue("factoryId"),
             "idempotencyKey" to idempotencyKey,
@@ -257,6 +267,9 @@ class CloudInventoryRepository(context: Context) {
             "lines" to lines,
             "remarks" to remarks
         )
+        if (!salesOrderId.isNullOrBlank()) payload["salesOrderId"] = salesOrderId
+        if (vehicleNumber.isNotBlank()) payload["vehicleNumber"] = vehicleNumber
+        if (driverName.isNotBlank()) payload["driverName"] = driverName
         val response = CloudflareApiClient.post(
             appContext,
             "/api/dispatch/post",
@@ -731,6 +744,7 @@ class CloudInventoryRepository(context: Context) {
             .put("startReading", reading.startReading)
             .put("endReading", reading.endReading)
             .put("remarks", reading.remarks)
+            .put("status", reading.status)
         val response = CloudflareApiClient.post(appContext, "/api/electricity/post", payload)
         val data = when (response) {
             is CloudResult.Success -> response.data
@@ -751,6 +765,397 @@ class CloudInventoryRepository(context: Context) {
             is CloudResult.Success -> response.data
             is CloudResult.Error -> error(response.message)
         }
+    }
+
+    suspend fun fetchCustomers(session: FactorySession): List<CustomerEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/customers/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("customers") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val name = obj.optString("name", "").trim()
+            if (name.isBlank()) return@mapNotNull null
+            CustomerEntity(
+                name = name,
+                phone = obj.optString("phone", ""),
+                address = obj.optString("address", ""),
+                gstNumber = obj.optString("gstNumber", ""),
+                active = obj.optBoolean("active", true)
+            )
+        }
+    }
+
+    suspend fun fetchProductionPlans(session: FactorySession): List<ProductionPlanEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/plans/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("plans") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val planIdStr = obj.optString("planId", obj.optString("id", ""))
+            val id = planIdStr.removePrefix("plan-").toLongOrNull() ?: 0L
+            val prodId = obj.optString("productId", "").toLongOrNull() ?: obj.optLong("productId", 0L)
+            val lineId = obj.optString("lineId", "").toLongOrNull()
+            val machineId = obj.optString("assignedMachineId", "").toLongOrNull()
+            ProductionPlanEntity(
+                id = id,
+                planDate = obj.optString("planDate", ""),
+                shift = obj.optString("shift", "Day"),
+                productId = prodId,
+                productNameSnapshot = obj.optString("productNameSnapshot", ""),
+                targetBottles = obj.optInt("targetBottles", 0),
+                assignedMachineId = machineId,
+                lineId = lineId,
+                status = obj.optString("status", "PLANNED"),
+                notes = obj.optString("notes", ""),
+                createdBy = obj.optString("createdBy", "cloud")
+            )
+        }
+    }
+
+    suspend fun fetchElectricityReadings(session: FactorySession): List<MeterReadingEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/electricity/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("readings") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val readingDate = obj.optString("readingDate", "")
+            if (readingDate.isBlank()) return@mapNotNull null
+            MeterReadingEntity(
+                meterId = obj.optString("meterId", "MAIN"),
+                readingDate = readingDate,
+                startReading = obj.optDouble("startReading", 0.0),
+                endReading = obj.optDouble("endReading", 0.0),
+                consumption = obj.optDouble("consumption", 0.0),
+                remarks = obj.optString("remarks", ""),
+                status = obj.optString("status", "COMPLETED")
+            )
+        }
+    }
+
+    suspend fun fetchSalesOrders(session: FactorySession): List<CloudSalesOrder> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/orders/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("orders") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val orderNum = obj.optString("orderNumber", "")
+            if (orderNum.isBlank()) return@mapNotNull null
+            val custId = obj.optString("customerId", "").toLongOrNull()
+            val order = SalesOrderEntity(
+                orderNumber = orderNum,
+                customerId = custId,
+                customerNameSnapshot = obj.optString("customerName", obj.optString("customerNameSnapshot", "")),
+                orderDate = obj.optString("orderDate", ""),
+                dueDate = obj.optString("dueDate", ""),
+                status = obj.optString("status", "OPEN"),
+                notes = obj.optString("notes", ""),
+                createdBy = obj.optString("createdBy", "cloud")
+            )
+            val linesArr = obj.optJSONArray("lines") ?: JSONArray()
+            val lines = (0 until linesArr.length()).mapNotNull { j ->
+                val l = linesArr.optJSONObject(j) ?: return@mapNotNull null
+                val prodId = l.optString("productId", "").toLongOrNull() ?: l.optLong("productId", 0L)
+                SalesOrderLineEntity(
+                    orderId = 0L,
+                    productId = prodId,
+                    productNameSnapshot = l.optString("productNameSnapshot", l.optString("productName", "")),
+                    packsOrdered = l.optInt("packsOrdered", l.optInt("packs", 0)),
+                    packsDispatched = l.optInt("packsDispatched", 0),
+                    packSizeSnapshot = l.optInt("packSizeSnapshot", l.optInt("bottlesPerPack", 0))
+                )
+            }
+            CloudSalesOrder(order, lines)
+        }
+    }
+
+    suspend fun fetchProductionLines(session: FactorySession): List<ProductionLineEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/lines/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("lines") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val code = obj.optString("lineCode", "")
+            val name = obj.optString("name", "")
+            if (code.isBlank() || name.isBlank()) return@mapNotNull null
+            ProductionLineEntity(
+                lineCode = code,
+                name = name,
+                description = obj.optString("description", ""),
+                status = obj.optString("status", "ACTIVE"),
+                targetCapacity = obj.optInt("targetCapacity", 0),
+                capacityUnit = obj.optString("capacityUnit", "BOTTLES_PER_HOUR")
+            )
+        }
+    }
+
+    suspend fun fetchMachines(session: FactorySession): List<MachineEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/machines/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("machines") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val code = obj.optString("machineCode", "")
+            val name = obj.optString("name", "")
+            if (code.isBlank() || name.isBlank()) return@mapNotNull null
+            MachineEntity(
+                machineCode = code,
+                name = name,
+                machineType = obj.optString("machineType", "BLOW_MOULDING"),
+                location = obj.optString("location", ""),
+                status = obj.optString("status", "STOPPED"),
+                notes = obj.optString("notes", "")
+            )
+        }
+    }
+
+    suspend fun fetchMachineEvents(session: FactorySession): List<MachineEventEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/machines/events/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("events") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val eventIdStr = obj.optString("eventId", obj.optString("id", ""))
+            val id = eventIdStr.removePrefix("me-").toLongOrNull() ?: 0L
+            val startedAt = obj.optLong("startedAt", 0L).let { if (it > 0) it else System.currentTimeMillis() }
+            val endedAt = obj.optLong("endedAt", 0L).takeIf { it > 0 }
+            MachineEventEntity(
+                id = id,
+                machineId = 0L,
+                machineNameSnapshot = obj.optString("machineNameSnapshot", obj.optString("machineCode", "")),
+                eventType = obj.optString("eventType", "DOWNTIME"),
+                startedAt = startedAt,
+                endedAt = endedAt,
+                reason = obj.optString("reason", ""),
+                maintenanceType = obj.optString("maintenanceType", ""),
+                status = obj.optString("status", "OPEN"),
+                performedBy = obj.optString("performedBy", "cloud"),
+                completionNotes = obj.optString("completionNotes", ""),
+                partsUsed = obj.optString("partsUsed", ""),
+                completedBy = obj.optString("completedBy", "")
+            )
+        }
+    }
+
+    suspend fun fetchQualityInspections(session: FactorySession): List<QualityInspectionEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/quality/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("inspections") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val qiIdStr = obj.optString("inspectionId", obj.optString("id", ""))
+            val id = qiIdStr.removePrefix("qi-").toLongOrNull() ?: 0L
+            val prodId = obj.optString("productId", "").toLongOrNull() ?: obj.optLong("productId", 0L)
+            val entryId = obj.optString("productionEntryId", "").toLongOrNull()
+            QualityInspectionEntity(
+                id = id,
+                productionEntryId = entryId,
+                productId = prodId,
+                productNameSnapshot = obj.optString("productNameSnapshot", ""),
+                inspectionDate = obj.optString("inspectionDate", ""),
+                inspectedBottles = obj.optInt("inspectedBottles", 0),
+                passedBottles = obj.optInt("passedBottles", 0),
+                failedBottles = obj.optInt("failedBottles", 0),
+                defectCategory = obj.optString("defectCategory", "NONE"),
+                severity = obj.optString("severity", "MINOR"),
+                notes = obj.optString("notes", ""),
+                inspectorId = obj.optString("inspectorUid", "cloud")
+            )
+        }
+    }
+
+    suspend fun upsertRawMaterial(session: FactorySession, material: RawMaterialEntity): String {
+        val scope = scope(session)
+        val payload = JSONObject()
+            .put("organisationId", scope.getValue("organisationId"))
+            .put("factoryId", scope.getValue("factoryId"))
+            .put("materialCode", material.materialCode)
+            .put("name", material.name)
+            .put("category", material.category)
+            .put("unit", material.unit)
+            .put("reorderLevel", material.reorderLevel)
+            .put("active", material.active)
+        val response = CloudflareApiClient.post(appContext, "/api/materials/upsert", payload)
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        return data.optString("materialCode", material.materialCode)
+    }
+
+    suspend fun postRawMaterialReceipt(session: FactorySession, receipt: RawMaterialReceiptEntity): String {
+        val scope = scope(session)
+        val payload = JSONObject()
+            .put("organisationId", scope.getValue("organisationId"))
+            .put("factoryId", scope.getValue("factoryId"))
+            .put("receiptNumber", receipt.receiptNumber)
+            .put("materialCode", receipt.materialCode)
+            .put("materialNameSnapshot", receipt.materialNameSnapshot)
+            .put("supplierName", receipt.supplierName)
+            .put("quantity", receipt.quantity)
+            .put("unit", receipt.unit)
+            .put("receiptDate", receipt.receiptDate)
+            .put("notes", receipt.notes)
+        val response = CloudflareApiClient.post(appContext, "/api/materials/receipt", payload)
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        return data.optString("receiptNumber", receipt.receiptNumber)
+    }
+
+    suspend fun fetchRawMaterials(session: FactorySession): List<RawMaterialEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/materials/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("materials") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val code = obj.optString("materialCode", "")
+            val name = obj.optString("name", "")
+            if (code.isBlank() || name.isBlank()) return@mapNotNull null
+            RawMaterialEntity(
+                materialCode = code,
+                name = name,
+                category = obj.optString("category", "PREFORM"),
+                unit = obj.optString("unit", "KG"),
+                currentStock = obj.optDouble("currentStock", 0.0),
+                reorderLevel = obj.optDouble("reorderLevel", 0.0),
+                active = obj.optBoolean("active", true)
+            )
+        }
+    }
+
+    suspend fun fetchRawMaterialReceipts(session: FactorySession): List<RawMaterialReceiptEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/materials/receipts/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("receipts") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val num = obj.optString("receiptNumber", "")
+            val code = obj.optString("materialCode", "")
+            if (num.isBlank() || code.isBlank()) return@mapNotNull null
+            RawMaterialReceiptEntity(
+                receiptNumber = num,
+                materialCode = code,
+                materialNameSnapshot = obj.optString("materialNameSnapshot", code),
+                supplierName = obj.optString("supplierName", ""),
+                quantity = obj.optDouble("quantity", 0.0),
+                unit = obj.optString("unit", "KG"),
+                receiptDate = obj.optString("receiptDate", ""),
+                notes = obj.optString("notes", ""),
+                receivedBy = obj.optString("receivedBy", "cloud")
+            )
+        }
+    }
+
+    suspend fun postRawMaterialIssue(
+        session: FactorySession,
+        materialCode: String,
+        quantity: Double,
+        reason: String = "PRODUCTION_CONSUMPTION",
+        issuedTo: String = "",
+        notes: String = ""
+    ): Double {
+        val scope = scope(session)
+        val payload = mapOf(
+            "organisationId" to scope.getValue("organisationId"),
+            "factoryId" to scope.getValue("factoryId"),
+            "materialCode" to materialCode,
+            "quantity" to quantity,
+            "reason" to reason,
+            "issuedTo" to issuedTo,
+            "notes" to notes,
+            "issueDate" to java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        )
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/materials/issue",
+            JSONObject(payload)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        return data.optDouble("newStock", 0.0)
     }
 
     private fun JSONObject.toMap(): Map<String, Any> {

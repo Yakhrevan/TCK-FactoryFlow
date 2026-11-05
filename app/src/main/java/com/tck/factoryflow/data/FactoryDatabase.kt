@@ -70,7 +70,21 @@ data class SalesOrderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ord
 data class SalesOrderLineEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val orderId:Long,val productId:Long,val productNameSnapshot:String,val packsOrdered:Int,val packsDispatched:Int=0,val packSizeSnapshot:Int,val createdAt:Long=System.currentTimeMillis())
 @Entity(tableName="staff_members",indices=[Index(value=["email"],unique=true),Index("role")])
 data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val uid:String,val name:String,val email:String,val role:String,val allowedModules:String="ALL",val active:Boolean=true,val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+@Entity(tableName="raw_materials",indices=[Index(value=["materialCode"],unique=true)])
+data class RawMaterialEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val materialCode:String,val name:String,val category:String="PREFORM",val unit:String="KG",val currentStock:Double=0.0,val reorderLevel:Double=0.0,val active:Boolean=true,val createdAt:Long=System.currentTimeMillis(),val updatedAt:Long=System.currentTimeMillis())
+@Entity(tableName="raw_material_receipts",indices=[Index("materialCode"),Index("receiptDate")])
+data class RawMaterialReceiptEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val receiptNumber:String,val materialCode:String,val materialNameSnapshot:String,val supplierName:String="",val quantity:Double,val unit:String="KG",val receiptDate:String,val notes:String="",val receivedBy:String="local",val createdAt:Long=System.currentTimeMillis())
 @Dao abstract class FactoryDao {
+ @Query("SELECT * FROM raw_materials ORDER BY active DESC, name COLLATE NOCASE") abstract fun observeRawMaterials():Flow<List<RawMaterialEntity>>
+ @Query("SELECT * FROM raw_materials WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeRawMaterials():List<RawMaterialEntity>
+ @Query("SELECT * FROM raw_materials WHERE id=:id LIMIT 1") abstract suspend fun rawMaterialById(id:Long):RawMaterialEntity?
+ @Query("SELECT * FROM raw_materials WHERE materialCode=:code LIMIT 1") abstract suspend fun rawMaterialByCode(code:String):RawMaterialEntity?
+ @Query("SELECT * FROM raw_materials WHERE name=:name COLLATE NOCASE LIMIT 1") abstract suspend fun rawMaterialByName(name:String):RawMaterialEntity?
+ @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertRawMaterial(m:RawMaterialEntity):Long
+ @Query("UPDATE raw_materials SET name=:name,category=:category,unit=:unit,reorderLevel=:reorderLevel,active=:active,updatedAt=:at WHERE id=:id") abstract suspend fun updateRawMaterial(id:Long,name:String,category:String,unit:String,reorderLevel:Double,active:Boolean,at:Long=System.currentTimeMillis()):Int
+ @Query("UPDATE raw_materials SET currentStock=currentStock+:delta,updatedAt=:at WHERE materialCode=:code") abstract suspend fun adjustRawMaterialStock(code:String,delta:Double,at:Long=System.currentTimeMillis()):Int
+ @Query("SELECT * FROM raw_material_receipts ORDER BY receiptDate DESC, createdAt DESC") abstract fun observeRawMaterialReceipts():Flow<List<RawMaterialReceiptEntity>>
+ @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertRawMaterialReceipt(r:RawMaterialReceiptEntity):Long
  @Query("SELECT * FROM staff_members ORDER BY name COLLATE NOCASE") abstract fun observeStaffMembers():Flow<List<StaffMemberEntity>>
  @Query("SELECT * FROM staff_members WHERE email=:email LIMIT 1") abstract suspend fun staffByEmail(email:String):StaffMemberEntity?
  @Query("SELECT * FROM staff_members WHERE id=:id LIMIT 1") abstract suspend fun staffById(id:Long):StaffMemberEntity?
@@ -91,6 +105,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM production_lines ORDER BY status DESC, name COLLATE NOCASE") abstract fun observeProductionLines():Flow<List<ProductionLineEntity>>
  @Query("SELECT * FROM production_lines WHERE status='ACTIVE' ORDER BY name COLLATE NOCASE") abstract suspend fun activeProductionLines():List<ProductionLineEntity>
  @Query("SELECT * FROM production_lines WHERE id=:id LIMIT 1") abstract suspend fun lineById(id:Long):ProductionLineEntity?
+ @Query("SELECT * FROM production_lines WHERE lineCode=:code LIMIT 1") abstract suspend fun lineByCode(code:String):ProductionLineEntity?
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertProductionLine(line:ProductionLineEntity):Long
  @Query("UPDATE production_lines SET name=:name,description=:description,targetCapacity=:capacity,capacityUnit=:unit,status=:status,updatedAt=:at WHERE id=:id") abstract suspend fun updateProductionLine(id:Long,name:String,description:String,capacity:Int,unit:String,status:String,at:Long=System.currentTimeMillis()):Int
  @Query("DELETE FROM production_lines WHERE id=:id") abstract suspend fun deleteProductionLine(id:Long)
@@ -122,6 +137,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM machines WHERE lineId=:lineId AND status='RUNNING' ORDER BY name COLLATE NOCASE") abstract suspend fun activeMachinesForLine(lineId:Long):List<MachineEntity>
  @Query("SELECT * FROM machines WHERE status='RUNNING' ORDER BY name COLLATE NOCASE") abstract suspend fun activeMachines():List<MachineEntity>
  @Query("SELECT * FROM machines WHERE id=:id LIMIT 1") abstract suspend fun machineById(id:Long):MachineEntity?
+ @Query("SELECT * FROM machines WHERE machineCode=:code LIMIT 1") abstract suspend fun machineByCode(code:String):MachineEntity?
  @Query("SELECT * FROM products ORDER BY active DESC, name COLLATE NOCASE") abstract fun observeProducts():Flow<List<ProductEntity>>
  @Query("SELECT * FROM products WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeProducts():List<ProductEntity>
  @Query("SELECT * FROM products WHERE id=:id LIMIT 1") abstract suspend fun productById(id:Long):ProductEntity?
@@ -646,6 +662,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  ):Int
  @Query("SELECT * FROM sales_orders ORDER BY orderDate DESC,createdAt DESC") abstract fun observeSalesOrders():Flow<List<SalesOrderEntity>>
  @Query("SELECT * FROM sales_orders WHERE id=:id LIMIT 1") abstract suspend fun salesOrderById(id:Long):SalesOrderEntity?
+ @Query("SELECT * FROM sales_orders WHERE orderNumber=:number LIMIT 1") abstract suspend fun salesOrderByNumber(number:String):SalesOrderEntity?
  @Query("SELECT * FROM sales_order_lines ORDER BY orderId,id") abstract fun observeSalesOrderLines():Flow<List<SalesOrderLineEntity>>
  @Query("UPDATE sales_order_lines SET packsDispatched=:packs WHERE id=:id AND :packs>=0 AND :packs<=packsOrdered") abstract suspend fun setOrderLineFulfilled(id:Long,packs:Int):Int
  @Query("SELECT * FROM sales_order_lines WHERE productId=:productId AND orderId IN (SELECT id FROM sales_orders WHERE customerId=:customerId AND status IN ('OPEN','PARTIAL')) ORDER BY createdAt,id") abstract suspend fun openSalesOrderLines(customerId:Long,productId:Long):List<SalesOrderLineEntity>
@@ -723,6 +740,8 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
  @Query("SELECT * FROM inventory_movements ORDER BY createdAt DESC") abstract fun observeRecentInventoryMovements():Flow<List<InventoryMovementEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract fun observeCustomers():Flow<List<CustomerEntity>>
  @Query("SELECT * FROM customers WHERE active=1 ORDER BY name COLLATE NOCASE") abstract suspend fun activeCustomers():List<CustomerEntity>
+ @Query("SELECT * FROM customers WHERE name=:name COLLATE NOCASE LIMIT 1") abstract suspend fun customerByName(name:String):CustomerEntity?
+ @Query("SELECT * FROM customers ORDER BY name COLLATE NOCASE") abstract suspend fun allCustomers():List<CustomerEntity>
  @Insert(onConflict=OnConflictStrategy.ABORT) abstract suspend fun insertCustomer(c:CustomerEntity):Long
  @Query("UPDATE customers SET name=:name,phone=:phone,address=:address,gstNumber=:gst,active=:active WHERE id=:id") abstract suspend fun updateCustomer(id:Long,name:String,phone:String,address:String,gst:String,active:Boolean)
  @Query("SELECT * FROM meter_readings ORDER BY readingDate DESC, createdAt DESC") abstract fun observeMeterReadings():Flow<List<MeterReadingEntity>>
@@ -809,7 +828,7 @@ data class StaffMemberEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val ui
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class],version=12,exportSchema=true)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class,RawMaterialEntity::class,RawMaterialReceiptEntity::class],version=13,exportSchema=true)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -923,7 +942,16 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("ALTER TABLE meter_readings ADD COLUMN status TEXT NOT NULL DEFAULT 'COMPLETED'")
    }
   }
+  internal val MIGRATION_12_13=object:Migration(12,13){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("CREATE TABLE IF NOT EXISTS raw_materials (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,materialCode TEXT NOT NULL,name TEXT NOT NULL,category TEXT NOT NULL DEFAULT 'PREFORM',unit TEXT NOT NULL DEFAULT 'KG',currentStock REAL NOT NULL DEFAULT 0.0,reorderLevel REAL NOT NULL DEFAULT 0.0,active INTEGER NOT NULL DEFAULT 1,createdAt INTEGER NOT NULL,updatedAt INTEGER NOT NULL)")
+    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_raw_materials_materialCode ON raw_materials(materialCode)")
+    db.execSQL("CREATE TABLE IF NOT EXISTS raw_material_receipts (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,receiptNumber TEXT NOT NULL,materialCode TEXT NOT NULL,materialNameSnapshot TEXT NOT NULL,supplierName TEXT NOT NULL DEFAULT '',quantity REAL NOT NULL,unit TEXT NOT NULL DEFAULT 'KG',receiptDate TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',receivedBy TEXT NOT NULL DEFAULT 'local',createdAt INTEGER NOT NULL)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_raw_material_receipts_materialCode ON raw_material_receipts(materialCode)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_raw_material_receipts_receiptDate ON raw_material_receipts(receiptDate)")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11,MIGRATION_11_12).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11,MIGRATION_11_12,MIGRATION_12_13).build().also{instance=it}}
  }
 }

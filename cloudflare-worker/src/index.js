@@ -298,7 +298,7 @@ export default {
         const name = "Administrator";
         const email = String(user.email || "").toLowerCase();
         const allowedBootstrap =
-          email === "admin@tck-factory.com";
+          email === "admin@tck-factory.com" || email === "admin@tckfactory.com";
 
         if (!allowedBootstrap) {
           return Response.json({success:false,error:"Bootstrap is restricted."},{status:403});
@@ -878,11 +878,11 @@ export default {
           fields.factoryIds?.arrayValue?.values || [];
 
         const permittedRoles = [
-          "owner", "admin", "manager", "operator",
+          "owner", "admin", "manager", "supervisor", "operator",
           "production", "production_staff",
           "packing", "packing_staff",
-          "storekeeper", "dispatch", "dispatch_staff",
-          "viewer"
+          "storekeeper", "inventory_manager", "dispatch", "dispatch_staff",
+          "quality_inspector", "inspector", "viewer"
         ];
 
         const hasExplicitFactory = factoryIds.some(
@@ -1436,6 +1436,9 @@ export default {
         const customerName = body.customerName;
         const remarks = String(body.remarks || "");
         const lines = body.lines;
+        const salesOrderId = typeof body.salesOrderId === "string" && body.salesOrderId.trim() ? body.salesOrderId.trim() : null;
+        const vehicleNumber = typeof body.vehicleNumber === "string" ? body.vehicleNumber.trim() : "";
+        const driverName = typeof body.driverName === "string" ? body.driverName.trim() : "";
 
         const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) &&
           (() => {
@@ -1493,6 +1496,7 @@ export default {
         transaction = await firestoreBeginTransaction(accessToken);
         const customerPath = `${root}/customers/${customerId}`;
         const paths = [dispatchPath,customerPath];
+        if (salesOrderId) paths.push(`${root}/orders/${salesOrderId}`);
         for (const l of normalized) paths.push(`${root}/products/${l.productId}`,`${root}/stock/${l.productId}`);
         const docs = await firestoreBatchGet(accessToken,transaction,paths);
         const snap = new Map(docs.map(d=>[d.name.split("/documents/")[1],d]));
@@ -1554,10 +1558,44 @@ export default {
             });
           }
         }
+        if (salesOrderId) {
+          const orderDoc = snap.get(`${root}/orders/${salesOrderId}`);
+          if (orderDoc) {
+            const of = fromFirestoreDoc(orderDoc);
+            const orderLines = Array.isArray(of.lines) ? of.lines : [];
+            let anyFulfilled = false;
+            let allFulfilled = orderLines.length > 0;
+            const updatedOrderLines = orderLines.map(ol => {
+              const matchingPosted = posted.find(p => p.productId === ol.productId);
+              const addedPacks = matchingPosted ? matchingPosted.packs : 0;
+              const currentDispatched = (Number(ol.packsDispatched) || 0) + addedPacks;
+              if (currentDispatched > 0) anyFulfilled = true;
+              if (currentDispatched < (Number(ol.packsOrdered) || 0)) allFulfilled = false;
+              return {
+                ...ol,
+                packsDispatched: currentDispatched
+              };
+            });
+            const newOrderStatus = allFulfilled ? "COMPLETED" : (anyFulfilled ? "PARTIALLY_DISPATCHED" : (of.status || "OPEN"));
+            writes.push({
+              update: {
+                name: `projects/${PROJECT_ID}/databases/(default)/documents/${root}/orders/${salesOrderId}`,
+                fields: objectToFirestoreFields({
+                  ...of,
+                  lines: updatedOrderLines,
+                  status: newOrderStatus,
+                  updatedAt: new Date().toISOString()
+                })
+              }
+            });
+          }
+        }
         const fields={organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},
           idempotencyKey:{stringValue:key},requestFingerprint:{stringValue:fingerprint},
           dispatchReference:{stringValue:reference},dispatchDate:{stringValue:date},
           customerId:{stringValue:customerId},customerName:{stringValue:customerName},
+          salesOrderId:salesOrderId?{stringValue:salesOrderId}:{nullValue:null},
+          vehicleNumber:{stringValue:vehicleNumber},driverName:{stringValue:driverName},
           lines:{arrayValue:{values:posted.map(l=>({mapValue:{fields:{
             productId:{stringValue:l.productId},productName:{stringValue:l.productName},
             packSizeSnapshot:{integerValue:String(l.packSizeSnapshot)},packs:{integerValue:String(l.packs)},
@@ -1634,8 +1672,8 @@ export default {
         }
         const df=d.fields||{};
 
-        if(df.actorUid?.stringValue!==user.sub)
-          throw new Error("Only the original dispatch creator can reverse this record.");
+        if (role !== "owner" && role !== "admin" && df.actorUid?.stringValue !== user.sub)
+          throw new Error("Only an administrator or the original dispatch creator can reverse this record.");
 
         if(df.status?.stringValue!=="POSTED"||df.organisationId?.stringValue!==orgId||df.factoryId?.stringValue!==factoryId)
           throw new Error("Only a posted dispatch in this factory can be reversed.");
@@ -1662,6 +1700,10 @@ export default {
         }
         const parsed=[...merged.values()];
         const stockPaths=parsed.map(l=>`${root}/stock/${l.productId.stringValue}`);
+        const revOrderId = df.salesOrderId?.stringValue;
+        if (revOrderId) {
+          stockPaths.push(`${root}/orders/${revOrderId}`);
+        }
         const stockDocs=await firestoreBatchGet(accessToken,transaction,stockPaths);
         const stocks=new Map(stockDocs.map(x=>[x.name.split("/documents/")[1],x]));
         const writes=[{update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${dispatchPath}`,
@@ -1669,6 +1711,38 @@ export default {
           {update:{name:`projects/${PROJECT_ID}/databases/(default)/documents/${reversalPath}`,
           fields:{organisationId:{stringValue:orgId},factoryId:{stringValue:factoryId},dispatchId:{stringValue:dispatchId},
           reason:{stringValue:reason},actorUid:{stringValue:user.sub},actorRole:{stringValue:role},createdAt:{timestampValue:new Date().toISOString()}}},currentDocument:{exists:false}}];
+        if (revOrderId) {
+          const orderDoc = stocks.get(`${root}/orders/${revOrderId}`);
+          if (orderDoc) {
+            const of = fromFirestoreDoc(orderDoc);
+            const orderLines = Array.isArray(of.lines) ? of.lines : [];
+            let anyFulfilled = false;
+            let allFulfilled = orderLines.length > 0;
+            const updatedOrderLines = orderLines.map(ol => {
+              const matchingReversed = parsed.find(p => p.productId.stringValue === ol.productId);
+              const subtractedPacks = matchingReversed ? Number(matchingReversed.packs.integerValue) : 0;
+              const currentDispatched = Math.max(0, (Number(ol.packsDispatched) || 0) - subtractedPacks);
+              if (currentDispatched > 0) anyFulfilled = true;
+              if (currentDispatched < (Number(ol.packsOrdered) || 0)) allFulfilled = false;
+              return {
+                ...ol,
+                packsDispatched: currentDispatched
+              };
+            });
+            const newOrderStatus = allFulfilled ? "COMPLETED" : (anyFulfilled ? "PARTIALLY_DISPATCHED" : "OPEN");
+            writes.push({
+              update: {
+                name: `projects/${PROJECT_ID}/databases/(default)/documents/${root}/orders/${revOrderId}`,
+                fields: objectToFirestoreFields({
+                  ...of,
+                  lines: updatedOrderLines,
+                  status: newOrderStatus,
+                  updatedAt: new Date().toISOString()
+                })
+              }
+            });
+          }
+        }
         for(const l of parsed){
           const id=l.productId.stringValue, packs=Number(l.packs.integerValue), loose=Number(l.looseBottles?.integerValue||0);
           const path=`${root}/stock/${id}`, st=stocks.get(path)?.fields;
@@ -2389,7 +2463,7 @@ export default {
         if (
           f.active?.booleanValue !== true ||
           f.organisationId?.stringValue !== orgId ||
-          !["owner", "admin", "manager", "storekeeper"].includes(role) ||
+          !["owner", "admin", "manager", "storekeeper", "inventory_manager"].includes(role) ||
           !factories.some(x => x.stringValue === factoryId)
         ) {
           return Response.json(
@@ -2518,6 +2592,250 @@ export default {
           },
           { status: authError ? 401 : 500 }
         );
+      }
+    }
+
+    // ==========================================
+    // RAW MATERIALS MODULE
+    // ==========================================
+    if (request.method === "POST" && url.pathname === "/api/materials/upsert") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId, materialCode, name, category, unit, reorderLevel, active } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "inventory_manager", "storekeeper", "supervisor"], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        if (!materialCode || !name) {
+          return Response.json({ success: false, error: "materialCode and name are required." }, { status: 400 });
+        }
+
+        const id = String(materialCode).trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+        const docPath = `organisations/${orgId}/factories/${factoryId}/materials/${id}`;
+        const accessToken = await getGoogleAccessToken(env);
+        const existing = await firestoreGet(env, docPath, accessToken);
+        const now = new Date().toISOString();
+        const existingData = existing ? fromFirestoreDoc(existing) : null;
+        const currentStock = existingData?.currentStock !== undefined ? Number(existingData.currentStock) : 0.0;
+        const createdAt = existing?.fields?.createdAt?.timestampValue || now;
+
+        await firestorePatch(env, docPath, objectToFirestoreFields({
+          materialCode: id,
+          name: String(name).trim(),
+          category: String(category || "PREFORM").toUpperCase(),
+          unit: String(unit || "KG").toUpperCase(),
+          currentStock,
+          reorderLevel: Number(reorderLevel || 0.0),
+          active: active !== undefined ? Boolean(active) : true,
+          createdAt,
+          updatedAt: now,
+          updatedBy: user.sub
+        }), accessToken);
+
+        return Response.json({ success: true, materialCode: id });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Raw material upsert failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/materials/receipt") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId, receiptNumber, materialCode, materialNameSnapshot, supplierName, quantity, unit, receiptDate, notes } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "inventory_manager", "storekeeper", "supervisor"], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const qty = Number(quantity);
+        if (!materialCode || isNaN(qty) || qty <= 0) {
+          return Response.json({ success: false, error: "materialCode and positive quantity are required." }, { status: 400 });
+        }
+
+        const cleanCode = String(materialCode).trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+        const now = new Date().toISOString();
+        const dateStr = String(receiptDate || now.slice(0, 10));
+        const num = String(receiptNumber || `rcpt-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const receiptPath = `organisations/${orgId}/factories/${factoryId}/materialReceipts/${num}`;
+        const materialPath = `organisations/${orgId}/factories/${factoryId}/materials/${cleanCode}`;
+
+        const accessToken = await getGoogleAccessToken(env);
+        const existingMaterial = await firestoreGet(env, materialPath, accessToken);
+        if (!existingMaterial) {
+          return Response.json({ success: false, error: "Material does not exist." }, { status: 404 });
+        }
+
+        const materialData = fromFirestoreDoc(existingMaterial);
+        const newStock = Math.round(((materialData.currentStock || 0) + qty) * 100) / 100;
+
+        await firestorePatch(env, receiptPath, objectToFirestoreFields({
+          receiptNumber: num,
+          materialCode: cleanCode,
+          materialNameSnapshot: String(materialNameSnapshot || materialData.name || cleanCode),
+          supplierName: String(supplierName || ""),
+          quantity: qty,
+          unit: String(unit || materialData.unit || "KG"),
+          receiptDate: dateStr,
+          notes: String(notes || ""),
+          receivedBy: user.sub,
+          createdAt: now
+        }), accessToken);
+
+        await firestorePatch(env, materialPath, objectToFirestoreFields({
+          currentStock: newStock,
+          updatedAt: now,
+          updatedBy: user.sub
+        }), accessToken);
+
+        return Response.json({ success: true, receiptNumber: num, newStock });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Raw material receipt failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/materials/list") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, [], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const accessToken = await getGoogleAccessToken(env);
+        const docs = await firestoreList(env, `organisations/${orgId}/factories/${factoryId}/materials`, accessToken);
+        const materials = docs.map(fromFirestoreDoc);
+
+        return Response.json({ success: true, materials });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Materials list failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/materials/receipts/list") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, [], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const accessToken = await getGoogleAccessToken(env);
+        const docs = await firestoreList(env, `organisations/${orgId}/factories/${factoryId}/materialReceipts`, accessToken);
+        const receipts = docs.map(fromFirestoreDoc);
+
+        return Response.json({ success: true, receipts });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Receipts list failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/materials/snapshot") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, [], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const accessToken = await getGoogleAccessToken(env);
+        const docs = await firestoreList(env, `organisations/${orgId}/factories/${factoryId}/materials`, accessToken);
+        const materials = docs.map(fromFirestoreDoc);
+        const lowStock = materials.filter(m => m.active && Number(m.currentStock || 0) <= Number(m.reorderLevel || 0));
+
+        return Response.json({ success: true, materials, lowStockCount: lowStock.length });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Materials snapshot failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/materials/issue") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId, issueNumber, materialCode, materialNameSnapshot, quantity, unit, reason, issuedTo, issueDate, notes } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "inventory_manager", "storekeeper", "supervisor", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const qty = Number(quantity);
+        if (!materialCode || isNaN(qty) || qty <= 0) {
+          return Response.json({ success: false, error: "materialCode and positive quantity are required." }, { status: 400 });
+        }
+
+        const cleanCode = String(materialCode).trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+        const now = new Date().toISOString();
+        const dateStr = String(issueDate || now.slice(0, 10));
+        const num = String(issueNumber || `iss-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_");
+        const issuePath = `organisations/${orgId}/factories/${factoryId}/materialIssues/${num}`;
+        const materialPath = `organisations/${orgId}/factories/${factoryId}/materials/${cleanCode}`;
+
+        const accessToken = await getGoogleAccessToken(env);
+        const existingMaterial = await firestoreGet(env, materialPath, accessToken);
+        if (!existingMaterial) {
+          return Response.json({ success: false, error: "Material does not exist." }, { status: 404 });
+        }
+
+        const materialData = fromFirestoreDoc(existingMaterial);
+        const currentStock = Number(materialData.currentStock || 0);
+        if (currentStock < qty) {
+          return Response.json({ success: false, error: `Insufficient stock for ${cleanCode}. Available: ${currentStock}, Requested: ${qty}` }, { status: 400 });
+        }
+
+        const newStock = Math.round((currentStock - qty) * 100) / 100;
+
+        await firestorePatch(env, issuePath, objectToFirestoreFields({
+          issueNumber: num,
+          materialCode: cleanCode,
+          materialNameSnapshot: String(materialNameSnapshot || materialData.name || cleanCode),
+          quantity: qty,
+          unit: String(unit || materialData.unit || "KG"),
+          reason: String(reason || "PRODUCTION_CONSUMPTION"),
+          issuedTo: String(issuedTo || ""),
+          issueDate: dateStr,
+          notes: String(notes || ""),
+          issuedBy: user.sub,
+          createdAt: now
+        }), accessToken);
+
+        await firestorePatch(env, materialPath, objectToFirestoreFields({
+          currentStock: newStock,
+          updatedAt: now,
+          updatedBy: user.sub
+        }), accessToken);
+
+        return Response.json({ success: true, issueNumber: num, newStock });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Raw material issue failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/materials/issues/list") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, [], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const accessToken = await getGoogleAccessToken(env);
+        const docs = await firestoreList(env, `organisations/${orgId}/factories/${factoryId}/materialIssues`, accessToken);
+        const issues = docs.map(fromFirestoreDoc);
+
+        return Response.json({ success: true, issues });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Issues list failed.") }, { status: authError ? 401 : 500 });
       }
     }
 
@@ -2822,7 +3140,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, planId, planDate, shift, productId, productNameSnapshot, targetBottles, assignedMachineId, lineId, notes } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         const target = Number(targetBottles);
@@ -2864,7 +3182,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, planId, shift, targetBottles, assignedMachineId, lineId, notes } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         if (!planId) return Response.json({ success: false, error: "planId is required." }, { status: 400 });
@@ -2903,7 +3221,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, planId, status } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         if (!planId || !status) return Response.json({ success: false, error: "planId and status are required." }, { status: 400 });
@@ -3179,7 +3497,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, machineCode, status } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         if (!machineCode || !status) return Response.json({ success: false, error: "machineCode and status are required." }, { status: 400 });
@@ -3232,7 +3550,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, eventId, machineCode, machineNameSnapshot, eventType, startedAt, reason, maintenanceType } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         if (!machineCode || !eventType) {
@@ -3281,7 +3599,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, eventId, completionNotes, partsUsed, finalMachineStatus } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         if (!eventId) return Response.json({ success: false, error: "eventId is required." }, { status: 400 });
@@ -3350,7 +3668,7 @@ export default {
         const body = await request.json();
         const { organisationId: orgId, factoryId, inspectionId, productionEntryId, productId, productNameSnapshot, inspectionDate, inspectedBottles, passedBottles, failedBottles, defectCategory, severity, notes } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         const inspected = Number(inspectedBottles);
@@ -3416,19 +3734,25 @@ export default {
       try {
         const user = await verifyFirebaseToken(request);
         const body = await request.json();
-        const { organisationId: orgId, factoryId, readingId, meterId, readingDate, startReading, endReading, remarks } = body;
+        const { organisationId: orgId, factoryId, readingId, meterId, readingDate, startReading, endReading, remarks, status: clientStatus } = body;
 
-        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector", "inspector", "operator", "production", "production_staff"], await getGoogleAccessToken(env));
         if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
 
         const start = Number(startReading);
-        const end = Number(endReading);
+        const hasEnd = endReading !== undefined && endReading !== null && Number(endReading) > 0;
+        const end = hasEnd ? Number(endReading) : 0;
+        const isPending = !hasEnd || clientStatus === "PENDING";
 
-        if (isNaN(start) || start < 0 || isNaN(end) || end < start) {
+        if (isNaN(start) || start < 0) {
+          return Response.json({ success: false, error: "Invalid start reading: must be non-negative number." }, { status: 400 });
+        }
+        if (!isPending && (isNaN(end) || end < start)) {
           return Response.json({ success: false, error: "Invalid reading: end reading must be greater than or equal to start reading." }, { status: 400 });
         }
 
-        const consumption = Math.round((end - start) * 100) / 100;
+        const consumption = isPending ? 0 : Math.round((end - start) * 100) / 100;
+        const readingStatus = isPending ? "PENDING" : "COMPLETED";
         const now = new Date().toISOString();
         const dateStr = String(readingDate || now.slice(0, 10));
         const meter = String(meterId || "MAIN");
@@ -3444,12 +3768,12 @@ export default {
           endReading: end,
           consumption,
           remarks: String(remarks || ""),
-          status: "COMPLETED",
+          status: readingStatus,
           recordedBy: user.sub,
           createdAt: now
         }), accessToken);
 
-        return Response.json({ success: true, readingId: id, consumption });
+        return Response.json({ success: true, readingId: id, consumption, status: readingStatus });
       } catch (error) {
         const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
         return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Electricity post failed.") }, { status: authError ? 401 : 500 });

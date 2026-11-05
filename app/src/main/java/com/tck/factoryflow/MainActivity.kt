@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -192,9 +193,9 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     tab = newTab
    }
   }
-  var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)};var editingPlan by remember{mutableStateOf<ProductionPlanEntity?>(null)};var editingOrder by remember{mutableStateOf<SalesOrderEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var reversalProductionId by remember{mutableStateOf<Long?>(null)};var stockAdjustmentMode by remember{mutableStateOf("ADD")}; var stockAdjustmentUnit by remember{mutableStateOf("PACK")}; var stockAdjustmentProduct by remember{mutableStateOf<ProductEntity?>(null)}; var stockAdjustmentQuantity by remember{mutableStateOf("1")}; var stockAdjustmentReason by remember{mutableStateOf("")}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}; var meterDialogMode by remember{mutableStateOf("MORNING")}; var selectedMeterReading by remember{mutableStateOf<MeterReadingEntity?>(null)}
+  var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)};var editingPlan by remember{mutableStateOf<ProductionPlanEntity?>(null)};var editingOrder by remember{mutableStateOf<SalesOrderEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var reversalProductionId by remember{mutableStateOf<Long?>(null)};var stockAdjustmentMode by remember{mutableStateOf("ADD")}; var stockAdjustmentUnit by remember{mutableStateOf("PACK")}; var stockAdjustmentProduct by remember{mutableStateOf<ProductEntity?>(null)}; var stockAdjustmentQuantity by remember{mutableStateOf("1")}; var stockAdjustmentReason by remember{mutableStateOf("")}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}; var meterDialogMode by remember{mutableStateOf("MORNING")}; var selectedMeterReading by remember{mutableStateOf<MeterReadingEntity?>(null)}; var stockSubTab by remember{mutableIntStateOf(0)}; var editingRawMaterial by remember{mutableStateOf<RawMaterialEntity?>(null)}; var gatePassBatch by remember{mutableStateOf<DispatchBatchEntity?>(null)}; var issuingRawMaterial by remember{mutableStateOf<RawMaterialEntity?>(null)}
   val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val staffMembers by dao.observeStaffMembers().collectAsStateWithLifecycle(emptyList()); val productionLines by dao.observeProductionLines().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList())
-val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
+val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val rawMaterials by dao.observeRawMaterials().collectAsStateWithLifecycle(emptyList()); val rawMaterialReceipts by dao.observeRawMaterialReceipts().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
   val context=LocalContext.current
   val canGoBack = dialog.isNotBlank() || showTools || backStack.size > 1
   androidx.activity.compose.BackHandler(enabled = canGoBack) {
@@ -236,8 +237,81 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
      val catalogRepo=CloudInventoryRepository(context)
      products.filter{it.productCode !in knownCodes && it.name.trim().lowercase() !in knownNames}.forEach{catalogRepo.upsertProduct(session!!,it)}
      if(products.any{it.productCode !in knownCodes && it.name.trim().lowercase() !in knownNames}) cloudStockSnapshot=catalogRepo.fetchStock(session!!)
+     runCatching{
+      val cloudRepo=CloudInventoryRepository(context)
+      cloudRepo.fetchRawMaterials(session!!).forEach{m->
+       val local=dao.rawMaterialByCode(m.materialCode)
+       if(local==null) runCatching{dao.insertRawMaterial(m)}
+       else if(local.name!=m.name||local.currentStock!=m.currentStock||local.reorderLevel!=m.reorderLevel){
+        runCatching{dao.updateRawMaterial(local.id,m.name,m.category,m.unit,m.reorderLevel,m.active)}
+        runCatching{dao.adjustRawMaterialStock(m.materialCode,m.currentStock-local.currentStock)}
+       }
+      }
+      cloudRepo.fetchRawMaterialReceipts(session!!).forEach{r->
+       runCatching{dao.insertRawMaterialReceipt(r)}
+      }
+     }
     }.onFailure{cloudStockError=it.message?:"Unable to load authoritative cloud stock"}
     cloudStockLoading=false
+   }else if(tab==PageTab.CUSTOMERS&&session?.isCloud==true){
+    runCatching{
+     val cloudCustomers=CloudInventoryRepository(context).fetchCustomers(session!!)
+     cloudCustomers.forEach{c->
+      val local=dao.customerByName(c.name)
+      if(local==null) runCatching{dao.insertCustomer(c)}
+      else if(local.phone!=c.phone||local.address!=c.address||local.gstNumber!=c.gstNumber||local.active!=c.active){
+       runCatching{dao.updateCustomer(local.id,c.name,c.phone,c.address,c.gstNumber,c.active)}
+      }
+     }
+    }
+   }else if(tab==PageTab.PLANNING&&session?.isCloud==true){
+    runCatching{
+     val cloudPlans=CloudInventoryRepository(context).fetchProductionPlans(session!!)
+     cloudPlans.forEach{p->
+      val existing=plans.firstOrNull{it.planDate==p.planDate&&it.productId==p.productId&&it.shift==p.shift}
+      if(existing==null) runCatching{dao.insertProductionPlan(p)}
+      else if(existing.status!=p.status) runCatching{dao.updateProductionPlanStatus(existing.id,p.status)}
+     }
+    }
+   }else if(tab==PageTab.ELECTRICITY&&session?.isCloud==true){
+    runCatching{
+     val readings=CloudInventoryRepository(context).fetchElectricityReadings(session!!)
+     readings.forEach{r->
+      val existing=dao.meterReadingByDate(r.meterId,r.readingDate)
+      if(existing==null) runCatching{dao.insertMeterReading(r)}
+      else if(existing.status!=r.status||existing.startReading!=r.startReading||existing.endReading!=r.endReading){
+       runCatching{dao.insertMeterReading(r.copy(id=existing.id))}
+      }
+     }
+    }
+   }else if(tab==PageTab.MACHINES&&session?.isCloud==true){
+    runCatching{
+     val cloudRepo=CloudInventoryRepository(context)
+     cloudRepo.fetchProductionLines(session!!).forEach{l->
+      if(dao.lineByCode(l.lineCode)==null) runCatching{dao.insertProductionLine(l)}
+     }
+     cloudRepo.fetchMachines(session!!).forEach{m->
+      if(dao.machineByCode(m.machineCode)==null) runCatching{dao.insertMachine(m)}
+     }
+    }
+   }else if(tab==PageTab.ORDERS&&session?.isCloud==true){
+    runCatching{
+     val cloudOrders=CloudInventoryRepository(context).fetchSalesOrders(session!!)
+     cloudOrders.forEach{co->
+      if(dao.salesOrderByNumber(co.order.orderNumber)==null){
+       val id=dao.insertSalesOrder(co.order)
+       dao.insertSalesOrderLines(co.lines.map{it.copy(orderId=id)})
+      }
+     }
+    }
+   }else if(tab==PageTab.QUALITY&&session?.isCloud==true){
+    runCatching{
+     val cloudQ=CloudInventoryRepository(context).fetchQualityInspections(session!!)
+     cloudQ.forEach{q->
+      val exists=qualityInspections.any{it.productId==q.productId&&it.inspectionDate==q.inspectionDate&&it.inspectedBottles==q.inspectedBottles}
+      if(!exists) runCatching{dao.insertQualityInspection(q)}
+     }
+    }
    }else if(session?.isCloud!=true){cloudStockSnapshot=null;cloudStockError=null}
   }
  LaunchedEffect(message){if(message!=null){kotlinx.coroutines.delay(2600);message=null}}
@@ -703,7 +777,7 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
       Row(verticalAlignment=Alignment.CenterVertically){Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(12.dp)){Icon(Icons.Default.LocalShipping,null,tint=Blue,modifier=Modifier.padding(10.dp).size(22.dp))};Column(Modifier.weight(1f).padding(start=10.dp)){Text(batch.customerNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(batch.dispatchReference,fontSize=11.sp,color=Blue)};Surface(color=if(batch.status=="POSTED")Color(0xFFE8F7F0) else Color(0xFFFFF4DF),shape=RoundedCornerShape(30.dp)){Text(batch.status,modifier=Modifier.padding(horizontal=9.dp,vertical=5.dp),fontSize=9.sp,fontWeight=FontWeight.Bold,color=if(batch.status=="POSTED")Color(0xFF16804A) else Color(0xFF9B5B00))}}
       HorizontalDivider(color=Border)
       lines.forEach{line->Row(verticalAlignment=Alignment.CenterVertically){Text(line.productNameSnapshot,Modifier.weight(1f),fontSize=12.sp,color=Navy);Text(line.packs.toString()+" packs",fontSize=12.sp,fontWeight=FontWeight.Bold,color=Blue)}}
-      Row(verticalAlignment=Alignment.CenterVertically){Text(batch.dispatchDate+" · "+if(batch.remarks.isBlank())"No remarks" else batch.remarks,Modifier.weight(1f),fontSize=10.sp,color=Muted);if(batch.status=="POSTED"&&session?.role?.let{it in setOf("owner","admin","manager")}==true)TextButton(onClick={reversalBatchId=batch.id;dialog="reverse"}){Icon(Icons.Default.Undo,null);Text("Reverse")}}
+      Row(verticalAlignment=Alignment.CenterVertically){Text(batch.dispatchDate+" · "+if(batch.remarks.isBlank())"No remarks" else batch.remarks,Modifier.weight(1f),fontSize=10.sp,color=Muted);OutlinedButton(onClick={gatePassBatch=batch;dialog="gatePass"},shape=RoundedCornerShape(8.dp),contentPadding=PaddingValues(horizontal=8.dp,vertical=4.dp)){Icon(Icons.Default.Receipt,null,modifier=Modifier.size(14.dp));Spacer(Modifier.width(4.dp));Text("Gate Pass",fontSize=11.sp)};if(batch.status=="POSTED"&&session?.role?.let{it in setOf("owner","admin","manager")}==true){Spacer(Modifier.width(6.dp));TextButton(onClick={reversalBatchId=batch.id;dialog="reverse"}){Icon(Icons.Default.Undo,null);Text("Reverse")}}}
      }
     }
    }
@@ -911,29 +985,23 @@ if(archivedCustomers.isNotEmpty()){
                         require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){
                             "Your role cannot restore customers"
                         }
+                        val cloudSession=requireCloudSession(session)
+                        CloudInventoryRepository(context).restoreCustomer(cloudSession,"cust-${archived.id}")
                         dao.updateCustomer(
                             archived.id,archived.name,archived.phone,
                             archived.address,archived.gstNumber,true
                         )
-                        dao.enqueueSyncEvent(SyncOutboxEntity(
-                            eventKey="customer-restore:${archived.id}",
-                            organisationId=session?.organisationId?:"local-org",
-                            eventType="CUSTOMER_RESTORED",
-                            payloadJson=JSONObject()
-                                .put("customerId",archived.id)
-                                .put("name",archived.name).toString()
-                        ))
                         dao.insertAudit(AuditEventEntity(
                             eventType="CUSTOMER_RESTORED",
                             entityType="customer",
                             entityId=archived.id.toString(),
                             beforeJson="archived",
                             afterJson="active",
-                            reason="Customer restored; transaction history retained",
-                            actorId=session?.uid?:"local"
+                            reason="Customer restored · server confirmed",
+                            actorId=cloudSession.uid
                         ))
                         SyncScheduler.runNow(context)
-                        message="Customer restored"
+                        message="Customer restored · server confirmed"
                     }.onFailure { message=it.message }
                 }
             }) { Text("Restore") }
@@ -951,7 +1019,7 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
      Row(Modifier.fillMaxWidth().padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
       Surface(color=Color(0xFFEAF5FC),shape=RoundedCornerShape(15.dp)){Box(Modifier.size(48.dp),contentAlignment=Alignment.Center){Text(customer.name.trim().take(1).uppercase(),fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=Blue)}}
       Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)){Text(customer.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp);Text(customer.phone.ifBlank{"Phone not provided"},fontSize=12.sp,color=Blue);if(customer.address.isNotBlank())Text(customer.address,fontSize=11.sp,color=Muted);if(customer.gstNumber.isNotBlank())Text("GST · "+customer.gstNumber,fontSize=10.sp,color=Muted)}
-      Column(horizontalAlignment=Alignment.End){TextButton(onClick={editingCustomer=customer;dialog="customerEdit"}){Icon(Icons.Default.Edit,null);Text("Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot archive customers"};dao.updateCustomer(customer.id,customer.name,customer.phone,customer.address,customer.gstNumber,false);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="customer-archive:${customer.id}",organisationId=session?.organisationId?:"local-org",eventType="CUSTOMER_ARCHIVED",payloadJson=JSONObject().put("customerId",customer.id).put("name",customer.name).toString()));dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_ARCHIVED",entityType="customer",entityId=customer.id.toString(),beforeJson="active",afterJson="archived",reason="Customer archived; transaction history retained",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Customer archived"}.onFailure{message=it.message}}}){Text("Archive")};TextButton(onClick={dialog="dispatch"}){Text("Dispatch")}}
+      Column(horizontalAlignment=Alignment.End){TextButton(onClick={editingCustomer=customer;dialog="customerEdit"}){Icon(Icons.Default.Edit,null);Text("Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot archive customers"};val cloudSession=requireCloudSession(session);CloudInventoryRepository(context).archiveCustomer(cloudSession,"cust-${customer.id}");dao.updateCustomer(customer.id,customer.name,customer.phone,customer.address,customer.gstNumber,false);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_ARCHIVED",entityType="customer",entityId=customer.id.toString(),beforeJson="active",afterJson="archived",reason="Customer archived · server confirmed",actorId=cloudSession.uid));SyncScheduler.runNow(context);message="Customer archived · server confirmed"}.onFailure{message=it.message}}}){Text("Archive")};TextButton(onClick={dialog="dispatch"}){Text("Dispatch")}}
      }
     }
    }
@@ -967,7 +1035,88 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
   val looseDispatched=postedLines.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{(it.bottles-it.packs*it.packSizeSnapshot).coerceAtLeast(0)}}
   val totalAvailable=active.sumOf{((totalPacked[it.id]?:0)-(legacyDispatched[it.id]?:0)-(batchedDispatched[it.id]?:0)).coerceAtLeast(0)}
   val totalLooseAvailable=active.sumOf{((loosePacked[it.id]?:0)-(looseDispatched[it.id]?:0)).coerceAtLeast(0)}
-  LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+  Column(Modifier.fillMaxSize()){
+   Surface(color=Color.White,tonalElevation=2.dp){
+    TabRow(selectedTabIndex=stockSubTab,containerColor=Color.White,contentColor=Navy){
+     Tab(selected=stockSubTab==0,onClick={stockSubTab=0},text={Text("Finished stock (${active.size})",fontSize=12.sp,fontWeight=if(stockSubTab==0)FontWeight.Bold else FontWeight.Normal)})
+     Tab(selected=stockSubTab==1,onClick={stockSubTab=1},text={Text("Raw materials (${rawMaterials.size})",fontSize=12.sp,fontWeight=if(stockSubTab==1)FontWeight.Bold else FontWeight.Normal)})
+    }
+   }
+   if(stockSubTab==1){
+    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+     item{
+      Row(verticalAlignment=Alignment.CenterVertically){
+       Column(Modifier.weight(1f)){
+        Text("RAW MATERIALS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp)
+        Text("Material Inventory",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
+        Text("Preforms, resins, caps and packaging supplies",fontSize=12.sp,color=Muted)
+       }
+       Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+        Button(onClick={editingRawMaterial=null;dialog="rawMaterial"},shape=RoundedCornerShape(12.dp)){
+         Icon(Icons.Default.Add,null);Spacer(Modifier.width(4.dp));Text("Material")
+        }
+        Button(onClick={dialog="materialReceipt"},shape=RoundedCornerShape(12.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF16804A))){
+         Icon(Icons.Default.Download,null);Spacer(Modifier.width(4.dp));Text("Receive")
+        }
+        Button(onClick={issuingRawMaterial=null;dialog="materialIssue"},shape=RoundedCornerShape(12.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFD97706))){
+         Icon(Icons.Default.Upload,null);Spacer(Modifier.width(4.dp));Text("Issue")
+        }
+       }
+      }
+     }
+     item{
+      val lowCount=rawMaterials.count{it.active&&it.currentStock<=it.reorderLevel}
+      Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+       Metric("Materials",rawMaterials.size.toString(),Modifier.weight(1f))
+       Metric("Low-stock alerts",lowCount.toString(),Modifier.weight(1f))
+       Metric("Receipts logged",rawMaterialReceipts.size.toString(),Modifier.weight(1f))
+      }
+     }
+     if(rawMaterials.isEmpty()){
+      item{EmptyDashboardState("No raw materials","Register preforms, resins, caps or labels to track inventory.",Icons.Default.Category)}
+     }else{
+      item{Text("Material inventory status",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)}
+      items(rawMaterials,key={it.id}){m->
+       val isLow=m.active&&m.currentStock<=m.reorderLevel
+       Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,if(isLow) Color(0xFFFFD1D1) else Border)){
+        Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+         Row(verticalAlignment=Alignment.CenterVertically){
+          Column(Modifier.weight(1f)){
+           Text(m.name,fontWeight=FontWeight.Bold,color=Navy,fontSize=15.sp)
+           Text("${m.materialCode} · ${m.category}",fontSize=11.sp,color=Muted)
+          }
+          Column(horizontalAlignment=Alignment.End){
+           Text(String.format(Locale.US,"%.1f",m.currentStock)+" "+m.unit,fontSize=20.sp,fontWeight=FontWeight.ExtraBold,color=if(isLow) Color(0xFFB42318) else Navy)
+           if(isLow) Text("LOW STOCK (Reorder <= ${m.reorderLevel})",fontSize=9.sp,fontWeight=FontWeight.Bold,color=Color(0xFFB42318))
+          }
+         }
+         Row(horizontalArrangement=Arrangement.End,modifier=Modifier.fillMaxWidth()){
+          TextButton(onClick={editingRawMaterial=m;dialog="rawMaterial"}){Icon(Icons.Default.Edit,null);Text(" Edit")}
+          TextButton(onClick={dialog="materialReceipt"}){Icon(Icons.Default.Add,null);Text(" Receive")}
+          TextButton(onClick={issuingRawMaterial=m;dialog="materialIssue"}){Icon(Icons.Default.Upload,null);Text(" Issue")}
+         }
+        }
+       }
+      }
+      if(rawMaterialReceipts.isNotEmpty()){
+       item{Text("Recent supplier stock receipts",fontSize=18.sp,fontWeight=FontWeight.Bold,color=Navy)}
+       items(rawMaterialReceipts.take(15),key={it.id}){rcpt->
+        Surface(color=Color.White,shape=RoundedCornerShape(14.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){
+         Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
+          Column(Modifier.weight(1f)){
+           Text(rcpt.materialNameSnapshot,fontWeight=FontWeight.Bold,color=Navy,fontSize=14.sp)
+           Text("${rcpt.receiptDate} · ${rcpt.supplierName.ifBlank{"Direct supply"}} · ${rcpt.receiptNumber}",fontSize=11.sp,color=Muted)
+           if(rcpt.notes.isNotBlank()) Text(rcpt.notes,fontSize=10.sp,color=Blue)
+          }
+          Text("+${String.format(Locale.US,"%.1f",rcpt.quantity)} ${rcpt.unit}",fontSize=16.sp,fontWeight=FontWeight.ExtraBold,color=Color(0xFF16804A))
+         }
+        }
+       }
+      }
+     }
+    }
+   }else{
+   LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
    item{Text("INVENTORY CONTROL",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.5.sp);Text("Finished stock",fontSize=28.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Complete packs and loose bottles ready for dispatch",fontSize=12.sp,color=Muted)}
    if(session?.isCloud==true&&roleAllows(session,FactoryAction.ADJUST_STOCK)){
     item{
@@ -1049,7 +1198,10 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
     }
    }
   }
- }
+
+   }
+  }
+  }
  PageTab.MACHINES->{
   val now=System.currentTimeMillis();val windowStart=now-7L*24*60*60*1000
   val stoppedMillis=machineEvents.filter{it.eventType in setOf("DOWNTIME","MACHINE_STOPPED")&&(it.endedAt?:now)>windowStart}.sumOf{(minOf(it.endedAt?:now,now)-maxOf(it.startedAt,windowStart)).coerceAtLeast(0L)}
@@ -1426,14 +1578,14 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
    item{Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("DAILY OPERATIONS",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,letterSpacing=1.4.sp);Text("Production planning",fontSize=26.sp,fontWeight=FontWeight.ExtraBold,color=Navy);Text("Targets by date, shift and machine",fontSize=12.sp,color=Muted)};Button(onClick={dialog="plan"},shape=RoundedCornerShape(13.dp)){Icon(Icons.Default.Add,null);Text(" Plan")}}}
    item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Metric("Today's target",target.toString(),Modifier.weight(1f));Metric("Produced today",actual.toString(),Modifier.weight(1f));Metric("Gap",(target-actual).coerceAtLeast(0).toString(),Modifier.weight(1f))}}
    if(plans.isEmpty())item{EmptyDashboardState("No production plans","Set bottle targets for each shift and product.",Icons.Default.EventNote)}
-   items(plans,key={it.id}){p->val done=production.filter{it.productionDate==p.planDate&&it.productId==p.productId}.sumOf{it.producedBottles};Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(p.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(p.planDate+" · "+p.shift,fontSize=11.sp,color=Muted)};Text(p.status,fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue)};Row(verticalAlignment=Alignment.CenterVertically){Text("Target "+p.targetBottles,Modifier.weight(1f),fontSize=12.sp,color=Muted);Text("Actual "+done,fontSize=12.sp,fontWeight=FontWeight.Bold,color=Navy)};LinearProgressIndicator(progress={if(p.targetBottles>0)(done.toFloat()/p.targetBottles).coerceIn(0f,1f) else 0f},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF16804A),trackColor=Page);if(p.status=="PLANNED")Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){if(done==0)TextButton(onClick={editingPlan=p;dialog="editPlan"}){Icon(Icons.Default.Edit,null);Text(" Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot update plans"};dao.updateProductionPlanStatus(p.id,"IN_PROGRESS");dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="production-plan-start:${p.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_PLAN_STARTED",payloadJson=JSONObject().put("planId",p.id).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_STARTED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="IN_PROGRESS",reason="Production plan started",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Plan marked in progress and sync queued"}.onFailure{message=it.message}}}){Text("Start plan")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot cancel plans"};require(dao.productionCountForPlan(p.productId,p.planDate)==0){"Production already recorded for this product/date; cancellation blocked"};require(dao.cancelPlannedProduction(p.id)==1){"Only planned items can be cancelled"};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="production-plan-cancel:${p.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_PLAN_CANCELLED",payloadJson=JSONObject().put("planId",p.id).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_CANCELLED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="CANCELLED",reason="Production plan cancelled before production",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Production plan cancelled"}.onFailure{message=it.message}}}){Text("Cancel")}};if(p.status=="IN_PROGRESS")TextButton(onClick={scope.launch{runCatching{
+   items(plans,key={it.id}){p->val done=production.filter{it.productionDate==p.planDate&&it.productId==p.productId}.sumOf{it.producedBottles};Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(p.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(p.planDate+" · "+p.shift,fontSize=11.sp,color=Muted)};Text(p.status,fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue)};Row(verticalAlignment=Alignment.CenterVertically){Text("Target "+p.targetBottles,Modifier.weight(1f),fontSize=12.sp,color=Muted);Text("Actual "+done,fontSize=12.sp,fontWeight=FontWeight.Bold,color=Navy)};LinearProgressIndicator(progress={if(p.targetBottles>0)(done.toFloat()/p.targetBottles).coerceIn(0f,1f) else 0f},modifier=Modifier.fillMaxWidth().height(7.dp),color=Color(0xFF16804A),trackColor=Page);if(p.status=="PLANNED")Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){if(done==0)TextButton(onClick={editingPlan=p;dialog="editPlan"}){Icon(Icons.Default.Edit,null);Text(" Edit")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot update plans"};if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","IN_PROGRESS")};dao.updateProductionPlanStatus(p.id,"IN_PROGRESS");dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_STARTED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="IN_PROGRESS",reason="Production plan started · server confirmed",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Plan marked in progress" }.onFailure{message=it.message}}}){Text("Start plan")};TextButton(onClick={scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot cancel plans"};require(dao.productionCountForPlan(p.productId,p.planDate)==0){"Production already recorded for this product/date; cancellation blocked"};require(dao.cancelPlannedProduction(p.id)==1){"Only planned items can be cancelled"};if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","CANCELLED")};dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_CANCELLED",entityType="production_plan",entityId=p.id.toString(),beforeJson="PLANNED",afterJson="CANCELLED",reason="Production plan cancelled before production · server confirmed",actorId=session?.uid?:"local"));SyncScheduler.runNow(context);message="Production plan cancelled · server confirmed" }.onFailure{message=it.message}}}){Text("Cancel")}};if(p.status=="IN_PROGRESS")TextButton(onClick={scope.launch{runCatching{
 require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot complete production plans"}
 require(p.status=="IN_PROGRESS"){"Only in-progress plans can be completed"}
+if(session?.isCloud==true){CloudInventoryRepository(context).updateProductionPlanStatus(session!!,"plan-${p.id}","COMPLETED")}
 dao.updateProductionPlanStatus(p.id,"COMPLETED")
-dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="production-plan-complete:${p.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_PLAN_COMPLETED",payloadJson=JSONObject().put("planId",p.id).put("productId",p.productId).put("date",p.planDate).toString()))
-dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_COMPLETED",entityType="production_plan",entityId=p.id.toString(),beforeJson="IN_PROGRESS",afterJson="COMPLETED",reason="Production plan marked completed",actorId=session?.uid?:"local"))
+dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_PLAN_COMPLETED",entityType="production_plan",entityId=p.id.toString(),beforeJson="IN_PROGRESS",afterJson="COMPLETED",reason="Production plan marked completed · server confirmed",actorId=session?.uid?:"local"))
 SyncScheduler.runNow(context)
-message="Plan completed and sync queued"
+message="Plan completed · server confirmed"
 }.onFailure{message=it.message}}}){Text("Mark completed")}}}}
   }
  }
@@ -1490,15 +1642,8 @@ message="Plan completed and sync queued"
           scope.launch {
            runCatching {
             require(roleAllows(session, FactoryAction.MANAGE_ORDERS)) { "Your role cannot cancel sales orders" }
+            if(session?.isCloud==true){CloudInventoryRepository(context).cancelSalesOrder(session!!,o.orderNumber,"Cancelled by user")}
             dao.cancelSalesOrderSafely(o.id)
-            dao.enqueueSyncEvent(
-             SyncOutboxEntity(
-              eventKey = "sales-order-cancel:${o.id}",
-              organisationId = session?.organisationId ?: "local-org",
-              eventType = "SALES_ORDER_CANCELLED",
-              payloadJson = JSONObject().put("orderId", o.id).put("orderNumber", o.orderNumber).toString()
-             )
-            )
             dao.insertAudit(
              AuditEventEntity(
               eventType = "SALES_ORDER_CANCELLED",
@@ -1506,12 +1651,12 @@ message="Plan completed and sync queued"
               entityId = o.id.toString(),
               beforeJson = o.status,
               afterJson = "CANCELLED",
-              reason = "Sales order cancelled before dispatch",
+              reason = "Sales order cancelled before dispatch · server confirmed",
               actorId = session?.uid ?: "local"
              )
             )
             SyncScheduler.runNow(context)
-            message = "Sales order cancelled"
+            message = "Sales order cancelled · server confirmed"
            }.onFailure { message = it.message }
           }
          }) {
@@ -1953,6 +2098,81 @@ message="Plan completed and sync queued"
   if(dialog=="logDowntime")LogDowntimeForm(machines,selectedMachineId,{dialog="";selectedMachineId=null}){machine,reason,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot log downtime"};val eventId=dao.createMachineEventSafely(machine.id,"DOWNTIME",reason,"Breakdown",session?.uid?:"local",session?.organisationId?:"local-org");if(session?.isCloud==true){CloudInventoryRepository(context).createMachineEvent(session!!,MachineEventEntity(id=eventId,machineId=machine.id,machineNameSnapshot=machine.name,eventType="DOWNTIME",startedAt=System.currentTimeMillis(),reason=reason,maintenanceType="Breakdown"),machine.machineCode)};message="Downtime logged for ${machine.name} · Event #$eventId"}.onFailure{message=it.message}};dialog="";selectedMachineId=null}
   if(dialog=="closeMachineEvent"&&selectedMachineEventId!=null){val event=machineEvents.firstOrNull{it.id==selectedMachineEventId};if(event!=null)MachineEventCloseForm(event,{dialog="";selectedMachineEventId=null}){completion,parts->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot close machine events"};val recovered=dao.closeMachineEventSafely(event.id,completion,parts,session?.uid?:"local",session?.organisationId?:"local-org",session?.uid?:"local");if(session?.isCloud==true){CloudInventoryRepository(context).closeMachineEvent(session!!,"me-${event.id}",completion,parts,if(recovered)"RUNNING" else "STOPPED")};message=if(recovered)"Machine event closed · Machine recovered to RUNNING" else "Machine event closed"}.onFailure{message=it.message}};dialog="";selectedMachineEventId=null}}
   if(dialog=="quality")QualityForm(active,production,{dialog=""}){product,productionEntry,d,i,p,failed,category,severity,notes->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_QUALITY)){"Your role cannot create quality inspections"};require(i>0&&p in 0..i);val qi=QualityInspectionEntity(productionEntryId=productionEntry?.id,productId=product.id,productNameSnapshot=product.name,inspectionDate=d,inspectedBottles=i,passedBottles=p,failedBottles=failed,defectCategory=category,severity=severity,notes=notes,inspectorId=session?.uid?:"local");val inspectionId=dao.insertQualityInspection(qi);if(session?.isCloud==true){CloudInventoryRepository(context).postQualityInspection(session!!,qi.copy(id=inspectionId))};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="quality-inspection:"+inspectionId,organisationId=session?.organisationId?:"local-org",eventType="QUALITY_INSPECTION_SAVED",payloadJson=JSONObject().put("inspectionId",inspectionId).put("productId",product.id).put("inspected",i).put("passed",p).put("failed",failed).put("defect",category).put("severity",severity).toString()));dao.insertAudit(AuditEventEntity(eventType="QUALITY_INSPECTION_SAVED",entityType="quality",entityId=product.id.toString(),afterJson="inspection saved",reason="Quality inspection recorded",actorId=session?.uid?:"local"));message="Quality inspection saved"}.onFailure{message=it.message}};dialog=""}
+  if(dialog=="rawMaterial"){
+   RawMaterialForm(editingRawMaterial,{dialog="";editingRawMaterial=null}){code,name,cat,unit,reorder->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage materials"}
+      val cloudSession=requireCloudSession(session)
+      val existing=editingRawMaterial
+      val entity=RawMaterialEntity(
+       id=existing?.id?:0L,
+       materialCode=code,
+       name=name,
+       category=cat,
+       unit=unit,
+       currentStock=existing?.currentStock?:0.0,
+       reorderLevel=reorder
+      )
+      CloudInventoryRepository(context).upsertRawMaterial(cloudSession,entity)
+      if(existing==null){
+       dao.insertRawMaterial(entity)
+      }else{
+       dao.updateRawMaterial(existing.id,name,cat,unit,reorder,existing.active)
+      }
+      "Raw material $name saved · server confirmed"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog="";editingRawMaterial=null
+   }
+  }
+  if(dialog=="materialReceipt"){
+   RawMaterialReceiptForm(rawMaterials.filter{it.active},{dialog=""}){material,supplier,qty,d,notes->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.ADJUST_STOCK)){"Your role cannot receive materials"}
+      val cloudSession=requireCloudSession(session)
+      val rcptNum="RCPT-"+System.currentTimeMillis()
+      val receipt=RawMaterialReceiptEntity(
+       receiptNumber=rcptNum,
+       materialCode=material.materialCode,
+       materialNameSnapshot=material.name,
+       supplierName=supplier,
+       quantity=qty,
+       unit=material.unit,
+       receiptDate=d,
+       notes=notes,
+       receivedBy=cloudSession.uid
+      )
+      CloudInventoryRepository(context).postRawMaterialReceipt(cloudSession,receipt)
+      dao.insertRawMaterialReceipt(receipt)
+      dao.adjustRawMaterialStock(material.materialCode,qty)
+      "Received $qty ${material.unit} of ${material.name} · server confirmed"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog=""
+   }
+  }
+  if(dialog=="materialIssue"){
+   RawMaterialIssueForm(rawMaterials.filter{it.active},issuingRawMaterial,{dialog="";issuingRawMaterial=null}){material,qty,reason,issuedTo,notes->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)||roleAllows(session,FactoryAction.ADJUST_STOCK)){"Your role cannot issue raw materials"}
+      val cloudSession=requireCloudSession(session)
+      require(material.currentStock>=qty){"Insufficient stock. Available: ${material.currentStock} ${material.unit}"}
+      CloudInventoryRepository(context).postRawMaterialIssue(cloudSession,material.materialCode,qty,reason,issuedTo,notes)
+      dao.adjustRawMaterialStock(material.materialCode,-qty)
+      "Issued $qty ${material.unit} of ${material.name} for $reason · server confirmed"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog="";issuingRawMaterial=null
+   }
+  }
+  if(dialog=="gatePass"&&gatePassBatch!=null){
+   val batch=gatePassBatch!!
+   val lines=dispatchLines.filter{it.batchId==batch.id}
+   GatePassDialog(batch,lines,close={dialog="";gatePassBatch=null})
+  }
  if(dialog=="editPlan"&&editingPlan!=null){
   val existing=editingPlan!!
   ProductionPlanForm(active,machines,{dialog="";editingPlan=null},{product,d,shift,target,machineId,notes->
@@ -2047,9 +2267,9 @@ message="Plan completed and sync queued"
   if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p,icon,img->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};val localId=if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p,iconName=icon,imageUri=img)) else {dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org",iconName=icon,imageUri=img);existing.id};val saved=dao.productById(localId)?:error("Product was saved but could not be reloaded");if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).upsertProduct(session!!,saved)}.getOrElse{error("Product saved locally, but cloud catalog sync failed: "+(it.message?:"unknown error"))}};SyncScheduler.runNow(context);message=if(p>0)"${n.trim()} saved · $p bottles per pack"+if(session?.isCloud==true)" · cloud catalog synced" else "" else "${n.trim()} saved"+if(session?.isCloud==true)" · cloud catalog synced" else ""}.onFailure{message=it.message}};dialog="";editingProduct=null}
    if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};requireCloudSession(session);ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val entry=ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val cloudKey=cloudRepo.postProduction(cloudSession,p,entry);val id=dao.recordCloudProduction(entry.copy(cloudOperationKey=cloudKey),cloudSession.uid);cloudRepo.acknowledgeProduction(entry,p,cloudSession);SyncScheduler.runNow(context);message="Production run #$id saved · $total bottles · server confirmed"}.onFailure{message=it.message}};dialog=""}
    if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};require(p.bottlesPerPack>0){"Pack size is not configured for ${p.name}. Please set bottles per pack in Product Master first."};requireCloudSession(session);val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val result=cloudRepo.postPacking(cloudSession,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,cloudSession.uid);cloudRepo.acknowledgePacking(entry,p,cloudSession);SyncScheduler.runNow(context);"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles · server confirmed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
-   if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cloudSession=requireCloudSession(session);val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=cloudSession.uid,salesOrderId=orderId);val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};cloudRepo.postDispatch(cloudSession,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid) else dao.postMultiLineDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid);SyncScheduler.runNow(context);"Dispatch saved · server confirmed"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
- if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};val customerId=dao.insertCustomer(CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst));dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="customer-create:$customerId",organisationId=session?.organisationId?:"local-org",eventType="CUSTOMER_CREATED",payloadJson=JSONObject().put("customerId",customerId).put("name",name).put("phone",phone).put("address",address).put("gstNumber",gst).toString()));dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_CREATED",entityType="customer",entityId=customerId.toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer created",actorId=session?.uid?:"local"));SyncScheduler.runNow(context)}.onSuccess{message="Customer saved"}.onFailure{message=it.message}};dialog=""}
- if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};require(existing!=null);val oldCustomer=existing!!;dao.updateCustomer(oldCustomer.id,name,phone,address,gst,oldCustomer.active);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="customer-update:${oldCustomer.id}:${System.currentTimeMillis()}",organisationId=session?.organisationId?:"local-org",eventType="CUSTOMER_UPDATED",payloadJson=JSONObject().put("customerId",oldCustomer.id).put("name",name).put("phone",phone).put("address",address).put("gstNumber",gst).put("active",oldCustomer.active).toString()));dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_UPDATED",entityType="customer",entityId=oldCustomer.id.toString(),beforeJson=JSONObject().put("name",oldCustomer.name).put("phone",oldCustomer.phone).toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer details edited",actorId=session?.uid?:"local"));SyncScheduler.runNow(context)}.onSuccess{message="Customer details updated"}.onFailure{message=it.message}};dialog="";editingCustomer=null}
+   if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cloudSession=requireCloudSession(session);val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=cloudSession.uid,salesOrderId=orderId);val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};val targetOrder=openOrders.firstOrNull{it.id==orderId};cloudRepo.postDispatch(cloudSession,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks,salesOrderId=targetOrder?.orderNumber);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid) else dao.postMultiLineDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid);SyncScheduler.runNow(context);"Dispatch saved · server confirmed"+if(orderId!=null)" and order fulfilment reconciled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
+ if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};val cloudSession=requireCloudSession(session);val customerEntity=CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,customerEntity);val existing=dao.customerByName(name);val customerId=if(existing!=null){dao.updateCustomer(existing.id,name,phone,address,gst,true);existing.id}else{dao.insertCustomer(customerEntity)};dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_CREATED",entityType="customer",entityId=customerId.toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer created · server confirmed",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer saved · server confirmed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+ if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};require(existing!=null);val cloudSession=requireCloudSession(session);val oldCustomer=existing!!;val updated=oldCustomer.copy(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,updated);dao.updateCustomer(oldCustomer.id,name,phone,address,gst,oldCustomer.active);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_UPDATED",entityType="customer",entityId=oldCustomer.id.toString(),beforeJson=JSONObject().put("name",oldCustomer.name).put("phone",oldCustomer.phone).toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer details edited · server confirmed",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer details updated · server confirmed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";editingCustomer=null}
   if(dialog=="meter"){
    val pending=selectedMeterReading?:meters.firstOrNull{it.status=="PENDING"}
    MeterForm(
@@ -2063,9 +2283,13 @@ message="Plan completed and sync queued"
        require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"}
        val existing=dao.meterReadingByDate(m,d)
        val toSave=existing?.copy(startReading=s,remarks=r,status="PENDING")?:MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=0.0,consumption=0.0,remarks=r,status="PENDING")
-       dao.insertMeterReading(toSave)
+       val localId=dao.insertMeterReading(toSave)
+       val finalEntity=toSave.copy(id=if(toSave.id>0)toSave.id else localId)
+       if(session?.isCloud==true){
+        runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,finalEntity)}.getOrElse{error("Morning reading saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}
+       }
        SyncScheduler.runNow(context)
-       "☀️ Morning reading recorded: $s kWh for $d. Day in progress."
+       "☀️ Morning reading recorded: $s kWh for $d. Day in progress."+if(session?.isCloud==true)" · server confirmed" else ""
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2077,9 +2301,13 @@ message="Plan completed and sync queued"
        val used=ElectricityRules.consumption(s,e)
        val existing=if(existingId!=null) dao.meterById(existingId) else dao.meterReadingByDate(m,d)
        val toSave=existing?.copy(startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")?:MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")
-       dao.insertMeterReading(toSave)
+       val localId=dao.insertMeterReading(toSave)
+       val finalEntity=toSave.copy(id=if(toSave.id>0)toSave.id else localId)
+       if(session?.isCloud==true){
+        runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,finalEntity)}.getOrElse{error("Evening reading saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}
+       }
        SyncScheduler.runNow(context)
-       "🌙 Day completed! Consumed: $used units ($s -> $e kWh)"
+       "🌙 Day completed! Consumed: $used units ($s -> $e kWh)"+if(session?.isCloud==true)" · server confirmed" else ""
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2091,9 +2319,13 @@ message="Plan completed and sync queued"
        val used=ElectricityRules.consumption(s,e)
        val existing=dao.meterReadingByDate(m,d)
        val toSave=existing?.copy(startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")?:MeterReadingEntity(meterId=m,readingDate=d,startReading=s,endReading=e,consumption=used,remarks=r,status="COMPLETED")
-       dao.insertMeterReading(toSave)
+       val localId=dao.insertMeterReading(toSave)
+       val finalEntity=toSave.copy(id=if(toSave.id>0)toSave.id else localId)
+       if(session?.isCloud==true){
+        runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,finalEntity)}.getOrElse{error("Reading saved locally, but cloud sync failed: "+(it.message?:"unknown error"))}
+       }
        SyncScheduler.runNow(context)
-       "⚡ Reading saved: $used units ($s -> $e kWh)"
+       "⚡ Reading saved: $used units ($s -> $e kWh)"+if(session?.isCloud==true)" · server confirmed" else ""
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2103,12 +2335,20 @@ message="Plan completed and sync queued"
       runCatching{
        require(roleAllows(session,FactoryAction.MANAGE_ELECTRICITY)){"Your role cannot manage electricity readings"}
        val used=ElectricityRules.consumption(yesterdayReading.startReading,currentReading)
-       dao.insertMeterReading(yesterdayReading.copy(endReading=currentReading,consumption=used,status="COMPLETED",remarks=(yesterdayReading.remarks+" [Closed next morning at $currentReading kWh]").trim()))
+       val closedYesterday=yesterdayReading.copy(endReading=currentReading,consumption=used,status="COMPLETED",remarks=(yesterdayReading.remarks+" [Closed next morning at $currentReading kWh]").trim())
+       dao.insertMeterReading(closedYesterday)
+       if(session?.isCloud==true){
+        runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,closedYesterday)}
+       }
        val todayExisting=dao.meterReadingByDate(yesterdayReading.meterId,todayDate)
        val todayEntry=todayExisting?.copy(startReading=currentReading,status="PENDING")?:MeterReadingEntity(meterId=yesterdayReading.meterId,readingDate=todayDate,startReading=currentReading,endReading=0.0,consumption=0.0,remarks="Carried over from yesterday close",status="PENDING")
-       dao.insertMeterReading(todayEntry)
+       val todayLocalId=dao.insertMeterReading(todayEntry)
+       val todayFinal=todayEntry.copy(id=if(todayEntry.id>0)todayEntry.id else todayLocalId)
+       if(session?.isCloud==true){
+        runCatching{CloudInventoryRepository(context).postElectricityReading(session!!,todayFinal)}
+       }
        SyncScheduler.runNow(context)
-       "✅ Yesterday closed ($used units) & Today started at $currentReading kWh!"
+       "✅ Yesterday closed ($used units) & Today started at $currentReading kWh!"+if(session?.isCloud==true)" · server confirmed" else ""
       }.onSuccess{message=it}.onFailure{message=it.message}
      }
      dialog="";selectedMeterReading=null
@@ -2223,6 +2463,7 @@ message="Plan completed and sync queued"
       scope.launch{
        runCatching{
         require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot delete machines"}
+        if(session?.isCloud==true){CloudInventoryRepository(context).deleteMachine(session!!,m.machineCode)}
         dao.removeMachine(m.id,session?.uid?:"local","Machine deleted by administrator",session?.organisationId?:"local-org")
         SyncScheduler.runNow(context)
         "Machine ${m.name} deleted"
@@ -2264,6 +2505,7 @@ message="Plan completed and sync queued"
       scope.launch{
        runCatching{
         require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot delete production lines"}
+        if(session?.isCloud==true){CloudInventoryRepository(context).deleteProductionLine(session!!,l.lineCode)}
         dao.removeProductionLine(l.id,session?.uid?:"local","Line deleted by administrator",session?.organisationId?:"local-org")
         SyncScheduler.runNow(context)
         "Production line ${l.name} deleted"
@@ -2294,6 +2536,412 @@ message="Plan completed and sync queued"
  }
 }
 }
+}
+
+@Composable private fun RawMaterialForm(
+ initial: RawMaterialEntity?,
+ close: () -> Unit,
+ save: (code: String, name: String, category: String, unit: String, reorder: Double) -> Unit
+){
+ var code by remember(initial?.id){mutableStateOf(initial?.materialCode.orEmpty())}
+ var name by remember(initial?.id){mutableStateOf(initial?.name.orEmpty())}
+ var category by remember(initial?.id){mutableStateOf(initial?.category?:"PREFORM")}
+ var unit by remember(initial?.id){mutableStateOf(initial?.unit?:"KG")}
+ var reorder by remember(initial?.id){mutableStateOf(initial?.reorderLevel?.takeIf{it>0}?.toString().orEmpty())}
+
+ val validCode = code.isNotBlank() && code.trim().length <= 32
+ val validName = name.isNotBlank() && name.trim().length <= 80
+ val reorderVal = reorder.toDoubleOrNull() ?: 0.0
+
+ AlertDialog(
+  onDismissRequest = close,
+  title = {
+   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text(if (initial == null) "Add Raw Material" else "Edit Raw Material", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+    Text(if (initial == null) "Register preforms, resins, caps, or packaging items." else "Update material specifications and reorder threshold.", fontSize = 12.sp, color = Muted)
+   }
+  },
+  text = {
+   Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    OutlinedTextField(
+     value = code,
+     onValueChange = { code = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' || c == '_' }.take(32) },
+     label = { Text("Material Code *") },
+     singleLine = true,
+     enabled = initial == null,
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. PREFORM-200ML-WHITE") }
+    )
+    OutlinedTextField(
+     value = name,
+     onValueChange = { name = it },
+     label = { Text("Material Name *") },
+     singleLine = true,
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. 200ml Milk White Preform 18g") }
+    )
+    Text("Category", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+     listOf("PREFORM", "RESIN", "CAP", "LABEL", "MASTERBATCH", "PACKAGING").forEach { cat ->
+      FilterChip(selected = category == cat, onClick = { category = cat }, label = { Text(cat, fontSize = 10.sp) })
+     }
+    }
+    Text("Unit of Measurement", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+     listOf("KG" to "Kilograms (KG)", "PCS" to "Pieces (PCS)", "BAGS" to "Bags", "ROLLS" to "Rolls").forEach { (u, lbl) ->
+      FilterChip(selected = unit == u, onClick = { unit = u }, label = { Text(lbl, fontSize = 10.sp) })
+     }
+    }
+    OutlinedTextField(
+     value = reorder,
+     onValueChange = { reorder = it.filter { c -> c.isDigit() || c == '.' } },
+     label = { Text("Reorder Warning Level ($unit)") },
+     singleLine = true,
+     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. 500") },
+     supportingText = { Text("Trigger low-stock alert when stock falls below this.") }
+    )
+   }
+  },
+  confirmButton = {
+   Button(
+    enabled = validCode && validName,
+    onClick = { save(code.trim(), name.trim(), category, unit, reorderVal) },
+    shape = RoundedCornerShape(10.dp)
+   ) {
+    Text(if (initial == null) "Save Material" else "Update Material", fontWeight = FontWeight.Bold)
+   }
+  },
+  dismissButton = {
+   TextButton(onClick = close) { Text("Cancel") }
+  }
+ )
+}
+
+@Composable private fun RawMaterialReceiptForm(
+ materials: List<RawMaterialEntity>,
+ close: () -> Unit,
+ save: (material: RawMaterialEntity, supplier: String, qty: Double, date: String, notes: String) -> Unit
+){
+ var selectedMaterial by remember { mutableStateOf(materials.firstOrNull()) }
+ var supplier by remember { mutableStateOf("") }
+ var quantity by remember { mutableStateOf("") }
+ var date by remember { mutableStateOf(today()) }
+ var notes by remember { mutableStateOf("") }
+ var expandedMaterial by remember { mutableStateOf(false) }
+
+ val qtyVal = quantity.toDoubleOrNull() ?: 0.0
+ val canSave = selectedMaterial != null && qtyVal > 0.0
+
+ AlertDialog(
+  onDismissRequest = close,
+  title = {
+   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text("Receive Raw Material", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+    Text("Log supplier stock arrival to update raw material inventory.", fontSize = 12.sp, color = Muted)
+   }
+  },
+  text = {
+   Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Text("Select Material *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+    Surface(
+     onClick = { expandedMaterial = true },
+     shape = RoundedCornerShape(12.dp),
+     border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+     color = Color.White
+    ) {
+     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+       Text(selectedMaterial?.name ?: "Choose material...", fontWeight = FontWeight.Bold, color = Navy)
+       if (selectedMaterial != null) Text("${selectedMaterial!!.category} · Current: ${selectedMaterial!!.currentStock} ${selectedMaterial!!.unit}", fontSize = 11.sp, color = Muted)
+      }
+      Icon(Icons.Default.ArrowDropDown, null)
+     }
+     DropdownMenu(expanded = expandedMaterial, onDismissRequest = { expandedMaterial = false }) {
+      materials.forEach { m ->
+       DropdownMenuItem(
+        text = { Text("${m.name} (${m.currentStock} ${m.unit})") },
+        onClick = { selectedMaterial = m; expandedMaterial = false }
+       )
+      }
+     }
+    }
+    OutlinedTextField(
+     value = supplier,
+     onValueChange = { supplier = it },
+     label = { Text("Supplier Name / Vendor") },
+     singleLine = true,
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. Reliance Polymers / Supreme Pet") }
+    )
+    OutlinedTextField(
+     value = quantity,
+     onValueChange = { quantity = it.filter { c -> c.isDigit() || c == '.' } },
+     label = { Text("Quantity Received (${selectedMaterial?.unit ?: "KG"}) *") },
+     singleLine = true,
+     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. 1000") }
+    )
+    OutlinedTextField(
+     value = date,
+     onValueChange = { date = it },
+     label = { Text("Receipt Date (YYYY-MM-DD) *") },
+     singleLine = true,
+     modifier = Modifier.fillMaxWidth()
+    )
+    OutlinedTextField(
+     value = notes,
+     onValueChange = { notes = it },
+     label = { Text("Invoice / Batch / Notes") },
+     singleLine = true,
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. Inv #INV-4921, Lot #L882") }
+    )
+   }
+  },
+  confirmButton = {
+   Button(
+    enabled = canSave,
+    onClick = { save(selectedMaterial!!, supplier.trim(), qtyVal, date.trim(), notes.trim()) },
+    shape = RoundedCornerShape(10.dp)
+   ) {
+    Text("Post Stock Receipt", fontWeight = FontWeight.Bold)
+   }
+  },
+  dismissButton = {
+   TextButton(onClick = close) { Text("Cancel") }
+  }
+ )
+}
+
+@Composable private fun GatePassDialog(
+ batch: DispatchBatchEntity,
+ lines: List<DispatchLineEntity>,
+ close: () -> Unit
+){
+ val context = LocalContext.current
+ val totalPacks = lines.sumOf { it.packs }
+ val totalBottles = lines.sumOf { it.bottles }
+
+ AlertDialog(
+  onDismissRequest = close,
+  title = {
+   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text("DELIVERY GATE PASS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.2.sp)
+    Text(batch.dispatchReference, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+   }
+  },
+  text = {
+   Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Surface(color = Color(0xFFF8FAFC), shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Row {
+       Text("Customer: ", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Navy)
+       Text(batch.customerNameSnapshot, fontSize = 12.sp, color = Navy)
+      }
+      Row {
+       Text("Date: ", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Navy)
+       Text(batch.dispatchDate, fontSize = 12.sp, color = Muted)
+      }
+      Row {
+       Text("Status: ", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Navy)
+       Text(batch.status, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if(batch.status == "POSTED") Color(0xFF16804A) else Color(0xFFB45309))
+      }
+     }
+    }
+
+    Text("Authorised Exit Lines", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Navy)
+    lines.forEach { l ->
+     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+       Text(l.productNameSnapshot, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+       Text("${l.packSizeSnapshot} btls/pack", fontSize = 10.sp, color = Muted)
+      }
+      Text("${l.packs} packs", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Blue)
+      Spacer(Modifier.width(8.dp))
+      Text("(${l.bottles} btls)", fontSize = 11.sp, color = Muted)
+     }
+    }
+    HorizontalDivider(color = Border)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+     Text("Total Dispatched:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Navy)
+     Text("$totalPacks packs · $totalBottles btls", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = Blue)
+    }
+    if (batch.remarks.isNotBlank()) {
+     Text("Remarks: ${batch.remarks}", fontSize = 11.sp, color = Muted)
+    }
+    Text("Official factory gate clearance record · Security check required before vehicle release.", fontSize = 10.sp, color = Muted)
+   }
+  },
+  confirmButton = {
+   Button(
+    onClick = {
+     val shareText = buildString {
+      appendLine("==========================================")
+      appendLine("       TCK FACTORYFLOW - GATE PASS        ")
+      appendLine("==========================================")
+      appendLine("Gate Pass Ref: ${batch.dispatchReference}")
+      appendLine("Date: ${batch.dispatchDate}")
+      appendLine("Customer: ${batch.customerNameSnapshot}")
+      appendLine("Status: ${batch.status}")
+      appendLine("------------------------------------------")
+      lines.forEach { l ->
+       appendLine("• ${l.productNameSnapshot}: ${l.packs} packs (${l.bottles} bottles)")
+      }
+      appendLine("------------------------------------------")
+      appendLine("Total Packs: $totalPacks")
+      appendLine("Total Bottles: $totalBottles")
+      if (batch.remarks.isNotBlank()) appendLine("Remarks: ${batch.remarks}")
+      appendLine("------------------------------------------")
+      appendLine("Authorized Signatory: ____________________")
+      appendLine("Security Clearance:   ____________________")
+      appendLine("==========================================")
+     }
+     val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+      type = "text/plain"
+      putExtra(android.content.Intent.EXTRA_SUBJECT, "Gate Pass ${batch.dispatchReference} - ${batch.customerNameSnapshot}")
+      putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+     }
+     context.startActivity(android.content.Intent.createChooser(sendIntent, "Share Gate Pass"))
+    },
+    shape = RoundedCornerShape(10.dp)
+   ) {
+    Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+    Spacer(Modifier.width(6.dp))
+    Text("Share / Print")
+   }
+  },
+  dismissButton = {
+   TextButton(onClick = close) { Text("Close") }
+  }
+ )
+}
+
+@Composable private fun RawMaterialIssueForm(
+ materials: List<RawMaterialEntity>,
+ initialMaterial: RawMaterialEntity?,
+ close: () -> Unit,
+ save: (material: RawMaterialEntity, qty: Double, reason: String, issuedTo: String, notes: String) -> Unit
+){
+ var selectedMaterial by remember { mutableStateOf(initialMaterial ?: materials.firstOrNull()) }
+ var quantity by remember { mutableStateOf("") }
+ var reason by remember { mutableStateOf("PRODUCTION_CONSUMPTION") }
+ var issuedTo by remember { mutableStateOf("") }
+ var notes by remember { mutableStateOf("") }
+ var expandedMaterial by remember { mutableStateOf(false) }
+ var expandedReason by remember { mutableStateOf(false) }
+
+ val reasons = listOf("PRODUCTION_CONSUMPTION", "DAMAGE / SCRAP", "SHIFT_ALLOCATION", "STOCK_ADJUSTMENT")
+ val qtyVal = quantity.toDoubleOrNull() ?: 0.0
+ val canSubmit = selectedMaterial != null && qtyVal > 0.0 && qtyVal <= (selectedMaterial?.currentStock ?: 0.0)
+
+ AlertDialog(
+  onDismissRequest = close,
+  title = {
+   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text("STOCK ISSUE / CONSUMPTION", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Blue, letterSpacing = 1.2.sp)
+    Text("Issue Raw Material", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Navy)
+   }
+  },
+  text = {
+   Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Text("Select Material *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+    Surface(
+     onClick = { expandedMaterial = true },
+     shape = RoundedCornerShape(12.dp),
+     border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+     color = Color.White
+    ) {
+     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+       Text(selectedMaterial?.name ?: "Choose material...", fontWeight = FontWeight.Bold, color = Navy)
+       if (selectedMaterial != null) Text("${selectedMaterial!!.category} · Available: ${selectedMaterial!!.currentStock} ${selectedMaterial!!.unit}", fontSize = 11.sp, color = Muted)
+      }
+      Icon(Icons.Default.ArrowDropDown, null)
+     }
+     DropdownMenu(expanded = expandedMaterial, onDismissRequest = { expandedMaterial = false }) {
+      materials.forEach { m ->
+       DropdownMenuItem(
+        text = { Text("${m.name} (${m.currentStock} ${m.unit})") },
+        onClick = { selectedMaterial = m; expandedMaterial = false }
+       )
+      }
+     }
+    }
+
+    OutlinedTextField(
+     value = quantity,
+     onValueChange = { quantity = it.filter { c -> c.isDigit() || c == '.' } },
+     label = { Text("Quantity to Issue (${selectedMaterial?.unit ?: "KG"}) *") },
+     modifier = Modifier.fillMaxWidth(),
+     singleLine = true,
+     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+     isError = selectedMaterial != null && qtyVal > (selectedMaterial?.currentStock ?: 0.0),
+     supportingText = {
+      if (selectedMaterial != null && qtyVal > (selectedMaterial?.currentStock ?: 0.0)) {
+       Text("Exceeds current stock of ${selectedMaterial?.currentStock} ${selectedMaterial?.unit}", color = Color(0xFFB42318))
+      }
+     }
+    )
+
+    Text("Issue Reason *", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Navy)
+    Surface(
+     onClick = { expandedReason = true },
+     shape = RoundedCornerShape(12.dp),
+     border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+     color = Color.White
+    ) {
+     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+      Text(reason, Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Navy)
+      Icon(Icons.Default.ArrowDropDown, null)
+     }
+     DropdownMenu(expanded = expandedReason, onDismissRequest = { expandedReason = false }) {
+      reasons.forEach { r ->
+       DropdownMenuItem(
+        text = { Text(r) },
+        onClick = { reason = r; expandedReason = false }
+       )
+      }
+     }
+    }
+
+    OutlinedTextField(
+     value = issuedTo,
+     onValueChange = { issuedTo = it },
+     label = { Text("Issued To / Line / Shift") },
+     singleLine = true,
+     modifier = Modifier.fillMaxWidth(),
+     placeholder = { Text("e.g. Line 1 - Shift A") }
+    )
+
+    OutlinedTextField(
+     value = notes,
+     onValueChange = { notes = it },
+     label = { Text("Notes (optional)") },
+     singleLine = true,
+     modifier = Modifier.fillMaxWidth()
+    )
+   }
+  },
+  confirmButton = {
+   Button(
+    onClick = {
+     val m = selectedMaterial ?: return@Button
+     save(m, qtyVal, reason, issuedTo.trim(), notes.trim())
+    },
+    enabled = canSubmit,
+    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+    shape = RoundedCornerShape(10.dp)
+   ) {
+    Text("Confirm Issue", fontWeight = FontWeight.Bold)
+   }
+  },
+  dismissButton = {
+   TextButton(onClick = close) { Text("Cancel") }
+  }
+ )
 }
 
 @Composable private fun LineForm(initial:ProductionLineEntity?,close:()->Unit,save:(String,String,String,Int,String,String)->Unit){
@@ -3316,7 +3964,9 @@ private fun MeterForm(
          selectedModules=when(r){
           FactoryRole.OWNER, FactoryRole.ADMIN->allModules.map{it.first}.toSet()
           FactoryRole.MANAGER->allModules.filter{it.first!="STAFF"}.map{it.first}.toSet()
+          FactoryRole.SUPERVISOR->setOf("PRODUCTION","PLANNING","MACHINES","QUALITY","REPORTS","PRODUCTS")
           FactoryRole.PRODUCTION_STAFF->setOf("PRODUCTION","PLANNING","MACHINES")
+          FactoryRole.QUALITY_INSPECTOR->setOf("QUALITY","REPORTS")
           FactoryRole.PACKING_STAFF->setOf("PACKING")
           FactoryRole.STOREKEEPER->setOf("PRODUCTS","REPORTS")
           FactoryRole.DISPATCH_STAFF->setOf("DISPATCH","PRODUCTS")
