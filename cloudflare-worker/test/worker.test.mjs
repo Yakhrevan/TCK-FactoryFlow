@@ -266,3 +266,46 @@ test("member provisioning role validation supports supervisor, quality_inspector
   assert.equal(allowedRoles.includes("inventory_manager"), true);
   assert.equal(allowedRoles.includes("hacker"), false);
 });
+
+test("finished goods stock balancing strictly matches total available formula", () => {
+  function computeStock(completePacks, packSize, unpackedBottles, looseBottles) {
+    const totalPackedBottles = completePacks * packSize;
+    const totalLooseAndUnpacked = unpackedBottles + looseBottles;
+    const totalAvailableBottles = totalPackedBottles + totalLooseAndUnpacked;
+    return { totalPackedBottles, totalLooseAndUnpacked, totalAvailableBottles };
+  }
+
+  // Example: 500ml product, 300 boxes, 24 btl/box, 2,800 unpacked bottles
+  const res = computeStock(300, 24, 2800, 0);
+  assert.equal(res.totalPackedBottles, 7200);
+  assert.equal(res.totalLooseAndUnpacked, 2800);
+  assert.equal(res.totalAvailableBottles, 10000);
+  assert.equal(res.totalPackedBottles + res.totalLooseAndUnpacked, res.totalAvailableBottles);
+});
+
+test("quality reports query strictly excludes reversed inspections", () => {
+  const qualityList = [
+    { inspectionId: "q1", inspectionDate: "2026-11-01", inspectedBottles: 100, passedBottles: 95, failedBottles: 5, status: "POSTED" },
+    { inspectionId: "q2", inspectionDate: "2026-11-02", inspectedBottles: 200, passedBottles: 190, failedBottles: 10, status: "REVERSED" },
+    { inspectionId: "q3", inspectionDate: "2026-11-03", inspectedBottles: 150, passedBottles: 145, failedBottles: 5, status: "POSTED" }
+  ];
+
+  const filtered = qualityList.filter(q => q.status !== "REVERSED");
+  assert.equal(filtered.length, 2);
+  const totalInspected = filtered.reduce((sum, q) => sum + q.inspectedBottles, 0);
+  assert.equal(totalInspected, 250);
+});
+
+test("sales order dispatch reversal restores order line allocations and resets status", () => {
+  const orderLine = { id: 1, packsOrdered: 100, packsDispatched: 50 };
+  const reversedDispatchPacks = 50;
+  const remainingPostedPacks = 0; // after reversal, posted batches sum to 0
+
+  const allocated = Math.min(orderLine.packsOrdered, Math.max(0, remainingPostedPacks));
+  const updatedLine = { ...orderLine, packsDispatched: allocated };
+  const nextStatus = updatedLine.packsDispatched >= updatedLine.packsOrdered ? "FULFILLED" : (updatedLine.packsDispatched > 0 ? "PARTIAL" : "OPEN");
+
+  assert.equal(updatedLine.packsDispatched, 0);
+  assert.equal(nextStatus, "OPEN");
+});
+

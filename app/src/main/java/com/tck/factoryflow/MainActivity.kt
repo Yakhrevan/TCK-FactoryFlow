@@ -1302,8 +1302,12 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
   }
  }
  PageTab.STOCK->{
-  val totalPacked=packing.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.completePacks}}
-  val loosePacked=packing.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.looseBottles}}
+  val reversedPackingIds=remember(auditEvents){auditEvents.filter{it.eventType=="PACKING_REVERSED"&&it.entityType=="packing"}.mapNotNull{it.entityId.toLongOrNull()}.toSet()}
+  val reversedProductionIds=remember(auditEvents){auditEvents.filter{it.eventType=="PRODUCTION_REVERSED"&&it.entityType=="production"}.mapNotNull{it.entityId.toLongOrNull()}.toSet()}
+  val validPacking=remember(packing,reversedPackingIds){packing.filter{it.id !in reversedPackingIds}}
+  val validProduction=remember(production,reversedProductionIds){production.filter{it.id !in reversedProductionIds}}
+  val totalPacked=validPacking.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.completePacks}}
+  val loosePacked=validPacking.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.looseBottles}}
   val legacyDispatched=dispatches.groupBy{it.productId}.mapValues{(_,rows)->rows.sumOf{it.packsDispatched}}
   val validBatchIds=dispatchBatches.filter{it.status=="POSTED"}.map{it.id}.toSet()
   val postedLines=dispatchLines.filter{it.batchId in validBatchIds}
@@ -1395,8 +1399,8 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
    val displayAvailablePacks = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.completePacks} else totalAvailable
    val displayLooseBottles = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.looseBottles} else totalLooseAvailable
    val displayUnpackedBottles = if(cloudStockSnapshot!=null) cloudStockSnapshot!!.items.filter{it.active}.sumOf{it.unpackedGoodBottles} else active.sumOf{p->
-    val good = production.filter{it.productId==p.id}.sumOf{it.goodBottles}
-    val consumed = packing.filter{it.productId==p.id}.sumOf{it.bottlesConsumed}
+    val good = validProduction.filter{it.productId==p.id}.sumOf{it.goodBottles}
+    val consumed = validPacking.filter{it.productId==p.id}.sumOf{it.bottlesConsumed}
     (good - consumed).coerceAtLeast(0)
    }
 
@@ -1601,12 +1605,12 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
       val packSize=if(p.bottlesPerPack>0) p.bottlesPerPack else 24
       val cloudItem=cloudStockSnapshot?.items?.find{it.productId==p.productCode||it.productId==p.name}
 
-      val prodEntries=production.filter{it.productId==p.id}
+      val prodEntries=validProduction.filter{it.productId==p.id}
       val totalProduced=prodEntries.sumOf{it.producedBottles}
       val totalAcceptedGood=prodEntries.sumOf{it.goodBottles}
       val totalRejected=prodEntries.sumOf{it.rejectedBottles}
 
-      val packEntries=packing.filter{it.productId==p.id}
+      val packEntries=validPacking.filter{it.productId==p.id}
       val totalPackedPacks=packEntries.sumOf{it.completePacks}
 
       val dispatchedPacksLegacy=dispatches.filter{it.productId==p.id}.sumOf{it.packsDispatched}
@@ -1678,10 +1682,11 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
           Text(String.format(Locale.US,"%,d",totalBottlesPacked)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=TCKColors.Navy)
           Text("$availableBoxes boxes",style=TCKTypography.labelSmall,color=TCKColors.TextSecondary)
          }
+         val totalLooseAndUnpacked = unpackedBottles + availableLoose
          Column(Modifier.weight(1f).background(TCKColors.Background,TCKShapes.small).padding(8.dp)){
           Text("Loose & Unpacked",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
-          Text(String.format(Locale.US,"%,d",unpackedBottles)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=if(unpackedBottles>0) TCKColors.Warning else TCKColors.Navy)
-          Text("$availableLoose loose btl",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",totalLooseAndUnpacked)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=if(totalLooseAndUnpacked>0) TCKColors.Warning else TCKColors.Navy)
+          Text("${String.format(Locale.US,"%,d",unpackedBottles)} unpacked · ${availableLoose} loose",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
          }
         }
 

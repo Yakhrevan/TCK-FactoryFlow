@@ -3984,7 +3984,7 @@ export default {
         };
 
         const filteredElectricity = electricity.filter(e => inDateRange(e.readingDate));
-        const filteredQuality = quality.filter(q => inDateRange(q.inspectionDate));
+        const filteredQuality = quality.filter(q => inDateRange(q.inspectionDate) && q.status !== "REVERSED");
 
         const totalElectricityConsumption = filteredElectricity.reduce((sum, e) => sum + (Number(e.consumption) || 0), 0);
         const totalInspected = filteredQuality.reduce((sum, q) => sum + (Number(q.inspectedBottles) || 0), 0);

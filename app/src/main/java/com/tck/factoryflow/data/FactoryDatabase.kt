@@ -360,6 +360,27 @@ data class RawMaterialReceiptEntity(@PrimaryKey(autoGenerate=true) val id:Long=0
    if(loose>0) insertInventoryMovement(InventoryMovementEntity(productId=line.productId,productNameSnapshot=line.productNameSnapshot,movementType="DISPATCH_LOOSE_REVERSAL_IN",quantity=loose,unit="BOTTLE",sourceType="dispatch_reversal",sourceId=batchId.toString(),note=reason,actorId=actorId))
   }
   insertAudit(AuditEventEntity(eventType="DISPATCH_REVERSED",entityType="dispatch",entityId=batchId.toString(),beforeJson=JSONObject().put("status","POSTED").toString(),afterJson=JSONObject().put("status","REVERSED").put("reason",reason).toString(),reason=reason,actorId=actorId))
+  if(batch.salesOrderId!=null){
+   val orderId=batch.salesOrderId
+   val current=salesOrderLinesForOrder(orderId)
+   val remainingByProduct=mutableMapOf<Long,Int>()
+   val updated=current.map{item->
+    val remaining=remainingByProduct.getOrPut(item.productId){postedPacksForOrderProduct(orderId,item.productId)}
+    val allocated=minOf(item.packsOrdered,remaining.coerceAtLeast(0))
+    remainingByProduct[item.productId]=(remaining-allocated).coerceAtLeast(0)
+    item.copy(packsDispatched=allocated)
+   }
+   updated.forEach{item->
+    setSalesOrderLineFulfilled(item.id,item.packsDispatched.coerceAtMost(item.packsOrdered))
+   }
+   val totalOrdered=updated.sumOf{it.packsOrdered};val totalDispatched=updated.sumOf{it.packsDispatched}
+   val nextStatus=when{
+    totalOrdered>0&&totalDispatched>=totalOrdered->"FULFILLED"
+    totalDispatched>0->"PARTIAL"
+    else->"OPEN"
+   }
+   updateSalesOrderStatus(orderId,nextStatus)
+  }
   enqueueSyncEvent(SyncOutboxEntity(eventKey="dispatch-reversal:"+organisationId+":"+batchId,organisationId=organisationId,eventType="DISPATCH_REVERSED",payloadJson=JSONObject().put("batchId",batchId).put("reason",reason).toString()))
   return true
  }
