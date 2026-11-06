@@ -192,52 +192,73 @@ class FactoryAuthRepository(private val context: Context) {
         val factoryId = session.factoryIds.firstOrNull()
             ?: error("Your account has no assigned factory.")
 
-        var generatedUid = "staff_${System.currentTimeMillis()}"
+        var generatedUid = ""
 
-        // Register using a secondary Firebase app so the active administrator remains signed in.
+        // Try registering via secondary Firebase app, or let server Identity Toolkit create/link it
         if (hasFirebase()) {
-            val primaryApp = FirebaseApp.getInstance()
-            val secondaryApp = runCatching { FirebaseApp.getInstance("StaffAuthCreator") }.getOrElse {
-                FirebaseApp.initializeApp(context.applicationContext, primaryApp.options, "StaffAuthCreator")
-            }
-            val secAuth = FirebaseAuth.getInstance(secondaryApp)
             try {
-                val authResult = secAuth.createUserWithEmailAndPassword(email.trim(), password).await()
-                generatedUid = authResult.user?.uid ?: error("Firebase did not return the new staff UID.")
-            } finally {
-                secAuth.signOut()
+                val primaryApp = FirebaseApp.getInstance()
+                val secondaryApp = runCatching { FirebaseApp.getInstance("StaffAuthCreator") }.getOrElse {
+                    FirebaseApp.initializeApp(context.applicationContext, primaryApp.options, "StaffAuthCreator")
+                }
+                val secAuth = FirebaseAuth.getInstance(secondaryApp)
+                try {
+                    val authResult = secAuth.createUserWithEmailAndPassword(email.trim(), password).await()
+                    generatedUid = authResult.user?.uid ?: ""
+                } finally {
+                    secAuth.signOut()
+                }
+            } catch (ignored: Exception) {
+                // Secondary app creation failed or user exists; Cloudflare Worker will resolve via Identity Toolkit
+                generatedUid = ""
             }
         }
 
+        val db = com.tck.factoryflow.data.FactoryDatabase.get(context)
+        var confirmedUid = generatedUid
+
+        if (hasFirebase()) {
+            val payload = JSONObject()
+                .put("organisationId", session.organisationId)
+                .put("factoryId", factoryId)
+                .put("name", name.trim())
+                .put("email", email.trim().lowercase())
+                .put("role", role.lowercase().trim())
+                .put("allowedModules", allowedModules)
+                .put("password", password)
+                .put("active", true)
+                .put("createdBy", creatorUid)
+            if (generatedUid.isNotBlank()) {
+                payload.put("uid", generatedUid)
+            }
+
+            val provisionResult = CloudflareApiClient.post(
+                context,
+                "/api/auth/provision-member",
+                payload
+            )
+            when (provisionResult) {
+                is CloudResult.Success -> {
+                    val returnedUid = provisionResult.data.optString("uid")
+                    if (returnedUid.isNotBlank()) {
+                        confirmedUid = returnedUid
+                    }
+                }
+                is CloudResult.Error -> {
+                    error("Staff membership provisioning failed: ${provisionResult.message}")
+                }
+            }
+        }
+
+        val finalUid = confirmedUid.ifBlank { "staff_${System.currentTimeMillis()}" }
         val staff = com.tck.factoryflow.data.StaffMemberEntity(
-            uid = generatedUid,
+            uid = finalUid,
             name = name.trim(),
             email = email.trim(),
             role = role.lowercase().trim(),
             allowedModules = allowedModules,
             active = true
         )
-
-        val db = com.tck.factoryflow.data.FactoryDatabase.get(context)
-        if (hasFirebase()) {
-            val provisionResult = CloudflareApiClient.post(
-                context,
-                "/api/auth/provision-member",
-                JSONObject()
-                    .put("organisationId", session.organisationId)
-                    .put("factoryId", factoryId)
-                    .put("uid", staff.uid)
-                    .put("name", staff.name)
-                    .put("email", staff.email)
-                    .put("role", staff.role)
-                    .put("allowedModules", staff.allowedModules)
-                    .put("active", true)
-                    .put("createdBy", creatorUid)
-            )
-            if (provisionResult is CloudResult.Error) {
-                error("Staff membership provisioning failed: ${provisionResult.message}")
-            }
-        }
 
         db.factoryDao().insertStaffMember(staff)
         PasswordSecurity.saveCredential(context, staff.email, password)

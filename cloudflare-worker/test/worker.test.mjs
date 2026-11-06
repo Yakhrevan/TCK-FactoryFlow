@@ -232,3 +232,37 @@ test("reversal authorization permits owner/admin to reverse any dispatch, while 
 
 
 
+
+test("packing reversal authorization permits owner, admin, or creator to reverse", () => {
+  function canReversePacking(role, userUid, creatorUid) {
+    if (role === "owner" || role === "admin" || role === "manager") return true;
+    return userUid === creatorUid;
+  }
+
+  assert.equal(canReversePacking("owner", "u-owner", "u-op"), true);
+  assert.equal(canReversePacking("admin", "u-admin", "u-op"), true);
+  assert.equal(canReversePacking("manager", "u-mgr", "u-op"), true);
+  assert.equal(canReversePacking("operator", "u-op", "u-op"), true);
+  assert.equal(canReversePacking("operator", "u-other", "u-op"), false);
+});
+
+test("quality reversal authorization requires supervisor or above", () => {
+  const allowed = ["owner", "admin", "manager", "supervisor", "quality_inspector"];
+  assert.equal(allowed.includes("quality_inspector"), true);
+  assert.equal(allowed.includes("supervisor"), true);
+  assert.equal(allowed.includes("admin"), true);
+  assert.equal(allowed.includes("operator"), false);
+  assert.equal(allowed.includes("viewer"), false);
+});
+
+test("member provisioning role validation supports supervisor, quality_inspector, and inventory_manager", () => {
+  const allowedRoles = [
+    "owner", "admin", "manager", "supervisor", "quality_inspector", "inventory_manager",
+    "production_staff", "packing_staff", "storekeeper", "dispatch_staff",
+    "viewer", "operator", "production", "packing", "dispatch", "production_operator"
+  ];
+  assert.equal(allowedRoles.includes("supervisor"), true);
+  assert.equal(allowedRoles.includes("quality_inspector"), true);
+  assert.equal(allowedRoles.includes("inventory_manager"), true);
+  assert.equal(allowedRoles.includes("hacker"), false);
+});

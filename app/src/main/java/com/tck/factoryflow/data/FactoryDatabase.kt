@@ -15,7 +15,7 @@ fun stableProductCode(name:String,sizeLabel:String,colour:String):String {
     return "p-"+digest.take(32)
 }
 
-@Entity(tableName="products", indices=[Index(value=["name"], unique=true),Index(value=["productCode"], unique=true)])
+@Entity(tableName="products", indices=[Index(value=["productCode"], unique=true), Index(value=["name", "sizeLabel", "colour"])])
 data class ProductEntity(
     @PrimaryKey(autoGenerate=true) val id:Long=0,
     val name:String,
@@ -828,7 +828,7 @@ data class RawMaterialReceiptEntity(@PrimaryKey(autoGenerate=true) val id:Long=0
 }
 private fun productJson(name:String,size:String,colour:String,pack:Int,active:Boolean)=JSONObject().put("name",name).put("size",size).put("colour",colour).put("bottlesPerPack",pack).put("active",active).toString()
 
-@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class,RawMaterialEntity::class,RawMaterialReceiptEntity::class],version=13,exportSchema=true)
+@Database(entities=[ProductEntity::class,ProductConfigHistoryEntity::class,ProductionEntryEntity::class,PackingEntryEntity::class,DispatchEntryEntity::class,DispatchBatchEntity::class,DispatchLineEntity::class,InventoryMovementEntity::class,AuditEventEntity::class,SyncOutboxEntity::class,CustomerEntity::class,MeterReadingEntity::class,ProductionLineEntity::class,MachineEntity::class,MachineEventEntity::class,QualityInspectionEntity::class,ProductionPlanEntity::class,SalesOrderEntity::class,SalesOrderLineEntity::class,StaffMemberEntity::class,RawMaterialEntity::class,RawMaterialReceiptEntity::class],version=14,exportSchema=true)
 abstract class FactoryDatabase:RoomDatabase(){
  abstract fun factoryDao():FactoryDao
  companion object {
@@ -951,7 +951,13 @@ abstract class FactoryDatabase:RoomDatabase(){
     db.execSQL("CREATE INDEX IF NOT EXISTS index_raw_material_receipts_receiptDate ON raw_material_receipts(receiptDate)")
    }
   }
+  internal val MIGRATION_13_14=object:Migration(13,14){
+   override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+    db.execSQL("DROP INDEX IF EXISTS index_products_name")
+    db.execSQL("CREATE INDEX IF NOT EXISTS index_products_name_sizeLabel_colour ON products(name, sizeLabel, colour)")
+   }
+  }
   fun closeForRestore(){ synchronized(this){instance?.close();instance=null} }
-  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11,MIGRATION_11_12,MIGRATION_12_13).build().also{instance=it}}
+  fun get(context:Context):FactoryDatabase=instance?: synchronized(this){instance?:Room.databaseBuilder(context.applicationContext,FactoryDatabase::class.java,"factoryflow.db").addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5,MIGRATION_5_6,MIGRATION_6_7,MIGRATION_7_8,MIGRATION_8_9,MIGRATION_9_10,MIGRATION_10_11,MIGRATION_11_12,MIGRATION_12_13,MIGRATION_13_14).build().also{instance=it}}
  }
 }

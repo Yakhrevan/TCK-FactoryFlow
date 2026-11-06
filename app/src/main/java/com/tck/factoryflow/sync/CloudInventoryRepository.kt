@@ -303,7 +303,8 @@ class CloudInventoryRepository(context: Context) {
             is CloudResult.Success -> response.data
             is CloudResult.Error -> error(response.message)
         }
-        require(data.has("reversed") && data.optBoolean("reversed")) {
+        val isConfirmed = data.optBoolean("reversed") || data.optBoolean("duplicate")
+        require(isConfirmed) {
             "Server did not explicitly confirm the reversal."
         }
         return true
@@ -330,7 +331,8 @@ class CloudInventoryRepository(context: Context) {
             is CloudResult.Success -> response.data
             is CloudResult.Error -> error(response.message)
         }
-        require(data.has("reversed") && data.optBoolean("reversed")) {
+        val isConfirmed = data.optBoolean("reversed") || data.optBoolean("duplicate")
+        require(isConfirmed) {
             "Server did not explicitly confirm the reversal."
         }
         return true
@@ -357,7 +359,8 @@ class CloudInventoryRepository(context: Context) {
             is CloudResult.Success -> response.data
             is CloudResult.Error -> error(response.message)
         }
-        require(data.has("reversed") && data.optBoolean("reversed")) {
+        val isConfirmed = data.optBoolean("reversed") || data.optBoolean("duplicate")
+        require(isConfirmed) {
             "Server did not explicitly confirm the reversal."
         }
         return true
@@ -988,6 +991,66 @@ class CloudInventoryRepository(context: Context) {
                 completionNotes = obj.optString("completionNotes", ""),
                 partsUsed = obj.optString("partsUsed", ""),
                 completedBy = obj.optString("completedBy", "")
+            )
+        }
+    }
+
+    suspend fun reverseQualityInspection(
+        session: FactorySession,
+        inspectionId: String,
+        reason: String
+    ): Boolean {
+        val scope = scope(session)
+        val payload = mapOf(
+            "organisationId" to scope.getValue("organisationId"),
+            "factoryId" to scope.getValue("factoryId"),
+            "inspectionId" to inspectionId,
+            "reason" to reason
+        )
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/quality/reverse",
+            JSONObject(payload)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val isConfirmed = data.optBoolean("reversed") || data.optBoolean("duplicate")
+        require(isConfirmed) {
+            "Server did not confirm quality inspection reversal."
+        }
+        return true
+    }
+
+    suspend fun fetchStaffMembers(session: FactorySession): List<com.tck.factoryflow.data.StaffMemberEntity> {
+        val scope = scope(session)
+        val response = CloudflareApiClient.post(
+            appContext,
+            "/api/members/list",
+            JSONObject(scope)
+        )
+        val data = when (response) {
+            is CloudResult.Success -> response.data
+            is CloudResult.Error -> error(response.message)
+        }
+        val array = data.optJSONArray("members") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val uid = obj.optString("uid")
+            val email = obj.optString("email")
+            val name = obj.optString("name").ifBlank { email }
+            val role = obj.optString("role", "operator")
+            val allowedModules = obj.optString("allowedModules", "ALL")
+            val active = obj.optBoolean("active", true)
+            com.tck.factoryflow.data.StaffMemberEntity(
+                id = 0,
+                uid = uid,
+                name = name,
+                email = email,
+                role = role,
+                allowedModules = allowedModules,
+                active = active
             )
         }
     }

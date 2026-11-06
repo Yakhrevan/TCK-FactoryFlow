@@ -128,6 +128,66 @@ async function setFirebaseCustomClaims(env, uid, claims, accessToken) {
   return await response.json();
 }
 
+async function lookupFirebaseUserByEmail(env, email, accessToken) {
+  if (!email) return null;
+  const url = `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:lookup`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email: [email] }),
+  });
+  if (!response.ok) return null;
+  const result = await response.json().catch(() => ({}));
+  const users = result.users || [];
+  return users[0] || null;
+}
+
+async function createFirebaseUser(env, email, password, displayName, accessToken) {
+  const url = `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email,
+      password,
+      displayName,
+      emailVerified: true
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.localId) {
+    const errorMsg = result?.error?.message || "FIREBASE_CREATE_USER_FAILED";
+    console.error("Failed to create Firebase user:", response.status, errorMsg);
+    throw new Error(errorMsg);
+  }
+  return result;
+}
+
+async function updateFirebaseUser(env, uid, password, displayName, accessToken) {
+  const url = `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:update`;
+  const payload = { localId: uid };
+  if (password) payload.password = password;
+  if (displayName) payload.displayName = displayName;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    console.error("Failed to update Firebase user:", response.status, await response.text().catch(() => ""));
+  }
+  return await response.json().catch(() => ({}));
+}
+
 async function authorizeMember(env, user, orgId, factoryId, allowedRoles, accessToken) {
   if (!orgId || typeof orgId !== "string" || orgId.includes("/") || orgId.length > 150) {
     return { ok: false, status: 400, error: "Invalid organisation ID." };
@@ -448,27 +508,27 @@ export default {
 
         const orgId = String(body.organisationId || "").trim();
         const factoryId = String(body.factoryId || "").trim();
-        const targetUid = String(body.uid || "").trim();
+        let targetUid = String(body.uid || "").trim();
+        const password = typeof body.password === "string" ? body.password.trim() : null;
         const name = String(body.name || "").trim();
         const email = String(body.email || "").trim().toLowerCase();
         const role = String(body.role || "").trim().toLowerCase();
         const allowedModules = String(body.allowedModules || "ALL").trim();
-        const active = body.active === true;
+        const active = body.active !== false;
         const createdBy = user.sub;
 
         const allowedRoles = [
-          "admin", "manager", "production_staff", "packing_staff",
-          "storekeeper", "dispatch_staff", "viewer", "operator",
-          "production", "packing", "dispatch", "production_operator"
+          "owner", "admin", "manager", "supervisor", "quality_inspector", "inventory_manager",
+          "production_staff", "packing_staff", "storekeeper", "dispatch_staff",
+          "viewer", "operator", "production", "packing", "dispatch", "production_operator"
         ];
 
         if (
           !orgId || orgId.length > 150 || orgId.includes("/") ||
           !factoryId || factoryId.length > 150 || factoryId.includes("/") ||
-          !targetUid || targetUid.length > 150 || targetUid.includes("/") ||
           !name || name.length > 150 ||
           !email || email.length > 254 ||
-          !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) ||
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
           !allowedRoles.includes(role) ||
           !allowedModules || allowedModules.length > 100
         ) {
@@ -478,11 +538,30 @@ export default {
           );
         }
 
+        const accessToken = await getGoogleAccessToken(env);
+
+        // Resolve or create Firebase Auth user if password provided or UID not known
+        if (!targetUid || targetUid.startsWith("staff_")) {
+          const existingAuthUser = await lookupFirebaseUserByEmail(env, email, accessToken);
+          if (existingAuthUser?.localId) {
+            targetUid = existingAuthUser.localId;
+            if (password && password.length >= 6) {
+              await updateFirebaseUser(env, targetUid, password, name, accessToken);
+            }
+          } else if (password && password.length >= 6) {
+            const createdAuthUser = await createFirebaseUser(env, email, password, name, accessToken);
+            targetUid = createdAuthUser.localId;
+          } else {
+            targetUid = `staff_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          }
+        } else if (password && password.length >= 6) {
+          await updateFirebaseUser(env, targetUid, password, name, accessToken).catch(() => {});
+        }
+
         if (targetUid === user.sub) {
           return Response.json({success:false,error:"Cannot provision your own membership."},{status:403});
         }
 
-        const accessToken = await getGoogleAccessToken(env);
         const actorPath = `organisations/${orgId}/members/${user.sub}`;
         const actor = await firestoreGet(env, actorPath, accessToken);
         const actorFields = actor?.fields || {};
@@ -563,9 +642,9 @@ export default {
           organisationId: orgId,
           role,
           factoryIds: [factoryId]
-        }, accessToken);
+        }, accessToken).catch(() => {});
 
-        return Response.json({success:true,uid:targetUid,role,active});
+        return Response.json({success:true,uid:targetUid,role,active,name,email});
       } catch(error) {
         console.error("Provision member error:",error);
 
@@ -579,15 +658,49 @@ export default {
               ? "Firebase authentication is required or expired."
               : invalidJson
                 ? "Invalid JSON request body."
-                : "Member provisioning failed."
+                : (error?.message || "Member provisioning failed.")
           },
           {status: authError ? 401 : invalidJson ? 400 : 500}
         );
       }
     }
 
+    // List factory staff members
+    if (request.method === "POST" && url.pathname === "/api/members/list") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json().catch(() => ({}));
+        const orgId = String(body.organisationId || "tck-factory-01").trim();
+        const factoryId = String(body.factoryId || "factory-01").trim();
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor"], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        const accessToken = await getGoogleAccessToken(env);
+        const docs = await firestoreList(env, `organisations/${orgId}/members`, accessToken);
+        const members = docs.map(d => {
+          const item = fromFirestoreDoc(d);
+          const f = d.fields || {};
+          return {
+            uid: item.uid || f.uid?.stringValue || d.name.split("/").pop(),
+            name: item.name || f.name?.stringValue || "",
+            email: item.email || f.email?.stringValue || "",
+            role: item.role || f.role?.stringValue || "operator",
+            allowedModules: item.allowedModules || f.allowedModules?.stringValue || "ALL",
+            active: item.active !== undefined ? item.active : (f.active?.booleanValue ?? true),
+            factoryIds: Array.isArray(item.factoryIds) ? item.factoryIds : (f.factoryIds?.arrayValue?.values?.map(x => x.stringValue) || [factoryId])
+          };
+        }).filter(m => !factoryId || m.factoryIds.includes(factoryId));
+
+        return Response.json({ success: true, members });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Member list failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
     // Sync local outbox event with idempotency protection
-    if (request.method === "POST" && url.pathname === "/api/sync/event") {
+     {
       try {
         const user = await verifyFirebaseToken(request);
         const body = await request.json();
@@ -1824,8 +1937,8 @@ export default {
         if(map.get(reversalPath)){await firestoreRollback(accessToken,transaction);transaction=null;return Response.json({success:true,reversed:false,duplicate:true});}
         const pf=packing.fields||{};
 
-        if(pf.actorUid?.stringValue!==user.sub)
-          throw new Error("Only the original packing creator can reverse this record.");
+        if (role !== "owner" && role !== "admin" && role !== "manager" && pf.actorUid?.stringValue !== user.sub)
+          throw new Error("Only an administrator or the original packing creator can reverse this record.");
 
         if(pf.status?.stringValue!=="POSTED"||pf.organisationId?.stringValue!==orgId||pf.factoryId?.stringValue!==factoryId)
           throw new Error("Only a posted packing record in this factory can be reversed.");
@@ -3724,6 +3837,41 @@ export default {
       } catch (error) {
         const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
         return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Quality list failed.") }, { status: authError ? 401 : 500 });
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/quality/reverse") {
+      try {
+        const user = await verifyFirebaseToken(request);
+        const body = await request.json();
+        const { organisationId: orgId, factoryId, inspectionId, reason } = body;
+
+        const auth = await authorizeMember(env, user, orgId, factoryId, ["owner", "admin", "manager", "supervisor", "quality_inspector"], await getGoogleAccessToken(env));
+        if (!auth.ok) return Response.json({ success: false, error: auth.error }, { status: auth.status });
+
+        if (!inspectionId || typeof inspectionId !== "string" || !reason || typeof reason !== "string") {
+          return Response.json({ success: false, error: "Inspection ID and reason required." }, { status: 400 });
+        }
+
+        const accessToken = await getGoogleAccessToken(env);
+        const docPath = `organisations/${orgId}/factories/${factoryId}/quality/${inspectionId}`;
+        const existing = await firestoreGet(env, docPath, accessToken);
+        if (!existing?.fields) {
+          return Response.json({ success: false, error: "Quality inspection not found." }, { status: 404 });
+        }
+
+        const now = new Date().toISOString();
+        await firestorePatch(env, docPath, {
+          status: { stringValue: "REVERSED" },
+          reversedAt: { timestampValue: now },
+          reversedBy: { stringValue: user.sub },
+          reversalReason: { stringValue: reason.trim() }
+        }, accessToken);
+
+        return Response.json({ success: true, inspectionId, reversed: true });
+      } catch (error) {
+        const authError = ["AUTH_MISSING", "AUTH_INVALID"].includes(error?.message);
+        return Response.json({ success: false, error: authError ? "Authentication required." : (error?.message || "Quality reversal failed.") }, { status: authError ? 401 : 500 });
       }
     }
 

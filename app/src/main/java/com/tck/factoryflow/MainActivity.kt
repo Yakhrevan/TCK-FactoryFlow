@@ -194,10 +194,26 @@ private enum class PageTab{HOME,PRODUCTS,PRODUCTION,PACKING,STOCK,DISPATCH,ELECT
     tab = newTab
    }
   }
-  var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)};var editingPlan by remember{mutableStateOf<ProductionPlanEntity?>(null)};var editingOrder by remember{mutableStateOf<SalesOrderEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var reversalProductionId by remember{mutableStateOf<Long?>(null)};var stockAdjustmentMode by remember{mutableStateOf("ADD")}; var stockAdjustmentUnit by remember{mutableStateOf("PACK")}; var stockAdjustmentProduct by remember{mutableStateOf<ProductEntity?>(null)}; var stockAdjustmentQuantity by remember{mutableStateOf("1")}; var stockAdjustmentReason by remember{mutableStateOf("")}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}; var meterDialogMode by remember{mutableStateOf("MORNING")}; var selectedMeterReading by remember{mutableStateOf<MeterReadingEntity?>(null)}; var stockSubTab by remember{mutableIntStateOf(0)}; var editingRawMaterial by remember{mutableStateOf<RawMaterialEntity?>(null)}; var gatePassBatch by remember{mutableStateOf<DispatchBatchEntity?>(null)}; var issuingRawMaterial by remember{mutableStateOf<RawMaterialEntity?>(null)}
+  var showTools by remember{mutableStateOf(false)}; var dialog by remember{mutableStateOf("")}; var session by remember{mutableStateOf<FactorySession?>(null)}; var isCheckingSession by remember{mutableStateOf(true)}; var editingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingProduct by remember{mutableStateOf<ProductEntity?>(null)}; var deletingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var deletingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingStaff by remember{mutableStateOf<StaffMemberEntity?>(null)}; var productSubTab by remember{mutableIntStateOf(0)}; var editingCustomer by remember{mutableStateOf<CustomerEntity?>(null)}; var selectedMachineId by remember{mutableStateOf<Long?>(null)}; var selectedMachineEventId by remember{mutableStateOf<Long?>(null)}; var selectedOrderId by remember{mutableStateOf<Long?>(null)};var editingPlan by remember{mutableStateOf<ProductionPlanEntity?>(null)};var editingOrder by remember{mutableStateOf<SalesOrderEntity?>(null)}; var reversalBatchId by remember{mutableStateOf<Long?>(null)}; var reversalPackingId by remember{mutableStateOf<Long?>(null)}; var reversalProductionId by remember{mutableStateOf<Long?>(null)}; var reversalQualityId by remember{mutableStateOf<Long?>(null)}; var stockStatusFilter by remember{mutableStateOf("ALL")}; var stockSizeFilter by remember{mutableStateOf("ALL")};var stockAdjustmentMode by remember{mutableStateOf("ADD")}; var stockAdjustmentUnit by remember{mutableStateOf("PACK")}; var stockAdjustmentProduct by remember{mutableStateOf<ProductEntity?>(null)}; var stockAdjustmentQuantity by remember{mutableStateOf("1")}; var stockAdjustmentReason by remember{mutableStateOf("")}; var message by remember{mutableStateOf<String?>(null)}; var reportFrom by remember{mutableStateOf(today().substring(0,7)+"-01")}; var reportTo by remember{mutableStateOf(today())}; var productSearch by remember{mutableStateOf("")}; var movementSearch by remember{mutableStateOf("")}; var stockSearch by remember{mutableStateOf("")}; var productionSearch by remember{mutableStateOf("")}; var customerSearch by remember{mutableStateOf("")}; var dispatchSearch by remember{mutableStateOf("")}; var editingLine by remember{mutableStateOf<ProductionLineEntity?>(null)}; var editingMachine by remember{mutableStateOf<MachineEntity?>(null)}; var assigningMachine by remember{mutableStateOf<MachineEntity?>(null)}; var machineSubTab by remember{mutableIntStateOf(0)}; var selectedLineFilterId by remember{mutableStateOf<Long?>(null)}; var machineSearch by remember{mutableStateOf("")}; val scope=rememberCoroutineScope(); var cloudStockSnapshot by remember{mutableStateOf<CloudStockSnapshot?>(null)}; var cloudStockError by remember{mutableStateOf<String?>(null)}; var cloudStockLoading by remember{mutableStateOf(false)}; var meterDialogMode by remember{mutableStateOf("MORNING")}; var selectedMeterReading by remember{mutableStateOf<MeterReadingEntity?>(null)}; var stockSubTab by remember{mutableIntStateOf(0)}; var editingRawMaterial by remember{mutableStateOf<RawMaterialEntity?>(null)}; var gatePassBatch by remember{mutableStateOf<DispatchBatchEntity?>(null)}; var issuingRawMaterial by remember{mutableStateOf<RawMaterialEntity?>(null)}
   val products by dao.observeProducts().collectAsStateWithLifecycle(emptyList()); val staffMembers by dao.observeStaffMembers().collectAsStateWithLifecycle(emptyList()); val productionLines by dao.observeProductionLines().collectAsStateWithLifecycle(emptyList()); val production by dao.observeProduction().collectAsStateWithLifecycle(emptyList()); val packing by dao.observePacking().collectAsStateWithLifecycle(emptyList()); val dispatches by dao.observeDispatches().collectAsStateWithLifecycle(emptyList()); val dispatchBatches by dao.observeDispatchBatches().collectAsStateWithLifecycle(emptyList()); val dispatchLines by dao.observeDispatchLines().collectAsStateWithLifecycle(emptyList()); val meters by dao.observeMeterReadings().collectAsStateWithLifecycle(emptyList()); val customers by dao.observeCustomers().collectAsStateWithLifecycle(emptyList())
 val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecycle(emptyList()); val machines by dao.observeMachines().collectAsStateWithLifecycle(emptyList()); val machineEvents by dao.observeMachineEvents().collectAsStateWithLifecycle(emptyList()); val qualityInspections by dao.observeQualityInspections().collectAsStateWithLifecycle(emptyList()); val plans by dao.observeProductionPlans().collectAsStateWithLifecycle(emptyList()); val orders by dao.observeSalesOrders().collectAsStateWithLifecycle(emptyList()); val openOrders by dao.observeOpenSalesOrders().collectAsStateWithLifecycle(emptyList()); val orderLines by dao.observeSalesOrderLines().collectAsStateWithLifecycle(emptyList()); val inventoryMovements by dao.observeRecentInventoryMovements().collectAsStateWithLifecycle(emptyList()); val auditEvents by dao.observeAuditEvents().collectAsStateWithLifecycle(emptyList()); val syncEvents by dao.observeSyncOutbox().collectAsStateWithLifecycle(emptyList()); val rawMaterials by dao.observeRawMaterials().collectAsStateWithLifecycle(emptyList()); val rawMaterialReceipts by dao.observeRawMaterialReceipts().collectAsStateWithLifecycle(emptyList()); val active=products.filter{it.active}; val date=today()
+
   val context=LocalContext.current
+   val refreshCloudStock: () -> Unit = {
+    if (session?.isCloud == true) {
+     cloudStockLoading = true
+     cloudStockError = null
+     scope.launch {
+      try {
+       cloudStockSnapshot = CloudInventoryRepository(context).fetchStock(session!!)
+      } catch (e: Exception) {
+       cloudStockError = e.message ?: "Failed to refresh stock"
+      } finally {
+       cloudStockLoading = false
+      }
+     }
+    }
+   }
   val canGoBack = dialog.isNotBlank() || showTools || backStack.size > 1
   androidx.activity.compose.BackHandler(enabled = canGoBack) {
    when {
@@ -222,22 +238,15 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
      snapshot.items.forEach{item->
       val byCode=dao.productByCode(item.productId)
       if(byCode!=null){
-       if(byCode.name!=item.name||byCode.sizeLabel!=item.sizeLabel||byCode.colour!=item.colour||byCode.bottlesPerPack!=item.bottlesPerPack||!byCode.active) runCatching{dao.updateProductDetails(byCode.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byCode.iconName,byCode.imageUri)}
+       if(byCode.name!=item.name||byCode.sizeLabel!=item.sizeLabel||byCode.colour!=item.colour||byCode.bottlesPerPack!=item.bottlesPerPack||byCode.active!=item.active) runCatching{dao.updateProductDetails(byCode.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byCode.iconName,byCode.imageUri)}
       }else{
-       val byName=dao.productByName(item.name)
-       if(byName==null){
-        runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,active=item.active,productCode=item.productId))}
-       }else{
-        if(byName.productCode!=item.productId)dao.updateProductCode(byName.id,item.productId)
-        if(byName.name!=item.name||byName.sizeLabel!=item.sizeLabel||byName.colour!=item.colour||byName.bottlesPerPack!=item.bottlesPerPack||byName.active!=item.active)dao.updateProductDetails(byName.id,item.name,item.sizeLabel,item.colour,item.bottlesPerPack,item.active,byName.iconName,byName.imageUri)
-       }
+       runCatching{dao.insertProduct(ProductEntity(name=item.name,sizeLabel=item.sizeLabel,colour=item.colour,bottlesPerPack=item.bottlesPerPack,active=item.active,productCode=item.productId))}
       }
      }
      val knownCodes=snapshot.items.map{it.productId}.toSet()
-     val knownNames=snapshot.items.map{it.name.trim().lowercase()}.toSet()
      val catalogRepo=CloudInventoryRepository(context)
-     products.filter{it.productCode !in knownCodes && it.name.trim().lowercase() !in knownNames}.forEach{catalogRepo.upsertProduct(session!!,it)}
-     if(products.any{it.productCode !in knownCodes && it.name.trim().lowercase() !in knownNames}) cloudStockSnapshot=catalogRepo.fetchStock(session!!)
+     products.filter{it.productCode !in knownCodes}.forEach{catalogRepo.upsertProduct(session!!,it)}
+     if(products.any{it.productCode !in knownCodes}) cloudStockSnapshot=catalogRepo.fetchStock(session!!)
      runCatching{
       val cloudRepo=CloudInventoryRepository(context)
       cloudRepo.fetchRawMaterials(session!!).forEach{m->
@@ -254,7 +263,18 @@ val archivedCustomers by dao.observeArchivedCustomers().collectAsStateWithLifecy
      }
     }.onFailure{cloudStockError=it.message?:"Unable to load authoritative cloud stock"}
     cloudStockLoading=false
-   }else if(tab==PageTab.CUSTOMERS&&session?.isCloud==true){
+   }else if(tab==PageTab.STAFF&&session?.isCloud==true){
+     runCatching{
+      val cloudMembers = CloudInventoryRepository(context).fetchStaffMembers(session!!)
+      cloudMembers.forEach{m->
+       val local=dao.staffByEmail(m.email)
+       if(local==null) runCatching{dao.insertStaffMember(m)}
+       else if(local.name!=m.name||local.role!=m.role||local.allowedModules!=m.allowedModules||local.active!=m.active){
+        runCatching{dao.updateStaffMember(local.id,m.name,m.role,m.allowedModules,m.active)}
+       }
+      }
+     }
+    }else if(tab==PageTab.CUSTOMERS&&session?.isCloud==true){
     runCatching{
      val cloudCustomers=CloudInventoryRepository(context).fetchCustomers(session!!)
      cloudCustomers.forEach{c->
@@ -1446,6 +1466,52 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
      }
     }
 
+    // Authoritative Cloud Stock Status Bar
+    item{
+     Surface(
+      color=if(cloudStockError!=null) TCKColors.ErrorLight else TCKColors.Surface,
+      shape=TCKShapes.medium,
+      border=androidx.compose.foundation.BorderStroke(1.dp, if(cloudStockError!=null) TCKColors.Error.copy(alpha=0.4f) else TCKColors.Border)
+     ){
+      Row(
+       Modifier.fillMaxWidth().padding(horizontal=14.dp, vertical=10.dp),
+       verticalAlignment=Alignment.CenterVertically,
+       horizontalArrangement=Arrangement.SpaceBetween
+      ){
+       Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Box(
+         Modifier.size(8.dp).background(if(cloudStockLoading) TCKColors.Warning else if(cloudStockError!=null) TCKColors.Error else TCKColors.Success, androidx.compose.foundation.shape.CircleShape)
+        )
+        Column{
+         Text(
+          if(cloudStockLoading) "Synchronizing Authoritative Cloud Inventory…"
+          else if(cloudStockError!=null) "Cloud sync warning: $cloudStockError"
+          else "Cloud Stock Synced (Authoritative Server Balances)",
+          style=TCKTypography.labelSmall,
+          fontWeight=FontWeight.SemiBold,
+          color=if(cloudStockError!=null) TCKColors.Error else TCKColors.Navy
+         )
+         if(cloudStockSnapshot?.serverTime!=null){
+          Text("Server timestamp: ${cloudStockSnapshot?.serverTime?.take(19)?.replace("T", " ")}", fontSize=10.sp, color=TCKColors.TextMuted)
+         }
+        }
+       }
+       OutlinedButton(
+        onClick={ refreshCloudStock() },
+        enabled=!cloudStockLoading && session?.isCloud==true,
+        shape=TCKShapes.pill,
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=TCKColors.Primary),
+        border=androidx.compose.foundation.BorderStroke(1.dp, TCKColors.Primary.copy(alpha=0.3f)),
+        contentPadding=PaddingValues(horizontal=10.dp, vertical=4.dp)
+       ){
+        Icon(Icons.Default.Refresh, contentDescription=null, modifier=Modifier.size(13.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(if(cloudStockLoading) "Syncing…" else "Refresh Stock", fontSize=11.sp, fontWeight=FontWeight.SemiBold)
+       }
+      }
+     }
+    }
+
     // Search bar
     item{
      OutlinedTextField(
@@ -1455,24 +1521,86 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
       singleLine=true,
       shape=TCKShapes.small,
       leadingIcon={Icon(Icons.Default.Search,null,tint=TCKColors.TextMuted)},
-      placeholder={Text("Search by product, size or colour...")},
-      label={Text("Filter Inventory")}
+      placeholder={Text("Search by product, variant or SKU...")},
+      label={Text("Search Catalog & Inventory")}
      )
     }
 
-    // Product-Wise Finished Goods Breakdown
-    val shownStock=active.filter{(it.name+" "+it.sizeLabel+" "+it.colour).contains(stockSearch,true)}
+    // Status and Variant Filter Chips
+    item{
+     val allSizes = remember(active){ listOf("ALL") + active.map{it.sizeLabel.trim()}.filter{it.isNotBlank()}.distinct() }
+     Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+      Row(
+       Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+       horizontalArrangement=Arrangement.spacedBy(6.dp)
+      ){
+       listOf("ALL" to "All Products", "IN_STOCK" to "In Stock (>0)", "LOW_STOCK" to "Low Stock (≤5)", "OUT_OF_STOCK" to "Out of Stock (0)").forEach { (key, label) ->
+        FilterChip(
+         selected = stockStatusFilter == key,
+         onClick = { stockStatusFilter = key },
+         label = { Text(label, fontSize = 11.sp) },
+         shape = TCKShapes.pill,
+         colors = FilterChipDefaults.filterChipColors(
+          selectedContainerColor = TCKColors.PrimaryLight,
+          selectedLabelColor = TCKColors.Primary
+         )
+        )
+       }
+      }
+      if(allSizes.size > 2){
+       Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement=Arrangement.spacedBy(6.dp)
+       ){
+        allSizes.forEach { sz ->
+         FilterChip(
+          selected = stockSizeFilter == sz,
+          onClick = { stockSizeFilter = sz },
+          label = { Text(if(sz=="ALL") "All Sizes" else sz, fontSize = 11.sp) },
+          shape = TCKShapes.pill,
+          colors = FilterChipDefaults.filterChipColors(
+           selectedContainerColor = TCKColors.SurfaceVariant,
+           selectedLabelColor = TCKColors.Navy
+          )
+         )
+        }
+       }
+      }
+     }
+    }
+
+    // Product & Variant-Wise Finished Goods Breakdown
+    val shownStock = active.filter { p ->
+     val matchesSearch = stockSearch.isBlank() ||
+      (p.name + " " + p.sizeLabel + " " + p.colour + " " + p.productCode).contains(stockSearch, ignoreCase = true)
+     val matchesSize = stockSizeFilter == "ALL" || p.sizeLabel.equals(stockSizeFilter, ignoreCase = true)
+
+     val cloudItem = cloudStockSnapshot?.items?.find { it.productId == p.productCode || it.productId == p.name }
+     val boxes = cloudItem?.completePacks ?: ((totalPacked[p.id] ?: 0) - (legacyDispatched[p.id] ?: 0) - (batchedDispatched[p.id] ?: 0)).coerceAtLeast(0)
+
+     val matchesStatus = when(stockStatusFilter){
+      "IN_STOCK" -> boxes > 0
+      "LOW_STOCK" -> boxes in 1..5
+      "OUT_OF_STOCK" -> boxes == 0
+      else -> true // ALL: zero-stock items remain visible!
+     }
+
+     matchesSearch && matchesSize && matchesStatus
+    }
+
     if(shownStock.isEmpty()){
      item{
       TCKEmptyState(
        title="No matching products",
-       description="No inventory records matched your search query.",
+       description="No inventory records matched your selected filters.",
        icon=Icons.Default.Inventory2
       )
      }
     } else {
      items(shownStock,key={it.id}){p->
       val packSize=if(p.bottlesPerPack>0) p.bottlesPerPack else 24
+      val cloudItem=cloudStockSnapshot?.items?.find{it.productId==p.productCode||it.productId==p.name}
+
       val prodEntries=production.filter{it.productId==p.id}
       val totalProduced=prodEntries.sumOf{it.producedBottles}
       val totalAcceptedGood=prodEntries.sumOf{it.goodBottles}
@@ -1480,9 +1608,6 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
 
       val packEntries=packing.filter{it.productId==p.id}
       val totalPackedPacks=packEntries.sumOf{it.completePacks}
-      val totalBottlesPacked=totalPackedPacks * packSize
-      val totalLooseBottles=packEntries.sumOf{it.looseBottles}
-      val unpackedBottles=(totalAcceptedGood - packEntries.sumOf{it.bottlesConsumed}).coerceAtLeast(0)
 
       val dispatchedPacksLegacy=dispatches.filter{it.productId==p.id}.sumOf{it.packsDispatched}
       val validLines=dispatchLines.filter{it.productId==p.id && it.batchId in validBatchIds}
@@ -1491,17 +1616,21 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
       val dispatchedLoose=validLines.sumOf{(it.bottles - it.packs * it.packSizeSnapshot).coerceAtLeast(0)}
       val totalDispatchedBottles=(totalDispatchedPacks * packSize) + dispatchedLoose
 
+      // Authoritative cloud numbers prioritized; fallback to local ledger
+      val availableBoxes=cloudItem?.completePacks ?: (totalPackedPacks - totalDispatchedPacks).coerceAtLeast(0)
+      val availableLoose=cloudItem?.looseBottles ?: (packEntries.sumOf{it.looseBottles} - dispatchedLoose).coerceAtLeast(0)
+      val unpackedBottles=cloudItem?.unpackedGoodBottles ?: (totalAcceptedGood - packEntries.sumOf{it.bottlesConsumed}).coerceAtLeast(0)
+
+      val totalBottlesPacked=availableBoxes * packSize
+      val availableBottles=totalBottlesPacked + unpackedBottles + availableLoose
+
       val openOrderLines=orderLines.filter{line->line.productId==p.id && openOrders.any{o->o.id==line.orderId}}
       val pendingOrderPacks=openOrderLines.sumOf{(it.packsOrdered - it.packsDispatched).coerceAtLeast(0)}
-
-      val availableBoxes=(totalPackedPacks - totalDispatchedPacks).coerceAtLeast(0)
-      val availableLoose=(totalLooseBottles - dispatchedLoose).coerceAtLeast(0)
-      val availableBottles=(availableBoxes * packSize) + unpackedBottles + availableLoose
 
       Surface(
        color=Color.White,
        shape=TCKShapes.medium,
-       border=androidx.compose.foundation.BorderStroke(1.dp,if(availableBoxes<=5) TCKColors.Warning.copy(alpha=0.5f) else TCKColors.Border)
+       border=androidx.compose.foundation.BorderStroke(1.dp,if(availableBoxes==0) TCKColors.Error.copy(alpha=0.4f) else if(availableBoxes<=5) TCKColors.Warning.copy(alpha=0.5f) else TCKColors.Border)
       ){
        Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
         // Card Header
@@ -1512,12 +1641,27 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
           }
          }
          Column(Modifier.weight(1f)){
-          Text(p.name,style=TCKTypography.titleMedium,color=TCKColors.Navy)
+          Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+           Text(p.name,style=TCKTypography.titleMedium,color=TCKColors.Navy)
+           Surface(shape=TCKShapes.pill,color=TCKColors.SurfaceVariant){
+            Text(p.productCode.take(12),fontSize=9.sp,fontWeight=FontWeight.SemiBold,color=TCKColors.TextMuted,modifier=Modifier.padding(horizontal=6.dp,vertical=2.dp))
+           }
+          }
           Text("${p.sizeLabel} · ${p.colour} · $packSize btl/box",style=TCKTypography.bodySmall,color=TCKColors.TextMuted)
          }
          Column(horizontalAlignment=Alignment.End){
-          Text(String.format(Locale.US,"%,d",availableBoxes),style=TCKTypography.metricLarge,color=if(availableBoxes<=5) TCKColors.Warning else TCKColors.Navy)
-          Text("available boxes",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+          Text(String.format(Locale.US,"%,d",availableBoxes),style=TCKTypography.metricLarge,color=if(availableBoxes==0) TCKColors.Error else if(availableBoxes<=5) TCKColors.Warning else TCKColors.Navy)
+          Surface(
+           shape=TCKShapes.pill,
+           color=if(availableBoxes==0) TCKColors.ErrorLight else if(availableBoxes<=5) TCKColors.WarningLight else TCKColors.SuccessLight
+          ){
+           Text(
+            if(availableBoxes==0) "Out of Stock" else if(availableBoxes<=5) "Low Stock" else "In Stock",
+            style=TCKTypography.badgeText,
+            color=if(availableBoxes==0) TCKColors.Error else if(availableBoxes<=5) TCKColors.Warning else TCKColors.Success,
+            modifier=Modifier.padding(horizontal=6.dp,vertical=2.dp)
+           )
+          }
          }
         }
 
@@ -1532,7 +1676,7 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
          Column(Modifier.weight(1f).background(TCKColors.Background,TCKShapes.small).padding(8.dp)){
           Text("Packed in Boxes",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
           Text(String.format(Locale.US,"%,d",totalBottlesPacked)+" btl",style=TCKTypography.bodyMedium,fontWeight=FontWeight.Bold,color=TCKColors.Navy)
-          Text("$totalPackedPacks boxes",style=TCKTypography.labelSmall,color=TCKColors.TextSecondary)
+          Text("$availableBoxes boxes",style=TCKTypography.labelSmall,color=TCKColors.TextSecondary)
          }
          Column(Modifier.weight(1f).background(TCKColors.Background,TCKShapes.small).padding(8.dp)){
           Text("Loose & Unpacked",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
@@ -1934,7 +2078,20 @@ Text("CUSTOMER DIRECTORY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=Blue,l
     val batch=production.firstOrNull{it.id==batchId};val sampleInspected=records.sumOf{it.inspectedBottles};val sampleFailed=records.sumOf{it.failedBottles};val batchRejects=batch?.rejectedBottles?:0
     Surface(color=Color.White,shape=RoundedCornerShape(15.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){Text("Batch #$batchId · "+(batch?.productNameSnapshot?:records.first().productNameSnapshot),fontWeight=FontWeight.Bold,color=Navy);Text("Production date: "+(batch?.productionDate?:records.first().inspectionDate),fontSize=11.sp,color=Muted);Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){Metric("QC sample failed",sampleFailed.toString(),Modifier.weight(1f));Metric("Production rejects",batchRejects.toString(),Modifier.weight(1f))};Text("QC failure rate: "+String.format(Locale.US,"%.1f%%",if(sampleInspected>0)sampleFailed*100.0/sampleInspected else 0.0)+" · "+records.size+" inspection(s)",fontSize=11.sp,color=Blue);Text("These are different measures. Do not sum them unless the inspected bottles are explicitly reconciled to rejected units.",fontSize=10.sp,color=Muted)}}}
    if(qualityInspections.isEmpty())item{EmptyDashboardState("No quality inspections","Log sample inspections with defect categories to start batch quality history.",Icons.Default.Verified)}
-   items(qualityInspections,key={it.id}){q->Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(q.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(q.inspectionDate+" · "+q.defectCategory,fontSize=11.sp,color=Muted)};Text(q.severity,fontSize=10.sp,fontWeight=FontWeight.Bold,color=if(q.severity=="CRITICAL")Color(0xFFB42318) else Color(0xFF9B5B00))};Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Inspected",q.inspectedBottles,Modifier.weight(1f));StockMiniMetric("Passed",q.passedBottles,Modifier.weight(1f));StockMiniMetric("Failed",q.failedBottles,Modifier.weight(1f))};if(q.productionEntryId!=null)Text("Production entry #"+q.productionEntryId,fontSize=10.sp,color=Blue);if(q.notes.isNotBlank())Text(q.notes,fontSize=12.sp,color=Muted)}}}
+   items(qualityInspections,key={it.id}){q->Surface(color=Color.White,shape=RoundedCornerShape(16.dp),border=androidx.compose.foundation.BorderStroke(1.dp,Border)){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(q.productNameSnapshot,fontWeight=FontWeight.Bold,color=Navy);Text(q.inspectionDate+" · "+q.defectCategory,fontSize=11.sp,color=Muted)};Text(q.severity,fontSize=10.sp,fontWeight=FontWeight.Bold,color=if(q.severity=="CRITICAL")Color(0xFFB42318) else Color(0xFF9B5B00))};Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){StockMiniMetric("Inspected",q.inspectedBottles,Modifier.weight(1f));StockMiniMetric("Passed",q.passedBottles,Modifier.weight(1f));StockMiniMetric("Failed",q.failedBottles,Modifier.weight(1f))};if(q.productionEntryId!=null)Text("Production entry #"+q.productionEntryId,fontSize=10.sp,color=Blue);if(q.notes.isNotBlank())Text(q.notes,fontSize=12.sp,color=Muted)
+     if(roleAllows(session,FactoryAction.MANAGE_QUALITY)){
+      Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){
+       TextButton(
+        onClick={reversalQualityId=q.id;dialog="reverseQuality"},
+        contentPadding=PaddingValues(horizontal=6.dp,vertical=0.dp)
+       ){
+        Icon(Icons.Default.Undo,null,modifier=Modifier.size(14.dp),tint=TCKColors.Error)
+        Spacer(Modifier.width(4.dp))
+        Text("Reverse inspection",fontSize=11.sp,color=TCKColors.Error)
+       }
+      }
+     }
+    }}}
   }
  }
  PageTab.PLANNING->{
@@ -2066,17 +2223,45 @@ message="Plan completed"
       Text("Team & access",fontSize=27.sp,fontWeight=FontWeight.ExtraBold,color=Navy)
       Text("Manage staff credentials, permissions and active status",fontSize=12.sp,color=Muted)
      }
-     if(canManageStaff){
-      Button(
-       onClick={editingStaff=null;dialog="staff"},
-       shape=RoundedCornerShape(13.dp),
-       colors=ButtonDefaults.buttonColors(containerColor=Blue)
-      ){
-       Icon(Icons.Default.PersonAdd,null,modifier=Modifier.size(18.dp))
-       Spacer(Modifier.width(6.dp))
-       Text("Create Staff",fontSize=13.sp,fontWeight=FontWeight.Bold)
+     Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+       OutlinedButton(
+        onClick={
+         if(session?.isCloud==true){
+          scope.launch{
+           runCatching{
+            val cloudMembers = CloudInventoryRepository(context).fetchStaffMembers(session!!)
+            cloudMembers.forEach{m->
+             val local=dao.staffByEmail(m.email)
+             if(local==null) dao.insertStaffMember(m)
+             else if(local.name!=m.name||local.role!=m.role||local.allowedModules!=m.allowedModules||local.active!=m.active){
+              dao.updateStaffMember(local.id,m.name,m.role,m.allowedModules,m.active)
+             }
+            }
+            message="Staff list refreshed from cloud"
+           }.onFailure{message=it.message?:"Staff refresh failed"}
+          }
+         }
+        },
+        shape=RoundedCornerShape(13.dp),
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=Blue),
+        contentPadding=PaddingValues(horizontal=10.dp,vertical=6.dp)
+       ){
+        Icon(Icons.Default.Refresh,null,modifier=Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        Text("Refresh",fontSize=12.sp)
+       }
+       if(canManageStaff){
+        Button(
+         onClick={editingStaff=null;dialog="staff"},
+         shape=RoundedCornerShape(13.dp),
+         colors=ButtonDefaults.buttonColors(containerColor=Blue)
+        ){
+         Icon(Icons.Default.PersonAdd,null,modifier=Modifier.size(18.dp))
+         Spacer(Modifier.width(6.dp))
+         Text("Create Staff",fontSize=13.sp,fontWeight=FontWeight.Bold)
+        }
+       }
       }
-     }
     }
    }
 
@@ -2423,38 +2608,105 @@ message="Plan completed"
    message = "Signed out"
   }
  )
- if(dialog=="reverse"&&reversalBatchId!=null)ReverseDispatchForm({dialog="";reversalBatchId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"};if(session?.isCloud==true){val b=dispatchBatches.firstOrNull{it.id==reversalBatchId};if(b!=null){CloudInventoryRepository(context).reverseDispatch(session!!,b.idempotencyKey,reason)}};dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Dispatch reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalBatchId=null}
- if(dialog=="reverseProduction"&&reversalProductionId!=null)ReverseProductionForm({dialog="";reversalProductionId=null}){reason->scope.launch{runCatching{
- require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse production records"}
- if(session?.isCloud==true){
-  val entry=production.firstOrNull{it.id==reversalProductionId}
-  require(entry!=null&&entry.cloudOperationKey.isNotBlank()){"Cloud production reference missing"}
-  val reversed=CloudInventoryRepository(context).reverseProduction(session!!,entry.cloudOperationKey,reason)
-  require(reversed){"Production reversal was not confirmed by server"}
- }
- val corrected=dao.correctProduction(reversalProductionId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org")
- require(corrected){"Production record already reversed or unavailable"}
- SyncScheduler.runNow(context)
- "Production entry reversed"
-}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalProductionId=null}
-
- if(dialog=="stockAdjustment"&&session?.isCloud==true){
-  StockAdjustmentForm(active,stockAdjustmentProduct,{dialog=""}){product,qty,unit,type,reason->
-   scope.launch{
-    runCatching{
-     val cloudSession=session?:error("Cloud session unavailable")
-     require(roleAllows(cloudSession,FactoryAction.ADJUST_STOCK)){"Your role cannot adjust stock"}
-     val result=CloudInventoryRepository(context).adjustStock(cloudSession,product.productCode,qty,unit,type,reason)
-     require(result.optBoolean("adjusted")||result.optBoolean("duplicate")){"Server did not confirm stock adjustment"}
-     cloudStockSnapshot=CloudInventoryRepository(context).fetchStock(cloudSession)
-     SyncScheduler.runNow(context)
-     "Stock ${type.lowercase()} confirmed · ${product.name} · $qty $unit"
-    }.onSuccess{message=it}.onFailure{message=it.message}
+ if(dialog=="reverse"&&reversalBatchId!=null){
+   val b=dispatchBatches.firstOrNull{it.id==reversalBatchId}
+   val lns=dispatchLines.filter{it.batchId==reversalBatchId}
+   ReverseDispatchForm(b,lns,{dialog="";reversalBatchId=null}){reason->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.REVERSE_DISPATCH)){"Your role cannot reverse dispatches"}
+      if(session?.isCloud==true&&b!=null){
+       CloudInventoryRepository(context).reverseDispatch(session!!,b.idempotencyKey,reason)
+      }
+      dao.reverseDispatch(reversalBatchId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org")
+      SyncScheduler.runNow(context)
+      refreshCloudStock()
+      "Dispatch reversed successfully"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog=""
+    reversalBatchId=null
    }
-   dialog=""
   }
- }
- if(dialog=="reversePacking"&&reversalPackingId!=null)ReversePackingForm({dialog="";reversalPackingId=null}){reason->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"};if(session?.isCloud==true){val pk=packing.firstOrNull{it.id==reversalPackingId};if(pk!=null&&pk.cloudOperationKey.isNotBlank()){CloudInventoryRepository(context).reversePacking(session!!,pk.cloudOperationKey,reason)}};dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org");SyncScheduler.runNow(context);"Packing entry reversed"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";reversalPackingId=null}
+
+  if(dialog=="reverseProduction"&&reversalProductionId!=null){
+   val entry=production.firstOrNull{it.id==reversalProductionId}
+   ReverseProductionForm(entry,{dialog="";reversalProductionId=null}){reason->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse production records"}
+      if(session?.isCloud==true){
+       require(entry!=null&&entry.cloudOperationKey.isNotBlank()){"Cloud production reference missing"}
+       val reversed=CloudInventoryRepository(context).reverseProduction(session!!,entry.cloudOperationKey,reason)
+       require(reversed){"Production reversal was not confirmed by server"}
+      }
+      val corrected=dao.correctProduction(reversalProductionId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org")
+      require(corrected){"Production record already reversed or unavailable"}
+      SyncScheduler.runNow(context)
+      refreshCloudStock()
+      "Production entry reversed"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog=""
+    reversalProductionId=null
+   }
+  }
+
+  if(dialog=="stockAdjustment"&&session?.isCloud==true){
+   StockAdjustmentForm(active,stockAdjustmentProduct,{dialog=""}){product,qty,unit,type,reason->
+    scope.launch{
+     runCatching{
+      val cloudSession=session?:error("Cloud session unavailable")
+      require(roleAllows(cloudSession,FactoryAction.ADJUST_STOCK)){"Your role cannot adjust stock"}
+      val result=CloudInventoryRepository(context).adjustStock(cloudSession,product.productCode,qty,unit,type,reason)
+      require(result.optBoolean("adjusted")||result.optBoolean("duplicate")){"Server did not confirm stock adjustment"}
+      refreshCloudStock()
+      SyncScheduler.runNow(context)
+      "Stock ${type.lowercase()} confirmed · ${product.name} · $qty $unit"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog=""
+   }
+  }
+
+  if(dialog=="reversePacking"&&reversalPackingId!=null){
+   val pk=packing.firstOrNull{it.id==reversalPackingId}
+   ReversePackingForm(pk,{dialog="";reversalPackingId=null}){reason->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.CORRECT_RECORDS)){"Your role cannot reverse packing records"}
+      if(session?.isCloud==true&&pk!=null&&pk.cloudOperationKey.isNotBlank()){
+       CloudInventoryRepository(context).reversePacking(session!!,pk.cloudOperationKey,reason)
+      }
+      dao.reversePacking(reversalPackingId!!,reason,session?.uid?:"local",session?.organisationId?:"local-org")
+      SyncScheduler.runNow(context)
+      refreshCloudStock()
+      "Packing entry reversed"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog=""
+    reversalPackingId=null
+   }
+  }
+
+  if(dialog=="reverseQuality"&&reversalQualityId!=null){
+   val qi=qualityInspections.firstOrNull{it.id==reversalQualityId}
+   ReverseQualityForm(qi,{dialog="";reversalQualityId=null}){reason->
+    scope.launch{
+     runCatching{
+      require(roleAllows(session,FactoryAction.MANAGE_QUALITY)){"Your role cannot reverse quality inspections"}
+      if(session?.isCloud==true&&qi!=null){
+       CloudInventoryRepository(context).reverseQualityInspection(session!!,"qi-${qi.id}",reason)
+      }
+      dao.insertAudit(AuditEventEntity(eventType="QUALITY_INSPECTION_REVERSED",entityType="quality",entityId=reversalQualityId.toString(),afterJson="REVERSED",reason=reason,actorId=session?.uid?:"local"))
+      SyncScheduler.runNow(context)
+      "Quality inspection reversed"
+     }.onSuccess{message=it}.onFailure{message=it.message}
+    }
+    dialog=""
+    reversalQualityId=null
+   }
+  }
 
   if(dialog=="line")LineForm(editingLine,{dialog="";editingLine=null}){code,name,desc,cap,unit,status->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot manage production lines"};val existing=editingLine;val lineEntity=ProductionLineEntity(id=existing?.id?:0,lineCode=code,name=name,description=desc,targetCapacity=cap,capacityUnit=unit,status=status);if(session?.isCloud==true){CloudInventoryRepository(context).upsertProductionLine(session!!,lineEntity)};if(existing==null){val id=dao.insertProductionLine(lineEntity);dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-register:$id",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_REGISTERED",payloadJson=JSONObject().put("lineId",id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_REGISTERED",entityType="production_line",entityId=code,afterJson=name,reason="Production line created",actorId=session?.uid?:"local"));message="Production line $name registered"}else{check(dao.updateProductionLine(existing.id,name,desc,cap,unit,status)==1){"Production line update failed"};dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="line-update:${existing.id}",organisationId=session?.organisationId?:"local-org",eventType="PRODUCTION_LINE_UPDATED",payloadJson=JSONObject().put("lineId",existing.id).put("code",code).put("name",name).toString()));dao.insertAudit(AuditEventEntity(eventType="PRODUCTION_LINE_UPDATED",entityType="production_line",entityId=existing.id.toString(),beforeJson=existing.name,afterJson=name,reason="Line configuration updated",actorId=session?.uid?:"local"));message="Production line $name updated"}}.onFailure{message=it.message}};dialog="";editingLine=null}
   if(dialog=="assignLine"&&assigningMachine!=null){val machine=assigningMachine!!;AssignMachineLineForm(machine,productionLines,{dialog="";assigningMachine=null}){selectedLineId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_MACHINES)){"Your role cannot reassign machines"};val lineCode=productionLines.firstOrNull{it.id==selectedLineId}?.lineCode?:"";if(session?.isCloud==true){CloudInventoryRepository(context).assignMachineLine(session!!,machine.machineCode,lineCode)};check(dao.assignMachineToLine(machine.id,selectedLineId)==1){"Machine line assignment failed"};val lineName=productionLines.firstOrNull{it.id==selectedLineId}?.name?:"Unassigned";dao.enqueueSyncEvent(SyncOutboxEntity(eventKey="machine-assign:${machine.id}:$selectedLineId",organisationId=session?.organisationId?:"local-org",eventType="MACHINE_LINE_ASSIGNED",payloadJson=JSONObject().put("machineId",machine.id).put("lineId",selectedLineId).toString()));dao.insertAudit(AuditEventEntity(eventType="MACHINE_LINE_ASSIGNED",entityType="machine",entityId=machine.id.toString(),beforeJson=machine.lineId?.toString()?:"none",afterJson=selectedLineId?.toString()?:"none",reason="Reassigned to $lineName",actorId=session?.uid?:"local"));message="${machine.name} assigned to $lineName"}.onFailure{message=it.message}};dialog="";assigningMachine=null}}
@@ -2630,9 +2882,9 @@ message="Plan completed"
   // DISABLED: Fulfilment must happen through actual dispatch posting.
   if(dialog=="login"||dialog=="role_switcher")StaffAccountDialog(onDismiss={dialog=""},firebaseConfigured=isServerOnline(context)&&FirebaseApp.getApps(context).isNotEmpty(),onFirebaseSignIn={email,password->if(!isServerOnline(context)){message="Network connection unavailable."}else scope.launch{runCatching{FactoryAuthRepository(context).signIn(email,password)}.onSuccess{session=it;message="Signed in as "+it.role+" · "+it.organisationId;dialog=""}.onFailure{message=it.message?: "Sign-in failed."}}},onSyncNow={SyncScheduler.runNow(context);message="Sync scheduled"},onSignOut={FactoryAuthRepository(context).signOut();session=null;dialog="";message="Signed out"})
   if(dialog=="product")ProductForm(editingProduct,{dialog="";editingProduct=null}){n,s,c,p,icon,img->val existing=editingProduct;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_PRODUCTS)){"Your role cannot manage products"};val localId=if(existing==null)dao.insertProduct(ProductEntity(name=n,sizeLabel=s,colour=c,bottlesPerPack=p,iconName=icon,imageUri=img)) else {dao.updateProductWithHistory(existing.id,n,s,c,p,existing.active,session?.uid?:"local","Product configuration edited",session?.organisationId?:"local-org",iconName=icon,imageUri=img);existing.id};val saved=dao.productById(localId)?:error("Product was saved but could not be reloaded");if(session?.isCloud==true){runCatching{CloudInventoryRepository(context).upsertProduct(session!!,saved)}.getOrElse{error("Product saved locally, but cloud catalog sync failed: "+(it.message?:"unknown error"))}};SyncScheduler.runNow(context);message=if(p>0)"${n.trim()} saved · $p bottles per pack" else "${n.trim()} saved"}.onFailure{message=it.message}};dialog="";editingProduct=null}
-   if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};requireCloudSession(session);ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val entry=ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val cloudKey=cloudRepo.postProduction(cloudSession,p,entry);val id=dao.recordCloudProduction(entry.copy(cloudOperationKey=cloudKey),cloudSession.uid);cloudRepo.acknowledgeProduction(entry,p,cloudSession);SyncScheduler.runNow(context);message="Production run #$id saved · $total bottles"}.onFailure{message=it.message}};dialog=""}
-   if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};require(p.bottlesPerPack>0){"Pack size is not configured for ${p.name}. Please set bottles per pack in Product Master first."};requireCloudSession(session);val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val result=cloudRepo.postPacking(cloudSession,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,cloudSession.uid);cloudRepo.acknowledgePacking(entry,p,cloudSession);SyncScheduler.runNow(context);"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
-   if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cloudSession=requireCloudSession(session);val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=cloudSession.uid,salesOrderId=orderId);val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};val targetOrder=openOrders.firstOrNull{it.id==orderId};cloudRepo.postDispatch(cloudSession,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks,salesOrderId=targetOrder?.orderNumber);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid) else dao.postMultiLineDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid);SyncScheduler.runNow(context);"Dispatch saved"+if(orderId!=null)" · order fulfilled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
+   if(dialog=="production")ProductionForm(active,productionLines,machines,{dialog=""}){p,d,total,good,rejected,lineId,lineName,machineId,machineName,remarks->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PRODUCTION)){"Your role cannot post production"};requireCloudSession(session);ProductionQuantities(total,good,rejected).validate();require(p!=null){"Choose a product"};val entry=ProductionEntryEntity(productId=p.id,productNameSnapshot=p.name,productionDate=d,producedBottles=total,goodBottles=good,rejectedBottles=rejected,machineName=machineName.ifBlank{"Machine 1"},remarks=remarks,lineId=lineId,lineNameSnapshot=lineName,machineId=machineId);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val cloudKey=cloudRepo.postProduction(cloudSession,p,entry);val id=dao.recordCloudProduction(entry.copy(cloudOperationKey=cloudKey),cloudSession.uid);cloudRepo.acknowledgeProduction(entry,p,cloudSession);SyncScheduler.runNow(context);refreshCloudStock();message="Production run #$id saved · $total bottles"}.onFailure{message=it.message}};dialog=""}
+   if(dialog=="packing")PackingForm(active,dao,{dialog=""},cloudAvailableBottles={product->if(session?.isCloud==true)cloudStockSnapshot?.items?.firstOrNull{it.productId==product?.productCode}?.unpackedGoodBottles else null}){p,d,n->scope.launch{runCatching{require(roleAllows(session,FactoryAction.CREATE_PACKING)){"Your role cannot post packing"};require(p!=null){"Choose a product"};require(p.bottlesPerPack>0){"Pack size is not configured for ${p.name}. Please set bottles per pack in Product Master first."};requireCloudSession(session);val calc=PackCalculation.calculate(n,p.bottlesPerPack);val entry=PackingEntryEntity(productId=p.id,productNameSnapshot=p.name,packingDate=d,bottlesConsumed=n,completePacks=calc.completePacks,looseBottles=calc.looseBottles);val cloudSession=requireCloudSession(session);val cloudRepo=CloudInventoryRepository(context);val result=cloudRepo.postPacking(cloudSession,p,entry);if(result.bottlesPerPack!=p.bottlesPerPack)dao.updateProductDetails(p.id,p.name,p.sizeLabel,p.colour,result.bottlesPerPack,p.active,p.iconName,p.imageUri);val confirmed=entry.copy(completePacks=result.completePacks,looseBottles=result.looseBottles,cloudOperationKey=result.idempotencyKey);dao.recordCloudPacking(confirmed,cloudSession.uid);cloudRepo.acknowledgePacking(entry,p,cloudSession);SyncScheduler.runNow(context);refreshCloudStock();"Saved "+result.completePacks+" packs and "+result.looseBottles+" loose bottles"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
+   if(dialog=="dispatch")DispatchBatchForm(active,customers,openOrders,orderLines,selectedOrderId,{dialog="";selectedOrderId=null}){customer,customerName,d,reference,remarks,lines,key,orderId->scope.launch{runCatching{require(roleAllows(session,FactoryAction.POST_DISPATCH)){"Your role cannot post dispatches"};val cloudSession=requireCloudSession(session);val cleanRef=reference.ifBlank{"DSP-"+System.currentTimeMillis()};val batch=DispatchBatchEntity(idempotencyKey=key,dispatchReference=cleanRef,dispatchDate=d,customerId=customer?.id,customerNameSnapshot=customerName,remarks=remarks,createdBy=cloudSession.uid,salesOrderId=orderId);val cloudRepo=CloudInventoryRepository(context);val cloudLines=lines.map{l->val prod=active.firstOrNull{it.id==l.productId};mapOf<String,Any>("productId" to (prod?.productCode?:l.productId.toString()),"packs" to l.packs,"looseBottles" to l.looseBottles)};val targetOrder=openOrders.firstOrNull{it.id==orderId};cloudRepo.postDispatch(cloudSession,key,cleanRef,d,customer?.id?.toString()?:"walk-in",customerName,cloudLines,remarks,salesOrderId=targetOrder?.orderNumber);if(orderId!=null)dao.postSalesOrderDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid) else dao.postMultiLineDispatch(batch,lines,cloudSession.organisationId,cloudSession.uid);SyncScheduler.runNow(context);refreshCloudStock();"Dispatch saved"+if(orderId!=null)" · order fulfilled" else ""}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";selectedOrderId=null}
  if(dialog=="customer")CustomerForm(null,{dialog=""}){name,phone,address,gst->scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};val cloudSession=requireCloudSession(session);val customerEntity=CustomerEntity(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,customerEntity);val existing=dao.customerByName(name);val customerId=if(existing!=null){dao.updateCustomer(existing.id,name,phone,address,gst,true);existing.id}else{dao.insertCustomer(customerEntity)};dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_CREATED",entityType="customer",entityId=customerId.toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer created",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer saved"}.onSuccess{message=it}.onFailure{message=it.message}};dialog=""}
  if(dialog=="customerEdit")CustomerForm(editingCustomer,{dialog="";editingCustomer=null}){name,phone,address,gst->val existing=editingCustomer;scope.launch{runCatching{require(roleAllows(session,FactoryAction.MANAGE_CUSTOMERS)){"Your role cannot manage customers"};require(existing!=null);val cloudSession=requireCloudSession(session);val oldCustomer=existing!!;val updated=oldCustomer.copy(name=name,phone=phone,address=address,gstNumber=gst);val cloudRepo=CloudInventoryRepository(context);cloudRepo.upsertCustomer(cloudSession,updated);dao.updateCustomer(oldCustomer.id,name,phone,address,gst,oldCustomer.active);dao.insertAudit(AuditEventEntity(eventType="CUSTOMER_UPDATED",entityType="customer",entityId=oldCustomer.id.toString(),beforeJson=JSONObject().put("name",oldCustomer.name).put("phone",oldCustomer.phone).toString(),afterJson=JSONObject().put("name",name).put("phone",phone).toString(),reason="Customer details edited",actorId=cloudSession.uid));SyncScheduler.runNow(context);"Customer details updated"}.onSuccess{message=it}.onFailure{message=it.message}};dialog="";editingCustomer=null}
   if(dialog=="meter"){
@@ -2754,6 +3006,16 @@ message="Plan completed"
       }
      }.onSuccess{
       SyncScheduler.runNow(context)
+      if(session?.isCloud==true){
+       runCatching{
+        val cloudMembers = CloudInventoryRepository(context).fetchStaffMembers(session!!)
+        cloudMembers.forEach{m->
+         val local=dao.staffByEmail(m.email)
+         if(local==null) dao.insertStaffMember(m)
+         else dao.updateStaffMember(local.id,m.name,m.role,m.allowedModules,m.active)
+        }
+       }
+      }
       message=it
      }.onFailure{
       message=it.message?:"Failed to save staff member"
@@ -4610,42 +4872,7 @@ private fun MeterForm(
  }},confirmButton={Button(enabled=firebaseConfigured&&email.isNotBlank()&&password.isNotBlank(),onClick={signIn(email.trim(),password)},shape=RoundedCornerShape(12.dp)){Text("Sign in")}},dismissButton={TextButton(onClick=close){Text("Close")}})
 }
 
-@Composable private fun ReverseDispatchForm(close:()->Unit,reverse:(String)->Unit){
- var reason by remember{mutableStateOf("")}
- AlertDialog(onDismissRequest=close,title={Text("Reverse dispatch")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("This records a compensating inventory movement and keeps the original dispatch in the audit history.",fontSize=12.sp,color=Blue);OutlinedTextField(reason,{reason=it},label={Text("Reason for reversal")},modifier=Modifier.fillMaxWidth())}},confirmButton={Button(enabled=reason.isNotBlank(),onClick={reverse(reason.trim())}){Text("Confirm reversal")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
-}
-
-@Composable private fun ReverseProductionForm(close:()->Unit,reverse:(String)->Unit){
- var reason by remember{mutableStateOf("")}
- AlertDialog(
-  onDismissRequest=close,
-  title={Text("Reverse production entry")},
-  text={
-   Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-    Text(
-     "Only reverse if the good bottles from this production entry remain unpacked. This will record compensating stock movements.",
-     fontSize=12.sp,
-     color=Blue
-    )
-    OutlinedTextField(
-     reason,
-     {reason=it},
-     label={Text("Reason for reversal")},
-     modifier=Modifier.fillMaxWidth()
-    )
-   }
-  },
-  confirmButton={
-   Button(enabled=reason.isNotBlank(),onClick={reverse(reason.trim())}){
-    Text("Confirm reversal")
-   }
-  },
-  dismissButton={TextButton(onClick=close){Text("Cancel")}}
- )
-}
-
-
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StockAdjustmentForm(
     products: List<ProductEntity>,
@@ -4661,10 +4888,10 @@ private fun StockAdjustmentForm(
 
     AlertDialog(
         onDismissRequest = close,
-        title = { Text("Adjust Inventory") },
+        title = { Text("Adjust server stock") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("This adjustment updates warehouse inventory and creates an audit movement entry.", fontSize = 12.sp, color = Blue)
+                Text("This adjustment updates authoritative cloud inventory and creates a stock ledger entry.", fontSize = 12.sp, color = Blue)
 
                 if (products.none { it.active }) {
                     Text("No active products available. Create or activate a product first.", color = Color.Red, fontSize = 12.sp)
@@ -4728,9 +4955,192 @@ private fun StockAdjustmentForm(
     )
 }
 
-@Composable private fun ReversePackingForm(close:()->Unit,reverse:(String)->Unit){var reason by remember{mutableStateOf("")};AlertDialog(onDismissRequest=close,title={Text("Reverse packing entry")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){Text("Only reverse when the packed stock has not already been dispatched. This creates compensating ledger movements.",fontSize=12.sp,color=Blue);OutlinedTextField(reason,{reason=it},label={Text("Reason for reversal")},modifier=Modifier.fillMaxWidth())}},confirmButton={Button(enabled=reason.isNotBlank(),onClick={reverse(reason.trim())}){Text("Confirm reversal")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})}
+@Composable private fun ReverseDispatchForm(
+ batch: DispatchBatchEntity?,
+ lines: List<DispatchLineEntity>,
+ close: () -> Unit,
+ reverse: (String) -> Unit
+){
+ var reason by remember{mutableStateOf("")}
+ AlertDialog(
+  onDismissRequest=close,
+  title={
+   Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+    Text("Confirm Dispatch Reversal",style=TCKTypography.headlineMedium,color=TCKColors.Navy)
+    Text(batch?.let{"${it.dispatchReference} · ${it.dispatchDate}"}?:"Dispatch Reversal",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+   }
+  },
+  text={
+   Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+    Surface(color=TCKColors.WarningLight,shape=TCKShapes.small,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Warning.copy(alpha=0.3f))){
+     Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      Text("Customer: ${batch?.customerNameSnapshot?:"Walk-in Customer"}",fontWeight=FontWeight.Bold,fontSize=12.sp,color=TCKColors.Navy)
+      if(lines.isNotEmpty()){
+       Text("Reversing lines: "+lines.joinToString(", "){"${it.productNameSnapshot}: ${it.packs} packs"},fontSize=11.sp,color=TCKColors.TextSecondary)
+      }
+      Text("This records an auditable compensating movement and restores packs back into available warehouse stock.",fontSize=11.sp,color=TCKColors.Warning)
+     }
+    }
+    OutlinedTextField(
+     value=reason,
+     onValueChange={reason=it},
+     label={Text("Mandatory reason for reversal *")},
+     placeholder={Text("e.g. Order cancelled by customer, wrong truck loaded")},
+     modifier=Modifier.fillMaxWidth(),
+     shape=TCKShapes.small
+    )
+   }
+  },
+  confirmButton={
+   Button(
+    enabled=reason.trim().length>=3,
+    onClick={reverse(reason.trim())},
+    colors=ButtonDefaults.buttonColors(containerColor=TCKColors.Error)
+   ){
+    Text("Confirm Reversal")
+   }
+  },
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
 
+@Composable private fun ReverseProductionForm(
+ entry: ProductionEntryEntity?,
+ close: () -> Unit,
+ reverse: (String) -> Unit
+){
+ var reason by remember{mutableStateOf("")}
+ AlertDialog(
+  onDismissRequest=close,
+  title={
+   Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+    Text("Confirm Production Reversal",style=TCKTypography.headlineMedium,color=TCKColors.Navy)
+    Text(entry?.let{"Run #${it.id} · ${it.productionDate}"}?:"Production Reversal",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+   }
+  },
+  text={
+   Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+    Surface(color=TCKColors.WarningLight,shape=TCKShapes.small,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Warning.copy(alpha=0.3f))){
+     Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      Text("Product: ${entry?.productNameSnapshot?:"Unknown"}",fontWeight=FontWeight.Bold,fontSize=12.sp,color=TCKColors.Navy)
+      Text("Quantity: ${entry?.goodBottles?:0} good bottles (+ ${entry?.rejectedBottles?:0} rejected)",fontSize=11.sp,color=TCKColors.TextSecondary)
+      Text("Reversing this entry deducts ${entry?.goodBottles?:0} bottles from unpacked stock. Ensure bottles have not been packed.",fontSize=11.sp,color=TCKColors.Warning)
+     }
+    }
+    OutlinedTextField(
+     value=reason,
+     onValueChange={reason=it},
+     label={Text("Mandatory reason for reversal *")},
+     placeholder={Text("e.g. Counter error, test run, entered twice")},
+     modifier=Modifier.fillMaxWidth(),
+     shape=TCKShapes.small
+    )
+   }
+  },
+  confirmButton={
+   Button(
+    enabled=reason.trim().length>=3,
+    onClick={reverse(reason.trim())},
+    colors=ButtonDefaults.buttonColors(containerColor=TCKColors.Error)
+   ){
+    Text("Confirm Reversal")
+   }
+  },
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
 
+@Composable private fun ReversePackingForm(
+ entry: PackingEntryEntity?,
+ close: () -> Unit,
+ reverse: (String) -> Unit
+){
+ var reason by remember{mutableStateOf("")}
+ AlertDialog(
+  onDismissRequest=close,
+  title={
+   Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+    Text("Confirm Packing Reversal",style=TCKTypography.headlineMedium,color=TCKColors.Navy)
+    Text(entry?.let{"Entry #${it.id} · ${it.packingDate}"}?:"Packing Reversal",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+   }
+  },
+  text={
+   Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+    Surface(color=TCKColors.WarningLight,shape=TCKShapes.small,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Warning.copy(alpha=0.3f))){
+     Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      Text("Product: ${entry?.productNameSnapshot?:"Unknown"}",fontWeight=FontWeight.Bold,fontSize=12.sp,color=TCKColors.Navy)
+      Text("Quantity: ${entry?.completePacks?:0} boxes (${entry?.bottlesConsumed?:0} bottles consumed, ${entry?.looseBottles?:0} loose)",fontSize=11.sp,color=TCKColors.TextSecondary)
+      Text("Reversing unpacks ${entry?.completePacks?:0} boxes and restores ${entry?.bottlesConsumed?:0} bottles into unpacked stock.",fontSize=11.sp,color=TCKColors.Warning)
+     }
+    }
+    OutlinedTextField(
+     value=reason,
+     onValueChange={reason=it},
+     label={Text("Mandatory reason for reversal *")},
+     placeholder={Text("e.g. Defective carton, wrong label applied, duplicate entry")},
+     modifier=Modifier.fillMaxWidth(),
+     shape=TCKShapes.small
+    )
+   }
+  },
+  confirmButton={
+   Button(
+    enabled=reason.trim().length>=3,
+    onClick={reverse(reason.trim())},
+    colors=ButtonDefaults.buttonColors(containerColor=TCKColors.Error)
+   ){
+    Text("Confirm Reversal")
+   }
+  },
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
+
+@Composable private fun ReverseQualityForm(
+ inspection: QualityInspectionEntity?,
+ close: () -> Unit,
+ reverse: (String) -> Unit
+){
+ var reason by remember{mutableStateOf("")}
+ AlertDialog(
+  onDismissRequest=close,
+  title={
+   Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
+    Text("Reverse Quality Inspection",style=TCKTypography.headlineMedium,color=TCKColors.Navy)
+    Text(inspection?.let{"Inspection #${it.id} · ${it.inspectionDate}"}?:"Quality Reversal",style=TCKTypography.labelSmall,color=TCKColors.TextMuted)
+   }
+  },
+  text={
+   Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+    Surface(color=TCKColors.WarningLight,shape=TCKShapes.small,border=androidx.compose.foundation.BorderStroke(1.dp,TCKColors.Warning.copy(alpha=0.3f))){
+     Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+      Text("Product: ${inspection?.productNameSnapshot?:"Unknown"}",fontWeight=FontWeight.Bold,fontSize=12.sp,color=TCKColors.Navy)
+      Text("Inspected: ${inspection?.inspectedBottles?:0} · Passed: ${inspection?.passedBottles?:0} · Failed: ${inspection?.failedBottles?:0}",fontSize=11.sp,color=TCKColors.TextSecondary)
+      Text("Marks this inspection as REVERSED with audit reason.",fontSize=11.sp,color=TCKColors.Warning)
+     }
+    }
+    OutlinedTextField(
+     value=reason,
+     onValueChange={reason=it},
+     label={Text("Mandatory reason for reversal *")},
+     placeholder={Text("e.g. Sample re-tested, wrong lot entered")},
+     modifier=Modifier.fillMaxWidth(),
+     shape=TCKShapes.small
+    )
+   }
+  },
+  confirmButton={
+   Button(
+    enabled=reason.trim().length>=3,
+    onClick={reverse(reason.trim())},
+    colors=ButtonDefaults.buttonColors(containerColor=TCKColors.Error)
+   ){
+    Text("Confirm Reversal")
+   }
+  },
+  dismissButton={TextButton(onClick=close){Text("Cancel")}}
+ )
+}
 
 @Composable
 private fun MenuActionCard(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
